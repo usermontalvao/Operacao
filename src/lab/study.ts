@@ -1,5 +1,6 @@
 import { formatTable, groupBy, scoreBucket, summarize, type Stats } from '../core/backtest/metrics.ts';
 import type { Outcome, Signal } from '../core/backtest/types.ts';
+import { automaticStrategyRejectionReason } from '../core/strategy/automationPolicy.ts';
 import { BASE_POLICY, buildBtcContexts, collectSignals, labSettings, loadDataset, simulateAll, type Dataset } from './engine.ts';
 import { topUsdtSymbols } from './klineCache.ts';
 
@@ -39,8 +40,13 @@ export async function prepare(): Promise<Study> {
   return { dataset, signals, settings, splitAt };
 }
 
-export function robotFilter(outcomes: Outcome[], minScore = 80, minRR = 2.5): Outcome[] {
-  return outcomes.filter((item) => item.score >= minScore && item.riskReward >= minRR);
+export function robotFilter(outcomes: Outcome[], minScore = 90, minRR = 2.5): Outcome[] {
+  return outcomes.filter(
+    (item) =>
+      automaticStrategyRejectionReason(item) === null &&
+      item.score >= minScore &&
+      item.riskReward >= minRR,
+  );
 }
 
 export function byWindow(outcomes: Outcome[], splitAt: number): { train: Outcome[]; test: Outcome[] } {
@@ -82,7 +88,7 @@ async function main(): Promise<void> {
   const windows = byWindow(pessimistic, splitAt);
   console.log(formatTable([...breakdown('TREINO', windows.train), ...breakdown('TESTE', windows.test)]));
 
-  console.log('\n########## 3. O FILTRO DO ROBÔ (score>=80, R/R>=2.5) ##########\n');
+  console.log('\n########## 3. O FILTRO DO ROBÔ (só MOMENTUM_BURST, score>=90, R/R>=2.5) ##########\n');
   const robot = byWindow(robotFilter(pessimistic), splitAt);
   console.log(formatTable([...breakdown('TREINO', robot.train), ...breakdown('TESTE', robot.test)]));
 }

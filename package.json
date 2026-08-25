@@ -14,7 +14,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"src/**/*.test.ts\""
+    "test": "node --test \"src/**/*.test.ts\"",
+    "senha": "node --env-file-if-exists=.env scripts/senha.mjs",
+    "usuario": "node --env-file-if-exists=.env scripts/usuario.mjs",
+    "migrar": "node --env-file-if-exists=.env scripts/migrar.mjs",
+    "migrar-dados": "node --env-file-if-exists=.env scripts/migrar-dados.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",

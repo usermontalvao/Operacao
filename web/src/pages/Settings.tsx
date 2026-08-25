@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type RiskResponse, type SettingsResponse } from '../lib/api.ts';
 import { SymbolButton } from '../components/SymbolButton.tsx';
 import type {
@@ -9,6 +9,10 @@ import type {
   UniverseMode,
 } from '../lib/types.ts';
 import { brl, usd } from '../lib/format.ts';
+import { logout, readSession, type SessionState } from '../lib/auth.ts';
+import { useResource } from '../lib/resource.ts';
+import { buscarAjustes, chaveAjustes } from '../lib/telas.ts';
+import { PageSkeleton } from '../components/Skeleton.tsx';
 
 const RISK_FIELDS: Array<{ key: keyof RiskSettings; label: string; hint: string; step: number }> = [
   { key: 'maxPositionPercent', label: 'Máximo por operação (%)', hint: 'Teto do capital em um único trade', step: 1 },
@@ -45,37 +49,46 @@ const AUTO_FIELDS: Array<{ key: keyof AutoTradeSettings; label: string; hint: st
   { key: 'maxNotionalPerTrade', label: 'Teto por ordem (USDT)', hint: 'Vale mesmo que o percentual peça mais', step: 5 },
 ];
 
-export function Settings({ onChanged }: { onChanged: () => void }) {
-  const [settings, setSettings] = useState<SettingsResponse | null>(null);
+export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; onLoggedOut: () => void }) {
   const [risk, setRisk] = useState<RiskSettings | null>(null);
   const [auto, setAuto] = useState<AutoTradeSettings | null>(null);
   const [guard, setGuard] = useState<GuardSettings | null>(null);
-  const [riskState, setRiskState] = useState<RiskResponse | null>(null);
   const [symbolTerm, setSymbolTerm] = useState('');
   const [results, setResults] = useState<Array<{ symbol: string; baseAsset: string }>>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = (): void => {
-    api
-      .settings()
-      .then((value) => {
-        setSettings(value);
-        setRisk(value.risk);
-        setAuto(value.autoTrade);
-        setGuard(value.guard);
-      })
-      .catch((failure: Error) => setError(failure.message));
-    api.risk().then(setRiskState).catch(() => setRiskState(null));
-  };
+  const {
+    dados,
+    erro: loadError,
+    primeiraVez,
+    recarregar: load,
+  } = useResource(chaveAjustes, buscarAjustes);
 
-  useEffect(load, []);
+  const settings: SettingsResponse | null = dados?.settings ?? null;
+  const riskState: RiskResponse | null = dados?.riskState ?? null;
 
-  if (error && !settings) return <p className="text-sm text-bear">{error}</p>;
-  if (!settings || !risk || !auto || !guard) {
-    return <p className="text-sm text-terminal-muted">Carregando…</p>;
-  }
+  /*
+   * Os campos editáveis são semeados a partir do servidor, mas só quando o
+   * servidor realmente mudou — `updatedAt` é a marca. Sem essa trava, a
+   * releitura de fundo apagaria o número que a pessoa está digitando no meio
+   * da digitação. Depois de salvar, o updatedAt muda e a semeadura acontece,
+   * que é justamente quando ela deve acontecer.
+   */
+  const semeadoDe = useRef<string | null>(null);
+  useEffect(() => {
+    if (!settings || semeadoDe.current === settings.updatedAt) return;
+    semeadoDe.current = settings.updatedAt;
+    setRisk(settings.risk);
+    setAuto(settings.autoTrade);
+    setGuard(settings.guard);
+  }, [settings]);
+
+  if (primeiraVez) return <PageSkeleton blocos={4} />;
+  const failure = error ?? loadError;
+  if (failure && !settings) return <p className="text-sm text-bear">{failure}</p>;
+  if (!settings || !risk || !auto || !guard) return <PageSkeleton blocos={4} />;
 
   const run = async (action: () => Promise<unknown>, successMessage: string): Promise<void> => {
     setBusy(true);
@@ -84,7 +97,7 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
       await action();
       setMessage(successMessage);
       onChanged();
-      load();
+      void load();
     } catch (failure) {
       setError((failure as Error).message);
     } finally {
@@ -605,7 +618,67 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           Salvar risco
         </button>
       </section>
+
+      <Acesso onLoggedOut={onLoggedOut} />
     </div>
+  );
+}
+
+/**
+ * Quem está dentro e como sair. Fica no fim dos Ajustes de propósito: sair é
+ * ação rara, e um botão de sair no cabeçalho, ao lado do que liga o robô, é
+ * clique errado esperando acontecer.
+ */
+function Acesso({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const [sessao, setSessao] = useState<SessionState | null>(null);
+  const [saindo, setSaindo] = useState(false);
+
+  useEffect(() => {
+    void readSession()
+      .then(setSessao)
+      .catch(() => setSessao(null));
+  }, []);
+
+  const sair = async (): Promise<void> => {
+    setSaindo(true);
+    try {
+      await logout();
+      onLoggedOut();
+    } finally {
+      setSaindo(false);
+    }
+  };
+
+  const vence = sessao?.expiresAt ? new Date(sessao.expiresAt) : null;
+
+  return (
+    <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
+      <h2 className="text-sm font-semibold">Acesso</h2>
+      <p className="mt-1 text-xs text-terminal-muted">
+        {sessao?.backend === 'supabase'
+          ? 'A senha é conferida no Supabase Auth.'
+          : 'A senha é conferida neste computador, pelo hash gravado no .env.'}
+      </p>
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+        <Info label="Entrou como" value={sessao?.user ?? '—'} />
+        <Info
+          label="Sessão vence"
+          value={
+            vence
+              ? vence.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+              : '—'
+          }
+        />
+      </dl>
+      <button
+        type="button"
+        disabled={saindo}
+        onClick={() => void sair()}
+        className="mt-4 rounded-lg border border-terminal-border px-4 py-2 text-sm font-medium disabled:opacity-40"
+      >
+        {saindo ? 'Saindo…' : 'Sair do painel'}
+      </button>
+    </section>
   );
 }
 

@@ -10,6 +10,8 @@ export interface LiveEquity {
   invested: number;
   /** true quando faltou preço de alguma posição e o número está incompleto */
   partial: boolean;
+  /** quantas posições entraram na conta — 0 significa "ainda não há o que somar" */
+  positions: number;
 }
 
 /**
@@ -30,19 +32,36 @@ export function computeLiveEquity(input: {
   trades: Trade[];
   prices: Record<string, number>;
   mode: TradingMode;
+  /**
+   * Retrato do servidor. O canal ao vivo só manda preço dos pares que estão
+   * na watchlist — uma posição em par fora dela nunca receberia tique, e o
+   * topo da tela mostrava "+0,00 aberto" enquanto a Carteira mostrava o
+   * prejuízo de verdade. O preço que o servidor já calculou entra como
+   * segunda fonte para esses casos.
+   */
+  serverPositions?: Array<{ symbol: string; currentPrice: number | null }>;
 }): LiveEquity {
-  const { balance, trades, prices, mode } = input;
+  const { balance, trades, prices, mode, serverPositions } = input;
   const capital = balance?.capital ?? 0;
+
+  const fallback: Record<string, number> = {};
+  for (const position of serverPositions ?? []) {
+    if (position.currentPrice !== null && position.currentPrice > 0) {
+      fallback[position.symbol] = position.currentPrice;
+    }
+  }
 
   let unrealized = 0;
   let invested = 0;
   let marketValue = 0;
   let partial = false;
+  let positions = 0;
 
   for (const trade of trades) {
     if (trade.mode !== mode) continue;
     if (trade.status !== 'OPEN' && trade.status !== 'PENDING') continue;
 
+    positions += 1;
     const entry = trade.averageFillPrice ?? trade.entryPrice;
     if (trade.status === 'PENDING') {
       // ordem ainda não preencheu: o dinheiro está reservado, não exposto
@@ -52,7 +71,7 @@ export function computeLiveEquity(input: {
     }
 
     const quantity = trade.remainingQuantity;
-    const price = prices[trade.symbol];
+    const price = prices[trade.symbol] ?? fallback[trade.symbol];
     invested += entry * quantity;
     if (price === undefined || price <= 0) {
       partial = true;
@@ -69,5 +88,6 @@ export function computeLiveEquity(input: {
     unrealized: Math.round(unrealized * 100) / 100,
     invested: Math.round(invested * 100) / 100,
     partial,
+    positions,
   };
 }

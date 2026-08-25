@@ -24,6 +24,10 @@ import { RiskService } from './services/riskService.ts';
 import { ScannerService } from './services/scannerService.ts';
 import { SettingsService } from './services/settingsService.ts';
 import { apiRouter, type ApiContext } from './routes/index.ts';
+import { authRoutes } from './routes/authRoutes.ts';
+import { AuthService } from './auth/authService.ts';
+import { RequestLimiter } from './auth/rateLimit.ts';
+import { requireSession, throttle } from './auth/middleware.ts';
 import { withBitcoin } from './services/focus.ts';
 import { UniverseService } from './services/universeService.ts';
 import { NewsService } from './services/newsService.ts';
@@ -99,8 +103,18 @@ async function main(): Promise<void> {
     bus,
   };
 
+  const auth = new AuthService(config.auth);
+  if (!auth.configured) {
+    logger.error(
+      'Login NÃO configurado — a API vai recusar tudo até você rodar: npm run senha',
+    );
+  }
+
   const app = express();
   app.disable('x-powered-by');
+  // sem isto request.ip vira sempre o do proxy do Vite em desenvolvimento, e
+  // a trava por origem passaria a contar todo mundo como uma pessoa só
+  app.set('trust proxy', 'loopback');
   app.use(express.json({ limit: '100kb' }));
   app.use((_request, response, next) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -123,6 +137,20 @@ async function main(): Promise<void> {
     }
     next();
   });
+
+  /**
+   * Teto geral: um painel aberto faz dezenas de chamadas por minuto, não
+   * milhares. O limite é folgado para o uso normal e estreito o bastante para
+   * um laço acidental na tela não virar enxurrada de ordens.
+   */
+  const apiFlood = new RequestLimiter({ max: 600, windowMs: 60_000 });
+  const floodSweeper = setInterval(() => apiFlood.sweep(), 5 * 60_000);
+  floodSweeper.unref?.();
+  app.use('/api', throttle(apiFlood, 'api'));
+
+  // as rotas de entrada vêm ANTES da porta trancada, senão ninguém entra
+  app.use('/api', authRoutes(auth));
+  app.use('/api', requireSession(config.appSecret, (path) => path === '/health'));
   app.use('/api', apiRouter(context));
 
   const distDirectory = join(process.cwd(), 'dist');
@@ -145,6 +173,7 @@ async function main(): Promise<void> {
       binanceEnv: environmentForMode(settings.get().mode).name,
       credentials: environmentForMode(settings.get().mode).hasCredentials ? 'configuradas' : 'ausentes',
       store: config.store,
+      login: auth.backend,
     });
   });
 
@@ -192,6 +221,7 @@ async function main(): Promise<void> {
     void userStream.stop();
     market.stop();
     clearInterval(heartbeat);
+    clearInterval(floodSweeper);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   };

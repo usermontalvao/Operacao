@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api.ts';
+import { Fragment, useMemo, useState } from 'react';
+import { useResource } from '../lib/resource.ts';
+import { buscarDiario, chaveDiario } from '../lib/telas.ts';
+import { PageSkeleton } from '../components/Skeleton.tsx';
 import type { DecisionRecord, FactorPerformance } from '../lib/types.ts';
 import { percent, price, usd } from '../lib/format.ts';
 import { SymbolButton } from '../components/SymbolButton.tsx';
@@ -18,39 +20,20 @@ const MIN_SAMPLE = 5;
  * Sem isso, ajustar o motor é chute.
  */
 export function Journal() {
-  const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
-  const [factors, setFactors] = useState<FactorPerformance[]>([]);
   const [periodId, setPeriodId] = useState<PeriodId>('MES');
-  const [error, setError] = useState<string | null>(null);
   /** a autópsia aberta: uma por vez, para a tabela não virar parede de texto */
   const [openId, setOpenId] = useState<string | null>(null);
 
   const period = useMemo(() => buildPeriod(periodId), [periodId]);
 
-  useEffect(() => {
-    let active = true;
-    const refresh = async (): Promise<void> => {
-      try {
-        const query = periodQuery(period);
-        const [decisionData, factorData] = await Promise.all([
-          api.decisions(query),
-          api.factors(query),
-        ]);
-        if (!active) return;
-        setDecisions(decisionData);
-        setFactors(factorData.factors);
-        setError(null);
-      } catch (failure) {
-        if (active) setError((failure as Error).message);
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [period]);
+  const { dados, erro: error, primeiraVez } = useResource(
+    chaveDiario(periodId),
+    () => buscarDiario(periodQuery(period)),
+    { intervaloMs: REFRESH_MS },
+  );
+
+  const decisions: DecisionRecord[] = dados?.decisions ?? [];
+  const factors: FactorPerformance[] = dados?.factors ?? [];
 
   /**
    * O que falhou: condições com amostra suficiente e resultado negativo,
@@ -74,7 +57,8 @@ export function Journal() {
 
   const thin = factors.filter((factor) => factor.trades < MIN_SAMPLE).length;
 
-  if (error) return <p className="text-sm text-bear">{error}</p>;
+  if (primeiraVez) return <PageSkeleton blocos={3} />;
+  if (error && decisions.length === 0) return <p className="text-sm text-bear">{error}</p>;
 
   return (
     <div className="space-y-5 pb-6">

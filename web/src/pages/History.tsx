@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api, type EquityResponse } from '../lib/api.ts';
+import { useResource } from '../lib/resource.ts';
+import { buscarOperacoes, chaveOperacoes } from '../lib/telas.ts';
+import { PageSkeleton } from '../components/Skeleton.tsx';
 import type { Trade, TradeSetup, TradingMode } from '../lib/types.ts';
 import { PriceLadder } from '../components/PriceLadder.tsx';
 import { SymbolButton } from '../components/SymbolButton.tsx';
@@ -34,35 +37,26 @@ const MODE_LABEL: Record<TradingMode, string> = {
  * é pior ainda.
  */
 export function History() {
-  const [equity, setEquity] = useState<EquityResponse | null>(null);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [setups, setSetups] = useState<TradeSetup[]>([]);
   const [tab, setTab] = useState<'ABERTAS' | 'ENCERRADAS' | 'SETUPS'>('ABERTAS');
-  const [error, setError] = useState<string | null>(null);
+  // erro de AÇÃO (encerrar, cancelar) é separado do erro de LEITURA: um
+  // encerramento que falhou não pode sumir da tela só porque a próxima
+  // atualização automática deu certo
+  const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const [equityData, tradeList, setupList] = await Promise.all([
-        api.equity(),
-        api.trades(),
-        api.setupHistory(),
-      ]);
-      setEquity(equityData);
-      setTrades(tradeList);
-      setSetups(setupList);
-      setError(null);
-    } catch (failure) {
-      setError((failure as Error).message);
-    }
-  }, []);
+  const {
+    dados,
+    erro: loadError,
+    primeiraVez,
+    recarregar: load,
+  } = useResource(chaveOperacoes, buscarOperacoes, { intervaloMs: REFRESH_MS });
 
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [load]);
+  const equity = dados?.equity ?? null;
+  const trades: Trade[] = dados?.trades ?? [];
+  const setups: TradeSetup[] = dados?.setups ?? [];
+  const error = actionError ?? loadError;
+  const setError = setActionError;
 
   const closePosition = useCallback(
     async (position: Position): Promise<void> => {
@@ -80,6 +74,7 @@ export function History() {
 
       setClosing(position.id);
       setMessage(null);
+      setActionError(null);
       try {
         const trade = await api.closeTrade(position.id);
         setMessage(
@@ -128,6 +123,8 @@ export function History() {
   const totalReserved = positions
     .filter((position) => position.status === 'PENDING')
     .reduce((total, position) => total + position.invested, 0);
+
+  if (primeiraVez) return <PageSkeleton blocos={3} />;
 
   return (
     <div className="space-y-4">

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { TradingMode } from '../core/types.ts';
 
@@ -16,7 +17,15 @@ const schema = z.object({
   DATA_DIR: z.string().default('data'),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_OWNER_ID: z.string().optional(),
+  /** quem entra no painel: e-mail do Supabase ou usuário local */
+  PANEL_USER: z.string().optional(),
+  /** hash scrypt gerado por `npm run senha` — jamais a senha em texto */
+  PANEL_PASSWORD_HASH: z.string().optional(),
+  /** 'auto' decide sozinho: hash local vence, senão Supabase Auth */
+  AUTH_BACKEND: z.enum(['auto', 'supabase', 'local']).default('auto'),
+  SESSION_HOURS: z.coerce.number().positive().max(720).default(12),
   WATCHLIST: z.string().optional(),
   /**
    * Segunda chave da compra automática em conta real. Fica só no servidor de
@@ -86,7 +95,8 @@ export interface AppConfig {
   mode: TradingMode;
   store: 'json' | 'supabase';
   dataDir: string;
-  supabase: { url: string; serviceRoleKey: string; ownerId: string } | null;
+  supabase: { url: string; serviceRoleKey: string; anonKey: string; ownerId: string } | null;
+  auth: AuthConfig;
   watchlist: string[];
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   /** segredo usado só para assinar o token de confirmação de ordem */
@@ -100,6 +110,50 @@ export interface AppConfig {
 const supabaseReady =
   parsed.STORE === 'supabase' && !!parsed.SUPABASE_URL && !!parsed.SUPABASE_SERVICE_ROLE_KEY;
 
+/**
+ * Onde a senha é conferida. Nunca há um modo "sem login": quando nada está
+ * configurado o backend é `none`, e aí a API recusa tudo e a tela de entrada
+ * explica o que rodar. Um painel que envia ordem com dinheiro real não pode
+ * ter um interruptor que o deixa aberto por engano.
+ */
+export type AuthBackendName = 'supabase' | 'local' | 'none';
+
+export interface AuthConfig {
+  backend: AuthBackendName;
+  /** usuário aceito; em Supabase é o e-mail da conta */
+  user: string | null;
+  passwordHash: string | null;
+  /** endpoint e chave usados só para conferir a senha no Supabase Auth */
+  supabaseAuth: { url: string; apiKey: string } | null;
+  sessionMs: number;
+  /** cookie com Secure — só quando o painel é servido por https */
+  secureCookie: boolean;
+}
+
+function resolveAuth(): AuthConfig {
+  const hasLocal = !!parsed.PANEL_PASSWORD_HASH && !!parsed.PANEL_USER;
+  const authKey = parsed.SUPABASE_ANON_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
+  const hasSupabase = !!parsed.SUPABASE_URL && !!authKey && !!parsed.PANEL_USER;
+
+  let backend: AuthBackendName = 'none';
+  if (parsed.AUTH_BACKEND === 'local') backend = hasLocal ? 'local' : 'none';
+  else if (parsed.AUTH_BACKEND === 'supabase') backend = hasSupabase ? 'supabase' : 'none';
+  else if (hasLocal) backend = 'local';
+  else if (hasSupabase) backend = 'supabase';
+
+  return {
+    backend,
+    user: parsed.PANEL_USER ?? null,
+    passwordHash: parsed.PANEL_PASSWORD_HASH ?? null,
+    supabaseAuth:
+      parsed.SUPABASE_URL && authKey
+        ? { url: parsed.SUPABASE_URL.replace(/\/+$/, ''), apiKey: authKey }
+        : null,
+    sessionMs: parsed.SESSION_HOURS * 60 * 60_000,
+    secureCookie: false,
+  };
+}
+
 export const config: AppConfig = {
   port: parsed.PORT,
   host: parsed.HOST,
@@ -110,15 +164,25 @@ export const config: AppConfig = {
     ? {
         url: parsed.SUPABASE_URL as string,
         serviceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY as string,
-        ownerId: parsed.SUPABASE_OWNER_ID ?? '00000000-0000-0000-0000-000000000000',
+        anonKey: parsed.SUPABASE_ANON_KEY ?? '',
+        ownerId: parsed.SUPABASE_OWNER_ID ?? '',
       }
     : null,
+  auth: resolveAuth(),
   watchlist: (parsed.WATCHLIST ?? DEFAULT_WATCHLIST.join(','))
     .split(',')
     .map((symbol) => symbol.trim().toUpperCase())
     .filter(Boolean),
   logLevel: parsed.LOG_LEVEL,
-  appSecret: parsed.APP_SECRET ?? 'dev-secret-troque-em-producao',
+  /**
+   * Sem APP_SECRET no arquivo, sorteamos um agora. Um segredo constante e
+   * conhecido seria pior que nenhum: qualquer um poderia assinar um cookie de
+   * sessão válido. Sorteado, o custo é que reiniciar o servidor pede login de
+   * novo — e isso é aviso, não falha.
+   */
+  appSecret: parsed.APP_SECRET && parsed.APP_SECRET.length >= 16
+    ? parsed.APP_SECRET
+    : randomBytes(32).toString('hex'),
   allowLiveAutoTrade: parsed.ALLOW_LIVE_AUTOTRADE === true,
   allowedHosts: (parsed.ALLOWED_HOSTS ?? `localhost:${parsed.PORT},127.0.0.1:${parsed.PORT},[::1]:${parsed.PORT}`)
     .split(',')

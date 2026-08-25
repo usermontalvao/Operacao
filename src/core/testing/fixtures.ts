@@ -157,10 +157,10 @@ export function defaultTestSettings(overrides: Partial<AppSettings> = {}): AppSe
     },
     autoTrade: {
       enabled: false,
-      minimumScore: 80,
+      minimumScore: 90,
       minimumRiskReward: 2.5,
       percentOfCapital: 10,
-      maxConcurrentTrades: 3,
+      maxConcurrentTrades: 1,
       cooldownMinutes: 180,
       requireInsideEntryZone: true,
       allowLive: false,

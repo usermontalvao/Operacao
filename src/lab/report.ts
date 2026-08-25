@@ -11,7 +11,7 @@ function arg(name: string, fallback: string): string {
 async function main(): Promise<void> {
   const count = Number(arg('symbols', '30'));
   const days = Number(arg('days', '540'));
-  const minScore = Number(arg('minScore', '80'));
+  const minScore = Number(arg('minScore', '90'));
   const minRR = Number(arg('minRR', '2.5'));
 
   console.log(`Universo: top ${count} pares USDT por volume | ${days} dias | gatilho 1h`);

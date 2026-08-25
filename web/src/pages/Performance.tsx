@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { api, type EquityResponse } from '../lib/api.ts';
+import { useMemo, useState } from 'react';
+import type { EquityResponse } from '../lib/api.ts';
+import { useResource } from '../lib/resource.ts';
+import { buscarDesempenho, chaveDesempenho } from '../lib/telas.ts';
+import { PageSkeleton } from '../components/Skeleton.tsx';
 import type { PerformanceStats } from '../lib/types.ts';
 import { percent, price, usd, usdWithBrl } from '../lib/format.ts';
 import { SymbolButton } from '../components/SymbolButton.tsx';
@@ -16,46 +19,23 @@ const REFRESH_MS = 5_000;
  * e são as últimas semanas que dizem se dá para continuar.
  */
 export function Performance() {
-  const [stats, setStats] = useState<PerformanceStats | null>(null);
-  const [equity, setEquity] = useState<EquityResponse | null>(null);
   const [periodId, setPeriodId] = useState<PeriodId>('MES');
-  const [error, setError] = useState<string | null>(null);
-
   const period = useMemo(() => buildPeriod(periodId), [periodId]);
 
-  useEffect(() => {
-    let active = true;
-    let loading = false;
+  // a chave inclui o período: trocar de período mostra na hora o que já foi
+  // visto daquele período, em vez de esvaziar a tela e recomeçar
+  const { dados, erro: error, primeiraVez } = useResource(
+    chaveDesempenho(periodId),
+    () => buscarDesempenho(periodQuery(period)),
+    { intervaloMs: REFRESH_MS },
+  );
 
-    const refresh = async (): Promise<void> => {
-      if (loading) return;
-      loading = true;
-      try {
-        const [performance, equityData] = await Promise.all([
-          api.performance(periodQuery(period)),
-          api.equity(),
-        ]);
-        if (!active) return;
-        setStats(performance);
-        setEquity(equityData);
-        setError(null);
-      } catch (failure) {
-        if (active) setError((failure as Error).message);
-      } finally {
-        loading = false;
-      }
-    };
+  const stats: PerformanceStats | null = dados?.stats ?? null;
+  const equity: EquityResponse | null = dados?.equity ?? null;
 
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [period]);
-
-  if (error) return <p className="text-sm text-bear">{error}</p>;
-  if (!stats || !equity) return <p className="text-sm text-terminal-muted">Carregando…</p>;
+  if (primeiraVez) return <PageSkeleton blocos={2} />;
+  if (error && !stats) return <p className="text-sm text-bear">{error}</p>;
+  if (!stats || !equity) return <PageSkeleton blocos={2} />;
 
   const growth =
     equity.startingCapital > 0

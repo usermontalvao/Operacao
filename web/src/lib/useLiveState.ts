@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type AccountBalanceResponse, type RiskResponse } from './api.ts';
+import { api, type AccountBalanceResponse, type EquityResponse, type RiskResponse } from './api.ts';
 import type {
   AlertRecord,
   ConnectionState,
@@ -16,6 +16,8 @@ export interface LiveState {
   balance: AccountBalanceResponse | null;
   /** retrato do disjuntor — o topo da tela precisa saber se a operação parou */
   risk: RiskResponse | null;
+  /** contas do servidor, com preço de todas as posições (mesmo fora da watchlist) */
+  equity: EquityResponse | null;
   setups: TradeSetup[];
   prices: Record<string, number>;
   alerts: AlertRecord[];
@@ -37,6 +39,7 @@ export function useLiveState(): LiveState {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [balance, setBalance] = useState<AccountBalanceResponse | null>(null);
   const [risk, setRisk] = useState<RiskResponse | null>(null);
+  const [equity, setEquity] = useState<EquityResponse | null>(null);
   const [setups, setSetups] = useState<TradeSetup[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
@@ -49,15 +52,17 @@ export function useLiveState(): LiveState {
 
   const refresh = useCallback(async () => {
     try {
-      const [state, openAlerts, accountBalance, riskSnapshot] = await Promise.all([
+      const [state, openAlerts, accountBalance, riskSnapshot, equitySnapshot] = await Promise.all([
         api.state(),
         api.alerts(),
         api.balance().catch(() => null),
         api.risk().catch(() => null),
+        api.equity().catch(() => null),
       ]);
       setSnapshot(state);
       setBalance(accountBalance);
       setRisk(riskSnapshot);
+      setEquity(equitySnapshot);
       setSetups(state.setups);
       setContext(state.marketContext);
       setConnection(state.connection);
@@ -145,6 +150,7 @@ export function useLiveState(): LiveState {
     snapshot,
     balance,
     risk,
+    equity,
     setups,
     prices,
     alerts,

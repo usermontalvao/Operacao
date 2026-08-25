@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   console.log('\n########## MELHOR CASO DA CALIBRAÇÃO: TIRAR TUDO QUE É RUIM NAS DUAS JANELAS ##########\n');
   console.log(formatTable(rows));
 
-  console.log('\n########## O MESMO, SOMADO AO FILTRO DO ROBÔ (score>=80, R/R>=2.5) ##########\n');
+  console.log('\n########## O MESMO, SOMADO AO FILTRO DO ROBÔ (só MOMENTUM_BURST, score>=90, R/R>=2.5) ##########\n');
   const robotRows = [];
   const robotBase = windows(pairs.filter((p) => robotFilter([p.outcome]).length > 0));
   robotRows.push(summarize('T robô puro', robotBase.train));

@@ -28,7 +28,7 @@ const scannerSchema = z.object({
 
 const autoTradeSchema = z.object({
   enabled: z.boolean(),
-  minimumScore: z.number().int().min(60).max(100),
+  minimumScore: z.number().int().min(90).max(100),
   minimumRiskReward: z.number().min(1).max(10),
   percentOfCapital: z.number().min(1).max(100),
   maxConcurrentTrades: z.number().int().min(1).max(20),
@@ -104,10 +104,13 @@ export function defaultSettings(): AppSettings {
       // ligado por padrão: nas contas de teste o robô é a forma de acumular
       // decisões reais para análise. Na conta real ele nasce desarmado.
       enabled: true,
-      minimumScore: 80,
+      minimumScore: 90,
       minimumRiskReward: 2.5,
       percentOfCapital: 10,
-      maxConcurrentTrades: 3,
+      // explosões em altcoins costumam vir juntas; até existir backtest de
+      // carteira/correlação, uma posição automática por vez evita contar o
+      // mesmo risco de mercado como se fossem apostas independentes.
+      maxConcurrentTrades: 1,
       cooldownMinutes: 180,
       requireInsideEntryZone: true,
       allowLive: false,

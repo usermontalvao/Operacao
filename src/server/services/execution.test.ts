@@ -79,6 +79,19 @@ function makeSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
   };
 }
 
+function makeAutomaticSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
+  return makeSetup({
+    setupType: 'MOMENTUM_BURST',
+    score: 90,
+    riskReward: 3,
+    target1: 1.61,
+    target2: null,
+    target3: null,
+    fingerprint: 'XRPUSDT:MOMENTUM_BURST:4h:1.44',
+    ...overrides,
+  });
+}
+
 async function harness(price = 1.43) {
   const directory = await mkdtemp(join(tmpdir(), 'hunter-test-'));
   const repository = new JsonStore(directory);
@@ -220,10 +233,10 @@ test('token de outro setup ou com plano alterado é recusado', async (t) => {
 test('robô compra na conta de teste e não empilha no mesmo ativo', async (t) => {
   const context = await harness();
   t.after(context.cleanup);
-  const setup = makeSetup();
+  const setup = makeAutomaticSetup();
 
   await context.settings.update({
-    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 70, maxNotionalPerTrade: 500 },
+    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 90, maxNotionalPerTrade: 500 },
   });
   const trade = await context.execution.executeAutomatic(setup);
   assert.ok(trade, 'esperava uma operação automática no modo PAPER');
@@ -235,7 +248,7 @@ test('robô compra na conta de teste e não empilha no mesmo ativo', async (t) =
   assert.equal(await context.execution.executeAutomatic(setup), null);
   // nem em outro setup do mesmo ativo: a exposição seria dobrada no mesmo risco
   assert.equal(
-    await context.execution.executeAutomatic(makeSetup({ id: 'setup-xrp-2', fingerprint: 'outro' })),
+    await context.execution.executeAutomatic(makeAutomaticSetup({ id: 'setup-xrp-2', fingerprint: 'outro' })),
     null,
   );
   assert.equal((await context.repository.listTrades()).length, 1);
@@ -248,35 +261,48 @@ test('teto por ordem limita a compra automática mesmo com percentual alto', asy
     autoTrade: {
       enabled: true,
       percentOfCapital: 90,
-      minimumScore: 70,
+      minimumScore: 90,
       maxNotionalPerTrade: 40,
     },
   });
-  const trade = await context.execution.executeAutomatic(makeSetup());
+  const trade = await context.execution.executeAutomatic(makeAutomaticSetup());
   assert.ok(trade, 'esperava a operação');
   assert.ok(trade.notional <= 40.5, `notional ${trade.notional} deveria respeitar o teto de 40`);
+});
+
+test('robô não compra estratégia que foi negativa no treino e no teste', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({ autoTrade: { enabled: true, minimumScore: 90 } });
+
+  const trade = await context.execution.executeAutomatic(makeSetup({ score: 99, riskReward: 5 }));
+
+  assert.equal(trade, null, 'score alto não pode autorizar uma estratégia sem vantagem medida');
+  assert.equal((await context.repository.listTrades()).length, 0);
+  const audit = await context.audit.list(20);
+  assert.ok(audit.some((entry) => entry.action === 'AUTO_TRADE_SKIPPED'));
 });
 
 test('conta real exige as duas chaves: servidor e armamento no painel', async (t) => {
   const context = await harness();
   t.after(context.cleanup);
   await context.settings.update({
-    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 70 },
+    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 90 },
     mode: 'LIVE',
   });
 
   // sem nada liberado
-  assert.equal(await context.execution.executeAutomatic(makeSetup({ id: 'live-1' })), null);
+  assert.equal(await context.execution.executeAutomatic(makeAutomaticSetup({ id: 'live-1' })), null);
 
   // liberado nos ajustes, mas ainda desarmado
   await context.settings.update({ autoTrade: { allowLive: true } });
-  assert.equal(await context.execution.executeAutomatic(makeSetup({ id: 'live-2' })), null);
+  assert.equal(await context.execution.executeAutomatic(makeAutomaticSetup({ id: 'live-2' })), null);
 
   // armado, porém com o armamento já vencido
   await context.settings.update({
     autoTrade: { liveArmedUntil: new Date(Date.now() - 60_000).toISOString() },
   });
-  assert.equal(await context.execution.executeAutomatic(makeSetup({ id: 'live-3' })), null);
+  assert.equal(await context.execution.executeAutomatic(makeAutomaticSetup({ id: 'live-3' })), null);
 
   const audit = await context.audit.list(50);
   const blocked = audit.filter((entry) => entry.action === 'AUTO_TRADE_BLOCKED_LIVE');

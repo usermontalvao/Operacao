@@ -66,13 +66,25 @@ export function NavTabs({
   onChange,
   variant,
   counts,
+  onPrefetch,
 }: {
   active: Tab;
   onChange: (tab: Tab) => void;
   variant: 'top' | 'bottom';
   /** número mostrado entre parênteses na aba — hoje as posições em andamento */
   counts?: Partial<Record<Tab, number>>;
+  /**
+   * Avisado quando o ponteiro encosta na aba, antes do clique. Os ~200 ms
+   * entre encostar e clicar são de graça: se a busca começar aí, a aba abre
+   * com o conteúdo já pronto. No toque vale o instante do dedo descendo.
+   */
+  onPrefetch?: (tab: Tab) => void;
 }) {
+  const adiantar = (tab: Tab) => ({
+    onPointerEnter: () => onPrefetch?.(tab),
+    onPointerDown: () => onPrefetch?.(tab),
+  });
+
   if (variant === 'top') {
     return (
       <div className="hidden shrink-0 items-center gap-0.5 rounded-lg border border-terminal-border bg-terminal-panel p-0.5 sm:flex">
@@ -84,6 +96,7 @@ export function NavTabs({
               type="button"
               aria-current={selected ? 'page' : undefined}
               onClick={() => onChange(tab.id)}
+              {...adiantar(tab.id)}
               className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
                 selected
                   ? 'bg-terminal-panel-soft text-terminal-text'
@@ -113,6 +126,7 @@ export function NavTabs({
               type="button"
               aria-current={selected ? 'page' : undefined}
               onClick={() => onChange(tab.id)}
+              {...adiantar(tab.id)}
               className="relative flex flex-1 flex-col items-center gap-1 py-2.5"
             >
               {selected ? (

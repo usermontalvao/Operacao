@@ -1,4 +1,5 @@
 import type { TradeSetup } from '../../core/types.ts';
+import { automaticStrategyRejectionReason } from '../../core/strategy/automationPolicy.ts';
 import { logger } from '../logger.ts';
 import type { AuditService } from './auditService.ts';
 import { liveAutoTradeDenial, type ExecutionService } from './executionService.ts';
@@ -47,6 +48,8 @@ export class AutoTrader {
     if (setup.status === 'BOUGHT') return 'setup já comprado';
     if (setup.status === 'INVALIDATED' || setup.status === 'EXPIRED') return 'setup encerrado';
     if (setup.extended) return 'preço esticado';
+    const strategyRejection = automaticStrategyRejectionReason(setup);
+    if (strategyRejection !== null) return strategyRejection;
     if (setup.score < auto.minimumScore) return `score ${setup.score} abaixo de ${auto.minimumScore}`;
     if (setup.riskReward < auto.minimumRiskReward) {
       return `R/R ${setup.riskReward} abaixo de ${auto.minimumRiskReward}`;

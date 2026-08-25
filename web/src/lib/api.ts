@@ -12,6 +12,7 @@ import type {
   Trade,
   TradeSetup,
 } from './types.ts';
+import { announceSessionLost } from './auth.ts';
 
 export interface SettingsResponse extends AppSettings {
   store: string;
@@ -112,13 +113,23 @@ export interface AccountBalanceResponse {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
   const text = await response.text();
   const payload = text ? (JSON.parse(text) as unknown) : null;
   if (!response.ok) {
-    const detail = payload as { error?: string } | null;
+    const detail = payload as { error?: string; retryAfterSeconds?: number } | null;
+    // sessão vencida no meio do uso: a raiz devolve a tela de entrada em vez
+    // de deixar o painel piscando erro em toda chamada
+    if (response.status === 401) announceSessionLost();
+    if (response.status === 429) {
+      const espera = detail?.retryAfterSeconds ?? null;
+      throw new Error(
+        detail?.error ?? `Muitas chamadas seguidas${espera ? ` — espere ${espera}s` : ''}`,
+      );
+    }
     throw new Error(detail?.error ?? `Falha na requisição (${response.status})`);
   }
   return payload as T;

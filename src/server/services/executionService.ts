@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { AppSettings, SymbolFilters, Trade, TradeSetup, TradingMode } from '../../core/types.ts';
+import { automaticStrategyRejectionReason } from '../../core/strategy/automationPolicy.ts';
 import {
   computeSizing,
   formatPrice,
@@ -272,6 +273,10 @@ export class ExecutionService {
     ];
 
     const warnings = [...sizing.warnings, ...gate.warnings];
+    const strategyRejection = automaticStrategyRejectionReason(setup);
+    if (strategyRejection !== null) {
+      warnings.push(`Estratégia observacional — compra automática bloqueada: ${strategyRejection}`);
+    }
     if (setup.extended) {
       warnings.push('Setup marcado como ESTICADO — o preço já se afastou do ponto de invalidação');
     }
@@ -387,6 +392,21 @@ export class ExecutionService {
   async executeAutomatic(setup: TradeSetup): Promise<Trade | null> {
     const settings = this.settings.get();
     if (!settings.autoTrade.enabled) return null;
+
+    // Defesa em profundidade: hoje este método é chamado pelo AutoTrader, que
+    // já aplica a política. A checagem fica também no caminho da ordem para
+    // uma chamada futura ou direta não conseguir contornar a estratégia.
+    const strategyRejection = automaticStrategyRejectionReason(setup);
+    if (strategyRejection !== null) {
+      await this.audit.record({
+        action: 'AUTO_TRADE_SKIPPED',
+        mode: settings.mode,
+        symbol: setup.symbol,
+        setupId: setup.id,
+        detail: { blockers: [strategyRejection] },
+      });
+      return null;
+    }
 
     // nunca empilha: mesmo setup ou mesmo ativo já em carteira encerra aqui
     const alreadyOpen = this.paper

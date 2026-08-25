@@ -11,11 +11,14 @@ import { Performance } from './pages/Performance.tsx';
 import { Settings } from './pages/Settings.tsx';
 import { api } from './lib/api.ts';
 import { computeLiveEquity } from './lib/equity.ts';
+import { logout } from './lib/auth.ts';
+import { esquecerTudo } from './lib/resource.ts';
+import { adiantarAba } from './lib/telas.ts';
 import { useLiveState } from './lib/useLiveState.ts';
 import { ChartViewerProvider } from './lib/chartViewer.tsx';
 import type { Trade, TradeSetup, TradingMode } from './lib/types.ts';
 
-export function App() {
+export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLoggedOut: () => void }) {
   const live = useLiveState();
   const [tab, setTab] = useState<Tab>('RADAR');
   const [openSetup, setOpenSetup] = useState<TradeSetup | null>(null);
@@ -28,9 +31,24 @@ export function App() {
   const mode = live.snapshot?.mode ?? 'PAPER';
   // recalcula a cada preço novo: é o que faz o número do topo andar sozinho
   const liveEquity = useMemo(
-    () => computeLiveEquity({ balance: live.balance, trades: live.trades, prices: live.prices, mode }),
-    [live.balance, live.trades, live.prices, mode],
+    () =>
+      computeLiveEquity({
+        balance: live.balance,
+        trades: live.trades,
+        prices: live.prices,
+        mode,
+        // segunda fonte de preço: par fora da watchlist não recebe tique
+        serverPositions: live.equity?.positions,
+      }),
+    [live.balance, live.trades, live.prices, live.equity, mode],
   );
+
+  const sair = useCallback(async (): Promise<void> => {
+    await logout();
+    // nada do usuário que saiu pode sobreviver para o próximo que entrar
+    esquecerTudo();
+    onLoggedOut();
+  }, [onLoggedOut]);
 
   // ativos com posição em andamento: o radar precisa parar de oferecer compra
   const openSymbols = useMemo(
@@ -123,6 +141,9 @@ export function App() {
       setSwitchingMode(true);
       setModeError(null);
       try {
+        // o que está guardado é da OUTRA conta — mantê-lo mostraria o
+        // histórico da demo dentro da conta real por um instante
+        esquecerTudo();
         await api.updateSettings({ mode });
         await live.refresh();
         setToast(mode === 'LIVE' ? 'Conta REAL selecionada' : 'Conta DEMO selecionada');
@@ -159,12 +180,15 @@ export function App() {
           <NavTabs
             active={tab}
             onChange={setTab}
+            onPrefetch={adiantarAba}
             variant="top"
             counts={{ HISTORICO: live.trades.length }}
           />
         }
         watchedSymbols={live.snapshot?.settings.scanner.watchlist.length ?? 0}
         universe={live.snapshot?.universe ?? null}
+        userLabel={userLabel}
+        onLogout={() => void sair()}
       />
 
       <main className="mx-auto max-w-6xl px-4 py-4">
@@ -172,6 +196,12 @@ export function App() {
           <p className="mb-3 rounded-lg border border-bear/40 bg-bear/10 p-3 text-sm text-bear">{live.error}</p>
         ) : null}
 
+        {/*
+          A chave leva a conta junto: trocar DEMO↔REAL troca todos os números,
+          e sem remontar a aba ficaria mostrando o histórico da conta anterior
+          até o próximo ciclo de atualização.
+        */}
+        <div key={`${tab}:${mode}`} className="aba-entra">
         {tab === 'RADAR' ? (
           <Dashboard
             assets={live.snapshot?.assets ?? []}
@@ -186,13 +216,17 @@ export function App() {
         ) : null}
         {tab === 'HISTORICO' ? <History /> : null}
         {tab === 'DESEMPENHO' ? <Performance /> : null}
-        {tab === 'AJUSTES' ? <Settings onChanged={() => void live.refresh()} /> : null}
+        {tab === 'AJUSTES' ? (
+          <Settings onChanged={() => void live.refresh()} onLoggedOut={onLoggedOut} />
+        ) : null}
         {tab === 'DIARIO' ? <Journal /> : null}
+        </div>
       </main>
 
       <NavTabs
         active={tab}
         onChange={setTab}
+        onPrefetch={adiantarAba}
         variant="bottom"
         counts={{ HISTORICO: live.trades.length }}
       />
