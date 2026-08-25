@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { TradeSetup } from '../lib/types.ts';
+import type { EntryDecision, TradeSetup } from '../lib/types.ts';
 import {
   CLASSIFICATION_LABEL,
   SETUP_LABEL,
@@ -11,6 +11,7 @@ import {
   stateTone,
 } from '../lib/format.ts';
 import { PriceChart } from './PriceChart.tsx';
+import { DecisionPanel } from './DecisionPanel.tsx';
 
 interface SetupSheetProps {
   setup: TradeSetup;
@@ -20,6 +21,8 @@ interface SetupSheetProps {
   onIgnore: (setup: TradeSetup) => void;
   /** já existe posição aberta neste ativo */
   inTrade: boolean;
+  /** a decisão do robô, vinda do servidor */
+  decision?: EntryDecision;
 }
 
 /**
@@ -27,7 +30,7 @@ interface SetupSheetProps {
  * usuário vê ativo, preço, entrada, stop, alvos, R/R e score. No desktop o
  * gráfico ocupa a coluna maior; no celular ele vem depois dos números.
  */
-export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade }: SetupSheetProps) {
+export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade, decision }: SetupSheetProps) {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const current = livePrice ?? setup.currentPrice;
   const distance = distanceToEntry(setup, current);
@@ -60,6 +63,15 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
             Fechar
           </button>
         </header>
+
+        <div className="mt-4">
+          <DecisionPanel
+            decision={decision}
+            entryLow={setup.entryLow}
+            entryHigh={setup.entryHigh}
+            currentPrice={current}
+          />
+        </div>
 
         <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
           <section className="order-2 space-y-5 lg:order-1">

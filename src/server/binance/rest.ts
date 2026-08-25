@@ -99,8 +99,9 @@ async function signedRequest<T>(
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   params: Record<string, string | number | boolean | undefined> = {},
+  environment: EnvironmentEndpoints = active,
 ): Promise<T> {
-  const credentials = readCredentials(active.name);
+  const credentials = readCredentials(environment.name);
   if (!credentials) {
     throw new BinanceError('Credenciais da Binance não configuradas no servidor', -2015, 401);
   }
@@ -110,7 +111,7 @@ async function signedRequest<T>(
     recvWindow: 5000,
   });
   const signature = signQuery(query, credentials.apiSecret);
-  const url = `${active.tradeRestBase}${path}?${query}&signature=${signature}`;
+  const url = `${environment.tradeRestBase}${path}?${query}&signature=${signature}`;
   return request<T>(url, {
     method,
     headers: { 'X-MBX-APIKEY': credentials.apiKey },
@@ -360,11 +361,17 @@ export interface AccountBalance {
   locked: number;
 }
 
-export async function getAccountBalances(): Promise<AccountBalance[]> {
+/**
+ * Lê o saldo de um ambiente específico sem trocar o mercado ativo do robô.
+ * Sem argumento, preserva o comportamento operacional: usa a conta do modo
+ * atualmente selecionado.
+ */
+export async function getAccountBalances(environmentName?: BinanceEnvironment): Promise<AccountBalance[]> {
+  const environment = environmentName ? ENVIRONMENTS[environmentName] : active;
   const account = await signedRequest<{
     balances: Array<{ asset: string; free: string; locked: string }>;
     canTrade: boolean;
-  }>('GET', '/api/v3/account', { omitZeroBalances: true });
+  }>('GET', '/api/v3/account', { omitZeroBalances: true }, environment);
   return account.balances.map((balance) => ({
     asset: balance.asset,
     free: Number(balance.free),

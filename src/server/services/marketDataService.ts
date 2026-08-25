@@ -67,6 +67,27 @@ export class MarketDataService extends EventEmitter {
     return this.tickers.get(symbol)?.price ?? null;
   }
 
+  /**
+   * Instante do tick mais recente entre TODOS os pares.
+   *
+   * É o sinal de vida do fluxo de preços. Um par isolado pode ficar minutos
+   * sem negócio sem que nada esteja errado; o fluxo inteiro parar é o que
+   * indica conexão morta — e operar com preço velho é operar às cegas.
+   */
+  lastTickAt(): number | null {
+    let newest: number | null = null;
+    for (const snapshot of this.tickers.values()) {
+      if (newest === null || snapshot.updatedAt > newest) newest = snapshot.updatedAt;
+    }
+    return newest;
+  }
+
+  /** Idade do preço de um par, em ms. null = nunca houve preço. */
+  priceAgeMs(symbol: string, now = Date.now()): number | null {
+    const snapshot = this.tickers.get(symbol);
+    return snapshot === undefined ? null : now - snapshot.updatedAt;
+  }
+
   getCandles(symbol: string, timeframe: Timeframe): Candle[] {
     return this.candles.get(key(symbol, timeframe)) ?? [];
   }

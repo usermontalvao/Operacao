@@ -7,6 +7,7 @@ import type {
   MarketContext,
   Trade,
   TradeSetup,
+  EntryDecision,
 } from './types.ts';
 
 const REFRESH_MS = 15_000;
@@ -19,6 +20,8 @@ export interface LiveState {
   /** contas do servidor, com preço de todas as posições (mesmo fora da watchlist) */
   equity: EquityResponse | null;
   setups: TradeSetup[];
+  /** decisão do robô por setup — a explicação de por que não entrou */
+  decisions: Record<string, EntryDecision>;
   prices: Record<string, number>;
   alerts: AlertRecord[];
   trades: Trade[];
@@ -41,6 +44,7 @@ export function useLiveState(): LiveState {
   const [risk, setRisk] = useState<RiskResponse | null>(null);
   const [equity, setEquity] = useState<EquityResponse | null>(null);
   const [setups, setSetups] = useState<TradeSetup[]>([]);
+  const [decisions, setDecisions] = useState<Record<string, EntryDecision>>({});
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -64,6 +68,7 @@ export function useLiveState(): LiveState {
       setRisk(riskSnapshot);
       setEquity(equitySnapshot);
       setSetups(state.setups);
+      setDecisions(state.decisions ?? {});
       setContext(state.marketContext);
       setConnection(state.connection);
       setTrades(state.openTrades);
@@ -152,6 +157,7 @@ export function useLiveState(): LiveState {
     risk,
     equity,
     setups,
+    decisions,
     prices,
     alerts,
     trades,

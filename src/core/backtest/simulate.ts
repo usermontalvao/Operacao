@@ -25,13 +25,14 @@ export function simulateSignal(input: SimulationInput): Outcome {
   const setup = signal.setup;
   const entryPrice = averageEntry(setup.entryLow, setup.entryHigh);
 
-  // o mesmo corte de alvo irreal que a execução aplica ao criar a operação
+  // o mesmo corte de alvo irreal que a execução aplica ao criar a operação —
+  // e agora com o MESMO número, vindo da política, em vez de um 40 fixo aqui
   const targets = sanitizeTargets({
     entryPrice,
     target1: setup.target1,
     target2: setup.target2,
     target3: setup.target3,
-    maxTargetPercent: 40,
+    maxTargetPercent: policy.maxTargetPercent ?? 40,
   });
 
   const base = {

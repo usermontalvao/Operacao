@@ -166,19 +166,33 @@ export function tradingRoutes(context: ApiContext): Router {
   router.post(
     '/robot',
     asyncHandler(async (request, response) => {
-      const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
+      const parsed = z
+        .object({
+          enabled: z.boolean(),
+          // sem modo, o alvo é a sessão em exibição; com modo, dá para ligar o
+          // robô do demo enquanto se olha a conta real
+          mode: z.enum(['PAPER', 'TESTNET', 'LIVE']).optional(),
+        })
+        .safeParse(request.body);
       if (!parsed.success) {
         response.status(400).json({ error: 'Informe se o robô deve ficar ligado' });
         return;
       }
-      const settings = await context.settings.update({
-        autoTrade: { enabled: parsed.data.enabled },
-      });
+      const alvo = parsed.data.mode ?? context.settings.get().mode;
+      // targetMode e não mode: ajusta a sessão pedida SEM trocar a janela
+      const settings = await context.settings.update(
+        { autoTrade: { enabled: parsed.data.enabled } },
+        { targetMode: alvo },
+      );
       await context.audit.record({
         action: parsed.data.enabled ? 'ROBOT_ENABLED' : 'ROBOT_DISABLED',
-        mode: settings.mode,
+        mode: alvo,
         detail: { origem: 'painel' },
       });
+
+      // ligar reavalia o que já está no radar; desligar não precisa de nada
+      if (parsed.data.enabled) void context.scanner.reconsiderAll(alvo);
+
       context.bus.broadcast({ type: 'settings', payload: settings });
       response.json(settings);
     }),
@@ -196,17 +210,18 @@ export function tradingRoutes(context: ApiContext): Router {
         response.status(400).json({ error: 'Informe por quantos minutos armar (5 a 720)' });
         return;
       }
-      if (!context.settings.get().autoTrade.allowLive) {
+      if (!context.settings.forMode('LIVE').autoTrade.allowLive) {
         response.status(400).json({
           error: 'Libere a compra automática em conta real nos ajustes antes de armar',
         });
         return;
       }
       const until = new Date(Date.now() + parsed.data.minutes * 60_000).toISOString();
-      const settings = await context.settings.update({
-        autoTrade: { enabled: true, liveArmedUntil: until },
-      });
-      const denial = liveAutoTradeDenial(settings);
+      const settings = await context.settings.update(
+        { autoTrade: { enabled: true, liveArmedUntil: until } },
+        { targetMode: 'LIVE' },
+      );
+      const denial = liveAutoTradeDenial(context.settings.forMode('LIVE'));
       await context.audit.record({
         action: 'ROBOT_ARMED_LIVE',
         mode: settings.mode,
@@ -220,8 +235,11 @@ export function tradingRoutes(context: ApiContext): Router {
   router.post(
     '/robot/disarm',
     asyncHandler(async (_request, response) => {
-      const settings = await context.settings.update({ autoTrade: { liveArmedUntil: null } });
-      await context.audit.record({ action: 'ROBOT_DISARMED_LIVE', mode: settings.mode, detail: {} });
+      const settings = await context.settings.update(
+        { autoTrade: { liveArmedUntil: null } },
+        { targetMode: 'LIVE' },
+      );
+      await context.audit.record({ action: 'ROBOT_DISARMED_LIVE', mode: 'LIVE', detail: {} });
       context.bus.broadcast({ type: 'settings', payload: settings });
       response.json(settings);
     }),

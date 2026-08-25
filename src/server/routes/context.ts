@@ -1,5 +1,5 @@
 import type { EventBus } from '../events.ts';
-import type { Repository } from '../store/index.ts';
+import type { Repository, RepositoryHandle } from '../store/index.ts';
 import type { AuditService } from '../services/auditService.ts';
 import type { ExecutionService } from '../services/executionService.ts';
 import type { MarketDataService } from '../services/marketDataService.ts';
@@ -13,6 +13,8 @@ import type { NewsService } from '../services/newsService.ts';
 
 export interface ApiContext {
   repository: Repository;
+  /** estado da persistência principal — o painel precisa poder dizer que caiu */
+  persistence: RepositoryHandle;
   settings: SettingsService;
   market: MarketDataService;
   scanner: ScannerService;

@@ -27,3 +27,27 @@ export function automaticStrategyRejectionReason(setup: AutomaticStrategyCandida
   }
   return null;
 }
+
+/**
+ * Até quando um sinal ainda representa o que foi medido.
+ *
+ * O TTL do setup (12h por padrão) serve para o radar: um pullback continua
+ * sendo um pullback horas depois. Não serve para o robô. MOMENTUM_BURST mede
+ * uma explosão — o backtest entrou logo depois dela, e comprar a mesma
+ * explosão três horas mais tarde é outra operação, com outra expectativa, que
+ * ninguém mediu.
+ *
+ * ATENÇÃO: este número é POLÍTICA, não resultado de backtest. Foi escolhido de
+ * forma conservadora para que ligar o robô não ressuscite sinais antigos, e
+ * está isolado aqui justamente para ser calibrado quando houver amostra.
+ */
+export const MAX_SIGNAL_AGE_MS: Record<SetupType, number> = {
+  MOMENTUM_BURST: 3 * 60 * 60_000,
+  PULLBACK: 12 * 60 * 60_000,
+  BREAKOUT_RETEST: 12 * 60 * 60_000,
+  SUPPORT_REVERSAL: 12 * 60 * 60_000,
+};
+
+export function maxSignalAgeMs(setupType: SetupType): number {
+  return MAX_SIGNAL_AGE_MS[setupType] ?? 12 * 60 * 60_000;
+}

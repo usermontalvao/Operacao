@@ -52,14 +52,15 @@ export class RiskService {
   }
 
   async snapshot(capital: number, mode?: TradingMode): Promise<RiskSnapshot> {
-    const settings = this.settings.get();
+    const target = mode ?? this.settings.get().mode;
+    const policy = this.settings.forMode(target);
     const trades = await this.repository.listTrades();
     return computeRiskSnapshot({
       trades,
-      mode: mode ?? settings.mode,
+      mode: target,
       capital,
-      dailyLossLimitPercent: settings.risk.dailyLossLimitPercent,
-      guard: settings.guard,
+      dailyLossLimitPercent: policy.risk.dailyLossLimitPercent,
+      guard: policy.guard,
       prices: this.prices(trades),
       now: new Date(),
     });
@@ -72,11 +73,13 @@ export class RiskService {
     quoteAmount: number;
     netRiskReward: number;
     openTrades: Trade[];
+    /** sessão avaliada; cada modo tem o seu disjuntor */
+    mode?: TradingMode;
   }): EntryGateResult {
-    const settings = this.settings.get();
+    const guard = this.settings.forMode(input.mode ?? this.settings.get().mode).guard;
     return evaluateEntryGate({
       snapshot: input.snapshot,
-      guard: settings.guard,
+      guard,
       symbol: input.symbol,
       quoteAmount: input.quoteAmount,
       netRiskReward: input.netRiskReward,

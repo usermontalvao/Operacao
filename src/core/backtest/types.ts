@@ -53,6 +53,16 @@ export interface Outcome {
  */
 export interface ExitPolicy {
   name: string;
+  /**
+   * Teto de alvo, o MESMO que o disjuntor aplica na execução.
+   *
+   * Estava fixo em 40 dentro do simulador enquanto a execução lia o valor
+   * configurável do painel. Hoje os dois números coincidem por acaso — o
+   * padrão do disjuntor também é 40 —, mas o campo é editável na tela, e no
+   * dia em que alguém o mudasse o laboratório continuaria medindo outra coisa
+   * sem avisar. Ausente mantém 40, para não alterar estudos já rodados.
+   */
+  maxTargetPercent?: number;
   /** fração da posição vendida em cada alvo */
   scaleOut: [number, number, number];
   breakevenAfterTarget1: boolean;

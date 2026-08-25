@@ -6,7 +6,10 @@ import type {
   DashboardSnapshot,
   DecisionRecord,
   EquityPoint,
+  EntryDecisionRecord,
   FactorPerformance,
+  FunnelStage,
+  ModeSettings,
   PerformanceStats,
   Timeframe,
   Trade,
@@ -16,10 +19,12 @@ import { announceSessionLost } from './auth.ts';
 
 export interface SettingsResponse extends AppSettings {
   store: string;
+  /** o que cada modo tem guardado — risco, robô e disjuntor são de cada conta */
+  byMode: Record<AppSettings['mode'], ModeSettings>;
   binance: {
     activeEnvironment: 'production' | 'testnet';
-    production: { credentialsConfigured: boolean };
-    testnet: { credentialsConfigured: boolean };
+    production: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
+    testnet: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
   };
   universe: {
     enabled: boolean;
@@ -31,6 +36,59 @@ export interface SettingsResponse extends AppSettings {
     lastError: string | null;
     updatedAt: string | null;
   };
+}
+
+export interface BinanceBalanceSummary {
+  status: 'AVAILABLE' | 'NOT_CONFIGURED' | 'UNAVAILABLE';
+  total: number | null;
+  available: number | null;
+  locked: number | null;
+  brlRate: number | null;
+}
+
+export interface SystemHealth {
+  persistencia: { tipo: string; disponivel: boolean; erro: string | null };
+  binance: {
+    ambienteAtivo: string;
+    ambienteEsperado: string;
+    publicaDisponivel: boolean;
+    streamPrecos: string;
+  };
+  dados: {
+    tick: { level: string; ageMs: number | null; at: string | null; blocksTrading: boolean };
+    scan: { level: string; ageMs: number | null; at: string | null; blocksTrading: boolean };
+  };
+  sessoes: Array<{
+    mode: AppSettings['mode'];
+    emExibicao: boolean;
+    robo: string;
+    armadoAte: string | null;
+    posicoesAbertas: number;
+    disjuntorSilenciadoAte: string | null;
+    descansos: Array<{ symbol: string; until: string; remainingMinutes: number }>;
+  }>;
+  modoEmExibicao: AppSettings['mode'];
+  scannerAtivo: boolean;
+  versoes: { estrategia: string; score: string; risco: string; execucao: string };
+}
+
+export interface FunnelResponse {
+  steps: Array<{
+    stage: FunnelStage;
+    label: string;
+    reached: number;
+    stopped: number;
+    reasons: Array<{ code: string; count: number; message: string }>;
+  }>;
+  total: number;
+  decisions: number;
+  since: string | null;
+  mode: AppSettings['mode'];
+}
+
+export interface DecisionsResponse {
+  decisions: EntryDecisionRecord[];
+  reasons: Array<{ code: string; count: number; message: string; symbols: string[] }>;
 }
 
 export interface EquityResponse {
@@ -118,7 +176,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const text = await response.text();
-  const payload = text ? (JSON.parse(text) as unknown) : null;
+
+  /*
+   * Resposta que não é JSON não pode derrubar o tratamento de erro.
+   *
+   * O JSON.parse ficava ANTES da checagem de status, então qualquer corpo em
+   * HTML — o 404 padrão do Express, uma página de proxy, um 502 de gateway —
+   * estourava "Unexpected token '<'" e engolia tudo o que vem abaixo,
+   * inclusive o aviso de sessão vencida. O usuário via um erro de sintaxe onde
+   * a informação útil era o status.
+   */
+  let payload: unknown = null;
+  let parseFailed = false;
+  if (text) {
+    try {
+      payload = JSON.parse(text) as unknown;
+    } catch {
+      parseFailed = true;
+    }
+  }
+
+  if (parseFailed) {
+    // 401 continua avisando a sessão mesmo sem corpo em JSON
+    if (response.status === 401) announceSessionLost();
+    const pareceHtml = text.trimStart().startsWith('<');
+    if (response.status === 404 && pareceHtml) {
+      throw new Error(
+        `A rota ${path} não existe neste servidor. Se o painel foi atualizado sem reiniciar, o servidor em execução é mais antigo que a tela — feche a janela do Terminal e abra o Operacao.command de novo.`,
+      );
+    }
+    throw new Error(
+      pareceHtml
+        ? `O servidor respondeu ${response.status} em HTML, não em JSON, para ${path}`
+        : `Resposta ilegível do servidor (${response.status}) em ${path}`,
+    );
+  }
+
   if (!response.ok) {
     const detail = payload as { error?: string; retryAfterSeconds?: number } | null;
     // sessão vencida no meio do uso: a raiz devolve a tela de entrada em vez
@@ -189,6 +282,11 @@ export const api = {
     ),
   balance: () => request<AccountBalanceResponse>('/account/balance'),
   settings: () => request<SettingsResponse>('/settings'),
+  systemHealth: () => request<SystemHealth>('/system'),
+  funnel: (mode?: string) =>
+    request<FunnelResponse>(`/funnel${mode ? `?mode=${mode}` : ''}`),
+  entryDecisions: (mode?: string) =>
+    request<DecisionsResponse>(`/entry-decisions${mode ? `?mode=${mode}` : ''}`),
   equity: () => request<EquityResponse>('/equity'),
   decisions: (query = '') => request<DecisionRecord[]>(`/decisions${query}`),
   factors: (query = '') =>

@@ -1,0 +1,20 @@
+# O que NUNCA pode entrar na imagem
+.env
+.env.*
+!.env.example
+data/
+*.secret
+
+# O que só ocuparia espaço
+node_modules
+dist
+.git
+.github
+.claude
+.probe
+graphify-out
+*.log
+.DS_Store
+
+# Atalhos do macOS, sem sentido num contêiner Linux
+*.command

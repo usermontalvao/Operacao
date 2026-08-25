@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { SymbolAnalysis } from '../../core/analysis.ts';
-import type { AssetView, MarketContext, TradeSetup } from '../../core/types.ts';
+import type {
+  AssetView,
+  EntryDecision,
+  MarketContext,
+  TradeSetup,
+  TradingMode,
+} from '../../core/types.ts';
 import { evaluateMarketContext } from '../../core/engines/marketContextEngine.ts';
 import { applyPriceUpdate, generateSetups } from '../../core/engines/setupEngine.ts';
 import type { EventBus } from '../events.ts';
@@ -39,6 +45,8 @@ export class ScannerService {
   private autoTrader: AutoTrader | null = null;
   private context: MarketContext | null = null;
   private timer: NodeJS.Timeout | null = null;
+  /** fim da última varredura; a idade disto entra na saúde do sistema */
+  private lastScanAt: number | null = null;
   private scanning = false;
 
   constructor(
@@ -104,6 +112,27 @@ export class ScannerService {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** A decisão do robô para este setup, sem executar nada. */
+  async explain(setup: TradeSetup, mode: TradingMode): Promise<EntryDecision | null> {
+    if (!this.autoTrader) return null;
+    return this.autoTrader.decide(setup, mode).catch(() => null);
+  }
+
+  /**
+   * Reavalia o radar inteiro para uma sessão. Chamado quando o robô é ligado.
+   * As regras continuam sendo as mesmas: nada aqui perdoa sinal velho.
+   */
+  async reconsiderAll(mode: TradingMode): Promise<void> {
+    if (!this.autoTrader) return;
+    const setups = await this.repository.listSetups();
+    await this.autoTrader.reconsiderExisting(setups, mode);
+  }
+
+  /** Quando a última varredura TERMINOU — a idade disto é saúde do sistema. */
+  getLastScanAt(): number | null {
+    return this.lastScanAt;
   }
 
   getContext(): MarketContext | null {
@@ -225,6 +254,7 @@ export class ScannerService {
       logger.error('Falha na varredura', { error: (error as Error).message });
     } finally {
       this.scanning = false;
+      this.lastScanAt = Date.now();
     }
   }
 

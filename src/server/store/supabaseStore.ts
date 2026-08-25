@@ -1,12 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   AlertRecord,
-  AppSettings,
   AuditEntry,
   AutoTradeSettings,
   DecisionRecord,
+  EntryDecisionRecord,
+  GuardSettings,
+  PersistedSettings,
   RiskSettings,
   ScannerSettings,
+  StoredSettings,
   Trade,
   TradeSetup,
   TradingMode,
@@ -37,6 +40,24 @@ export class SupabaseStore implements Repository {
     this.client = createClient(this.url, this.serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    /*
+     * Sonda de verdade, com ida à rede.
+     *
+     * createClient não abre conexão nenhuma: ele monta um objeto e volta. Sem
+     * esta consulta o init passava sempre, a persistência era declarada
+     * "ativa" e a falha só aparecia na primeira leitura — já fora do lugar que
+     * sabe tratá-la, derrubando o processo inteiro em vez de subir o painel em
+     * modo degradado. Uma verificação que não verifica é pior que nenhuma:
+     * ela dá uma garantia falsa a quem a lê.
+     */
+    const { error } = await this.client
+      .from('app_settings')
+      .select('user_id')
+      .eq('user_id', this.userId)
+      .limit(1);
+    if (error) throw new Error(`Supabase não respondeu: ${error.message}`);
+
     logger.info('Persistência no Supabase ativa');
   }
 
@@ -45,39 +66,55 @@ export class SupabaseStore implements Repository {
     return this.client;
   }
 
-  async loadSettings(): Promise<AppSettings | null> {
+  async loadSettings(): Promise<PersistedSettings | null> {
     const { data, error } = await this.db()
       .from('app_settings')
-      .select('mode, risk, scanner, auto_trade, guard, updated_at')
+      .select('mode, risk, scanner, auto_trade, guard, by_mode, updated_at')
       .eq('user_id', this.userId)
       .maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(settingsColumnHint(error.message));
     if (!data) return null;
+    // com by_mode preenchido a linha já está no formato de hoje; sem ele, o
+    // que existe são as colunas antigas — um conjunto só para os três modos
+    if (data.by_mode) {
+      return {
+        mode: data.mode as TradingMode,
+        scanner: data.scanner as ScannerSettings,
+        byMode: data.by_mode as StoredSettings['byMode'],
+        updatedAt: data.updated_at as string,
+      };
+    }
     return {
       mode: data.mode as TradingMode,
       risk: data.risk as RiskSettings,
       scanner: data.scanner as ScannerSettings,
       autoTrade: data.auto_trade as AutoTradeSettings,
       // instalações antigas não têm a coluna: o padrão entra no lugar
-      guard: (data.guard ?? { ...DEFAULT_GUARD }) as AppSettings['guard'],
+      guard: (data.guard ?? { ...DEFAULT_GUARD }) as GuardSettings,
       updatedAt: data.updated_at as string,
     };
   }
 
-  async saveSettings(settings: AppSettings): Promise<void> {
+  async saveSettings(settings: StoredSettings): Promise<void> {
+    const active = settings.byMode[settings.mode];
     const { error } = await this.db().from('app_settings').upsert(
       {
         user_id: this.userId,
         mode: settings.mode,
-        risk: settings.risk,
         scanner: settings.scanner,
-        guard: settings.guard,
-        auto_trade: settings.autoTrade,
+        by_mode: settings.byMode,
+        // as colunas antigas continuam gravadas com o conjunto do modo ATIVO.
+        // Não são lidas quando by_mode existe: ficam para quem abre a tabela
+        // no painel do Supabase e para uma volta atrás de versão não achar a
+        // linha vazia.
+        risk: active.risk,
+        guard: active.guard,
+        auto_trade: active.autoTrade,
         updated_at: settings.updatedAt,
       },
       { onConflict: 'user_id' },
     );
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(settingsColumnHint(error.message));
   }
 
   async listSetups(): Promise<TradeSetup[]> {
@@ -234,6 +271,32 @@ export class SupabaseStore implements Repository {
       openedAt: row.opened_at as string,
       closedAt: row.closed_at as string,
     }));
+  }
+
+  /**
+   * Upsert pela assinatura da situação. A chave única (user_id, fingerprint)
+   * é o que impede a tabela de virar um diário de ticks: a mesma recusa vista
+   * de novo atualiza a linha e incrementa o contador.
+   */
+  async saveEntryDecision(decision: EntryDecisionRecord): Promise<void> {
+    const { error } = await this.db()
+      .from('entry_decisions')
+      .upsert(
+        { ...entryDecisionToRow(decision), user_id: this.userId },
+        { onConflict: 'user_id,fingerprint' },
+      );
+    if (error) throw new Error(error.message);
+  }
+
+  async listEntryDecisions(limit: number): Promise<EntryDecisionRecord[]> {
+    const { data, error } = await this.db()
+      .from('entry_decisions')
+      .select('*')
+      .eq('user_id', this.userId)
+      .order('last_seen_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(rowToEntryDecision);
   }
 
   async appendAudit(entry: AuditEntry): Promise<void> {
@@ -429,5 +492,72 @@ function rowToTrade(row: Row): Trade {
     openedAt: row.opened_at as string,
     closedAt: (row.closed_at as string | null) ?? null,
     updatedAt: row.updated_at as string,
+  };
+}
+
+/**
+ * O erro cru de coluna ausente ("Could not find the 'by_mode' column") não diz
+ * o que fazer, e é exatamente o que aparece quando o código novo sobe antes da
+ * migration. Sem esta dica o painel só mostra "erro interno" e a configuração
+ * some sem explicação.
+ */
+function settingsColumnHint(message: string): string {
+  if (message.includes('by_mode')) {
+    return `${message} — rode "npm run migrar" para criar a coluna by_mode em app_settings`;
+  }
+  return message;
+}
+
+function entryDecisionToRow(decision: EntryDecisionRecord): Record<string, unknown> {
+  return {
+    id: decision.id,
+    setup_id: decision.setupId,
+    symbol: decision.symbol,
+    timeframe: decision.timeframe,
+    setup_type: decision.setupType,
+    mode: decision.mode,
+    score: decision.score,
+    allowed: decision.allowed,
+    code: decision.code,
+    stage: decision.stage,
+    blockers: decision.blockers,
+    warnings: decision.warnings,
+    current_price: decision.currentPrice,
+    entry_low: decision.entryLow,
+    entry_high: decision.entryHigh,
+    distance_to_entry_percent: decision.distanceToEntryPercent,
+    fingerprint: decision.fingerprint,
+    occurrences: decision.occurrences,
+    first_seen_at: decision.firstSeenAt,
+    last_seen_at: decision.lastSeenAt,
+    policy: decision.policy,
+  };
+}
+
+function rowToEntryDecision(row: Record<string, unknown>): EntryDecisionRecord {
+  return {
+    id: row.id as string,
+    setupId: row.setup_id as string,
+    symbol: row.symbol as string,
+    timeframe: row.timeframe as EntryDecisionRecord['timeframe'],
+    setupType: row.setup_type as EntryDecisionRecord['setupType'],
+    mode: row.mode as EntryDecisionRecord['mode'],
+    score: Number(row.score ?? 0),
+    allowed: Boolean(row.allowed),
+    code: row.code as EntryDecisionRecord['code'],
+    stage: row.stage as EntryDecisionRecord['stage'],
+    blockers: (row.blockers ?? []) as EntryDecisionRecord['blockers'],
+    warnings: (row.warnings ?? []) as EntryDecisionRecord['warnings'],
+    currentPrice: Number(row.current_price ?? 0),
+    entryLow: Number(row.entry_low ?? 0),
+    entryHigh: Number(row.entry_high ?? 0),
+    distanceToEntryPercent: Number(row.distance_to_entry_percent ?? 0),
+    fingerprint: row.fingerprint as string,
+    occurrences: Number(row.occurrences ?? 1),
+    firstSeenAt: row.first_seen_at as string,
+    lastSeenAt: row.last_seen_at as string,
+    // decisão gravada antes do versionamento fica com política ausente, e
+    // ausente é o valor honesto: preencher com a política de hoje mentiria
+    policy: (row.policy ?? null) as EntryDecisionRecord['policy'],
   };
 }

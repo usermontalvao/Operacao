@@ -8,6 +8,18 @@ import type { PostMortem } from './journal/postMortem.ts';
 import type { GuardSettings } from './risk/governor.ts';
 
 export type { GuardSettings };
+import type { EntryDecision } from './decision/types.ts';
+export type {
+  DecisionCode,
+  DecisionReason,
+  DecisionRule,
+  EntryDecision,
+  FunnelStage,
+} from './decision/types.ts';
+export type { EntryDecisionRecord } from './decision/record.ts';
+export type { PolicySnapshot } from './policy/snapshot.ts';
+export type { RiskSizingResult, SizingLimit } from './risk/sizeByRisk.ts';
+export type { FreshnessReport, FreshnessLevel } from './health/freshness.ts';
 
 export type Timeframe = '15m' | '1h' | '4h' | '1d';
 
@@ -372,15 +384,60 @@ export interface AutoTradeSettings {
   maxNotionalPerTrade: number;
 }
 
-export interface AppSettings {
+/**
+ * O que pertence a UMA conta.
+ *
+ * Demo e conta real não compartilham nada que decida quanto se arrisca: o
+ * capital, o robô e o disjuntor são de cada modo. Trocar de PAPER para LIVE
+ * costumava carregar junto o robô ligado do modo anterior — a conta real
+ * herdava um interruptor que ninguém tinha girado ali.
+ */
+export interface ModeSettings {
+  risk: RiskSettings;
+  autoTrade: AutoTradeSettings;
+  /** custos reais de execução e disjuntor de risco */
+  guard: GuardSettings;
+}
+
+/**
+ * Visão resolvida: o modo ativo já achatado. É o que o motor e a tela leem —
+ * ninguém além do SettingsService precisa saber que existem três conjuntos.
+ */
+export interface AppSettings extends ModeSettings {
+  mode: TradingMode;
+  scanner: ScannerSettings;
+  updatedAt: string;
+}
+
+/**
+ * O que vai para o disco: um conjunto por modo, mais o scanner, que é comum.
+ *
+ * A varredura fica de fora de propósito. Quais moedas olhar e em que
+ * timeframe não move dinheiro nenhum, e refazer a watchlist a cada troca de
+ * conta seria trabalho repetido sem ganho de segurança.
+ */
+export interface StoredSettings {
+  mode: TradingMode;
+  scanner: ScannerSettings;
+  byMode: Record<TradingMode, ModeSettings>;
+  updatedAt: string;
+}
+
+/**
+ * Formato gravado antes da separação por modo: um conjunto só para as três
+ * contas. Ainda é lido no boot para converter o que já está no disco.
+ */
+export interface LegacySettings {
   mode: TradingMode;
   risk: RiskSettings;
   scanner: ScannerSettings;
   autoTrade: AutoTradeSettings;
-  /** custos reais de execução e disjuntor de risco */
-  guard: GuardSettings;
+  guard?: GuardSettings;
   updatedAt: string;
 }
+
+/** o que o repositório devolve: pode ser qualquer um dos dois formatos */
+export type PersistedSettings = StoredSettings | LegacySettings;
 
 export interface PositionSizing {
   quantity: number;
@@ -600,6 +657,8 @@ export interface AssetView {
 }
 
 export interface DashboardSnapshot {
+  /** decisão do robô por setup, na sessão em exibição; vazio em modo degradado */
+  decisions?: Record<string, EntryDecision>;
   mode: TradingMode;
   connection: ConnectionState;
   marketContext: MarketContext | null;

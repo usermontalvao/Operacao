@@ -3,6 +3,7 @@ import { Header } from './components/Header.tsx';
 import { NavTabs, type Tab } from './components/NavTabs.tsx';
 import { AlertToasts } from './components/AlertToasts.tsx';
 import { SetupSheet } from './components/SetupSheet.tsx';
+import { Diagnostico } from './pages/Diagnostico.tsx';
 import { BuyModal } from './components/BuyModal.tsx';
 import { Dashboard } from './pages/Dashboard.tsx';
 import { History } from './pages/History.tsx';
@@ -206,6 +207,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
           <Dashboard
             assets={live.snapshot?.assets ?? []}
             setups={setups}
+            decisions={live.decisions}
             prices={live.prices}
             openTrades={live.trades}
             openSymbols={openSymbols}
@@ -214,6 +216,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
             onGoToWallet={() => setTab('HISTORICO')}
           />
         ) : null}
+        {tab === 'DIAGNOSTICO' ? <Diagnostico /> : null}
         {tab === 'HISTORICO' ? <History /> : null}
         {tab === 'DESEMPENHO' ? <Performance /> : null}
         {tab === 'AJUSTES' ? (
@@ -239,6 +242,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
           onBuy={setBuying}
           onIgnore={(setup) => void ignore(setup)}
           inTrade={openSymbols.has(currentSetup.symbol)}
+          decision={live.decisions[currentSetup.id]}
         />
       ) : null}
 

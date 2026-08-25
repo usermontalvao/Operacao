@@ -1,4 +1,5 @@
-import type { AssetView, Trade, TradeSetup } from '../lib/types.ts';
+import type { AssetView, EntryDecision, Trade, TradeSetup } from '../lib/types.ts';
+import { DecisionBadge } from '../components/DecisionPanel.tsx';
 import { PriceLadder } from '../components/PriceLadder.tsx';
 import { SymbolButton } from '../components/SymbolButton.tsx';
 import {
@@ -15,6 +16,8 @@ import {
 interface DashboardProps {
   assets: AssetView[];
   setups: TradeSetup[];
+  /** decisão do robô por setup, calculada no servidor */
+  decisions: Record<string, EntryDecision>;
   prices: Record<string, number>;
   openTrades: Trade[];
   /** ativos com posição em andamento */
@@ -40,7 +43,7 @@ const TREND_LABEL: Record<string, string> = {
  * varrer com o olho.
  */
 export function Dashboard(props: DashboardProps) {
-  const { assets, setups, prices, openTrades, openSymbols, binanceAvailable, onOpenSetup, onGoToWallet } =
+  const { assets, setups, decisions, prices, openTrades, openSymbols, binanceAvailable, onOpenSetup, onGoToWallet } =
     props;
   const visible = setups.filter((setup) => setup.ignoredAt === null);
 
@@ -96,6 +99,7 @@ export function Dashboard(props: DashboardProps) {
                 setup={setup}
                 current={prices[setup.symbol] ?? setup.currentPrice}
                 inTrade={openSymbols.has(setup.symbol)}
+                decision={decisions[setup.id]}
                 first={index === 0}
                 onOpen={onOpenSetup}
               />
@@ -145,12 +149,14 @@ function SetupRow({
   setup,
   current,
   inTrade,
+  decision,
   first,
   onOpen,
 }: {
   setup: TradeSetup;
   current: number;
   inTrade: boolean;
+  decision: EntryDecision | undefined;
   first: boolean;
   onOpen: (setup: TradeSetup) => void;
 }) {
@@ -181,6 +187,13 @@ function SetupRow({
         <span className="hidden text-[11px] text-terminal-muted sm:inline">
           {SETUP_LABEL[setup.setupType]} · {setup.timeframe}
         </span>
+
+        {/*
+          Por que o robô não entrou, na própria linha. Antes o card mostrava
+          score e R/R altos e nenhuma pista de que a compra fora recusada —
+          o usuário via "95" e concluía que o sistema estava quebrado.
+        */}
+        {!inTrade && !bought ? <DecisionBadge decision={decision} /> : null}
 
         <span className="ml-auto flex items-center gap-3 text-[11px] tabular text-terminal-muted">
           <span>R/R 1:{setup.riskReward.toFixed(1)}</span>

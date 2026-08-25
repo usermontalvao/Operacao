@@ -2,9 +2,11 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   AlertRecord,
-  AppSettings,
   AuditEntry,
   DecisionRecord,
+  EntryDecisionRecord,
+  PersistedSettings,
+  StoredSettings,
   Trade,
   TradeSetup,
 } from '../../core/types.ts';
@@ -12,12 +14,14 @@ import { logger } from '../logger.ts';
 import { LIMITS, type Repository } from './repository.ts';
 
 interface Collections {
-  settings: AppSettings | null;
+  /** pode estar no formato antigo até o SettingsService converter no boot */
+  settings: PersistedSettings | null;
   setups: TradeSetup[];
   trades: Trade[];
   alerts: AlertRecord[];
   audit: AuditEntry[];
   decisions: DecisionRecord[];
+  entryDecisions: EntryDecisionRecord[];
 }
 
 /**
@@ -33,6 +37,7 @@ export class JsonStore implements Repository {
     alerts: [],
     audit: [],
     decisions: [],
+    entryDecisions: [],
   };
   private dirty = new Set<keyof Collections>();
   private flushTimer: NodeJS.Timeout | null = null;
@@ -43,19 +48,20 @@ export class JsonStore implements Repository {
 
   async init(): Promise<void> {
     await mkdir(this.directory, { recursive: true });
-    this.data.settings = await this.read<AppSettings | null>('settings', null);
+    this.data.settings = await this.read<PersistedSettings | null>('settings', null);
     this.data.setups = await this.read<TradeSetup[]>('setups', []);
     this.data.trades = await this.read<Trade[]>('trades', []);
     this.data.alerts = await this.read<AlertRecord[]>('alerts', []);
     this.data.audit = await this.read<AuditEntry[]>('audit', []);
     this.data.decisions = await this.read<DecisionRecord[]>('decisions', []);
+    this.data.entryDecisions = await this.read<EntryDecisionRecord[]>('entryDecisions', []);
   }
 
-  async loadSettings(): Promise<AppSettings | null> {
+  async loadSettings(): Promise<PersistedSettings | null> {
     return this.data.settings;
   }
 
-  async saveSettings(settings: AppSettings): Promise<void> {
+  async saveSettings(settings: StoredSettings): Promise<void> {
     this.data.settings = settings;
     this.markDirty('settings');
   }
@@ -106,6 +112,23 @@ export class JsonStore implements Repository {
 
   async listDecisions(): Promise<DecisionRecord[]> {
     return this.data.decisions;
+  }
+
+  async saveEntryDecision(decision: EntryDecisionRecord): Promise<void> {
+    // upsert pela assinatura: repetição atualiza a linha, não cria outra
+    const index = this.data.entryDecisions.findIndex(
+      (item) => item.fingerprint === decision.fingerprint,
+    );
+    if (index >= 0) this.data.entryDecisions[index] = decision;
+    else this.data.entryDecisions.unshift(decision);
+    if (this.data.entryDecisions.length > LIMITS.entryDecisions) {
+      this.data.entryDecisions.length = LIMITS.entryDecisions;
+    }
+    this.markDirty('entryDecisions');
+  }
+
+  async listEntryDecisions(limit: number): Promise<EntryDecisionRecord[]> {
+    return this.data.entryDecisions.slice(0, limit);
   }
 
   async appendAudit(entry: AuditEntry): Promise<void> {

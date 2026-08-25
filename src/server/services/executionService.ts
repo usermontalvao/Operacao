@@ -1,14 +1,21 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { AppSettings, SymbolFilters, Trade, TradeSetup, TradingMode } from '../../core/types.ts';
+import type {
+  AppSettings,
+  EntryDecision,
+  SymbolFilters,
+  Trade,
+  TradeSetup,
+  TradingMode,
+} from '../../core/types.ts';
 import { automaticStrategyRejectionReason } from '../../core/strategy/automationPolicy.ts';
 import {
-  computeSizing,
   formatPrice,
   formatQuantity,
   round,
   validateOrder,
 } from '../../core/risk/index.ts';
 import type { SizingResult } from '../../core/risk/index.ts';
+import { sizeByRisk, type RiskSizingResult } from '../../core/risk/sizeByRisk.ts';
 import { netRiskReward } from '../../core/risk/costs.ts';
 import { sanitizeTargets } from '../../core/risk/stops.ts';
 import { config, environmentForMode, readCredentials } from '../config.ts';
@@ -77,6 +84,8 @@ export interface PreviewResult {
   mode: TradingMode;
   entryPrice: number;
   currentPrice: number;
+  /** a conta do risco por extenso: quanto se perde no stop e quem limitou o tamanho */
+  riskSizing: RiskSizingResult;
   capital: number;
   available: number;
   brlRate: number | null;
@@ -158,14 +167,19 @@ export class ExecutionService {
     this.onBought = handler;
   }
 
-  /** Capital sempre em USDT — o valor em reais é só apresentação. */
-  async getCapital(): Promise<CapitalView> {
-    const settings = this.settings.get();
+  /**
+   * Capital sempre em USDT — o valor em reais é só apresentação.
+   *
+   * Recebe o modo porque cada sessão tem a sua carteira: o robô do demo
+   * continua operando o capital do demo enquanto o usuário olha a conta real.
+   */
+  async getCapital(mode: TradingMode = this.settings.get().mode): Promise<CapitalView> {
+    const policy = this.settings.forMode(mode);
     const brlRate = await this.dependencies.loadBrlRate();
 
-    if (settings.mode === 'PAPER') {
+    if (mode === 'PAPER') {
       const trades = await this.repository.listTrades();
-      const base = this.paperCapitalInUsdt(settings.risk.paperCapital, settings.risk.paperCapitalCurrency, brlRate);
+      const base = this.paperCapitalInUsdt(policy.risk.paperCapital, policy.risk.paperCapitalCurrency, brlRate);
       const balance = paperBalance(trades, base);
       return {
         capital: balance.capital,
@@ -180,7 +194,7 @@ export class ExecutionService {
     return {
       capital: round(usdt.free + usdt.locked, 2),
       available: round(usdt.free, 2),
-      source: environmentForMode(settings.mode).name === 'testnet' ? 'BINANCE_TESTNET' : 'BINANCE',
+      source: environmentForMode(mode).name === 'testnet' ? 'BINANCE_TESTNET' : 'BINANCE',
       currency: 'USDT',
       brlRate,
     };
@@ -197,13 +211,17 @@ export class ExecutionService {
   }
 
   /** Passo 1 do fluxo de compra: mostra a conta exata antes de qualquer ordem. */
-  async preview(request: PreviewRequest, setup: TradeSetup, automatic = false): Promise<PreviewResult> {
-    const settings = this.settings.get();
-    const mode = settings.mode;
+  async preview(
+    request: PreviewRequest,
+    setup: TradeSetup,
+    automatic = false,
+    mode: TradingMode = this.settings.get().mode,
+  ): Promise<PreviewResult> {
+    const policy = this.settings.forMode(mode);
     const currentPrice = this.market.getPrice(setup.symbol) ?? setup.currentPrice;
     const entryPrice = clampToZone(currentPrice, setup);
 
-    const capitalView = await this.getCapital();
+    const capitalView = await this.getCapital(mode);
     const requested =
       request.quoteAmount ??
       (request.percentOfCapital
@@ -215,17 +233,18 @@ export class ExecutionService {
       entryPrice,
       stopLoss: setup.stopLoss,
       target: setup.target1,
-      costs: settings.guard,
+      costs: policy.guard,
     });
 
-    const snapshot = await this.risk.snapshot(capitalView.capital);
-    const openTrades = this.paper.getOpenTrades();
+    const snapshot = await this.risk.snapshot(capitalView.capital, mode);
+    const openTrades = this.paper.getOpenTrades().filter((trade) => trade.mode === mode);
     const firstGate = this.risk.gate({
       snapshot,
       symbol: setup.symbol,
       quoteAmount: requested,
       netRiskReward: netRR,
       openTrades,
+      mode,
     });
 
     // mercado nervoso não bloqueia a compra, encolhe a compra
@@ -239,25 +258,48 @@ export class ExecutionService {
             quoteAmount,
             netRiskReward: netRR,
             openTrades,
+            mode,
           })
         : firstGate;
-
-    const sizing = computeSizing(
-      { setup, quoteAmount, entryPrice, capital: capitalView.capital },
-      settings.risk,
-    );
 
     let filters: SymbolFilters | null = null;
     const filterErrors: string[] = [];
     try {
       filters = await this.dependencies.loadFilters(setup.symbol);
-      if (filters) {
-        const validation = validateOrder(filters, sizing.quantity, entryPrice);
-        filterErrors.push(...validation.errors);
-        if (validation.valid) sizing.quantity = validation.quantity;
-      }
     } catch (error) {
       filterErrors.push(`Não foi possível validar os filtros da Binance: ${(error as Error).message}`);
+    }
+
+    /*
+     * Tamanho pelo PREJUÍZO no stop, não pelo valor investido.
+     *
+     * O orçamento é riskPerTradePercent do patrimônio, já descontadas taxa e
+     * escorregamento. Tudo o mais — percentual do capital, teto por ordem,
+     * saldo, passo do lote — entra como limite. Antes o cálculo partia do
+     * valor a investir e, quando o risco estourava, o excesso virava um aviso
+     * que não impedia nada: com stop largo, "10% do capital" arriscava vários
+     * por cento sem que ninguém visse.
+     */
+    const sized = sizeByRisk({
+      entryPrice,
+      stopLoss: setup.stopLoss,
+      equity: snapshot.equity > 0 ? snapshot.equity : capitalView.capital,
+      available: capitalView.available,
+      riskPerTradePercent: policy.risk.riskPerTradePercent,
+      maxPositionPercent: policy.risk.maxPositionPercent,
+      maxNotional: automatic ? policy.autoTrade.maxNotionalPerTrade : Number.POSITIVE_INFINITY,
+      costs: policy.guard,
+      requestedQuote: automatic ? undefined : quoteAmount > 0 ? quoteAmount : undefined,
+      sizeFactor: gate.sizeFactor,
+      stepSize: filters?.stepSize,
+    });
+
+    const sizing = toSizingResult(sized, setup, entryPrice, capitalView.capital, policy.risk);
+
+    if (filters) {
+      const validation = validateOrder(filters, sizing.quantity, entryPrice);
+      filterErrors.push(...validation.errors);
+      if (validation.valid) sizing.quantity = validation.quantity;
     }
 
     const blockers = [
@@ -293,6 +335,7 @@ export class ExecutionService {
       available: capitalView.available,
       brlRate: capitalView.brlRate,
       sizing,
+      riskSizing: sized,
       filters,
       filterErrors,
       blockers,
@@ -368,11 +411,15 @@ export class ExecutionService {
   }
 
   /** Passo 2: só executa com o token da confirmação que o usuário aprovou. */
-  async execute(request: ExecuteRequest, setup: TradeSetup): Promise<Trade> {
+  async execute(
+    request: ExecuteRequest,
+    setup: TradeSetup,
+    mode: TradingMode = this.settings.get().mode,
+  ): Promise<Trade> {
     const existing = this.inFlight.get(request.idempotencyKey);
     if (existing) return existing;
 
-    const promise = this.runExecution(request, setup);
+    const promise = this.runExecution(request, setup, mode);
     this.inFlight.set(request.idempotencyKey, promise);
     try {
       return await promise;
@@ -389,18 +436,27 @@ export class ExecutionService {
    * sozinho. Trava só na interface é trava que um clique desfaz; trava só no
    * servidor é trava que ninguém consegue conferir na hora.
    */
-  async executeAutomatic(setup: TradeSetup): Promise<Trade | null> {
-    const settings = this.settings.get();
-    if (!settings.autoTrade.enabled) return null;
+  /**
+   * Compra automática de UMA sessão.
+   *
+   * Recebe o modo e a decisão já tomada: quem decide é o AutoTrader, com a
+   * função pura de decisão, e aqui só se executa. As checagens que sobraram
+   * são defesa em profundidade — uma chamada futura que pule o AutoTrader não
+   * pode contornar a estratégia validada nem a trava da conta real.
+   */
+  async executeAutomatic(
+    setup: TradeSetup,
+    mode: TradingMode = this.settings.get().mode,
+    decision?: EntryDecision,
+  ): Promise<Trade | null> {
+    const policy = this.settings.forMode(mode);
+    if (!policy.autoTrade.enabled) return null;
 
-    // Defesa em profundidade: hoje este método é chamado pelo AutoTrader, que
-    // já aplica a política. A checagem fica também no caminho da ordem para
-    // uma chamada futura ou direta não conseguir contornar a estratégia.
     const strategyRejection = automaticStrategyRejectionReason(setup);
     if (strategyRejection !== null) {
       await this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
-        mode: settings.mode,
+        mode,
         symbol: setup.symbol,
         setupId: setup.id,
         detail: { blockers: [strategyRejection] },
@@ -408,18 +464,21 @@ export class ExecutionService {
       return null;
     }
 
-    // nunca empilha: mesmo setup ou mesmo ativo já em carteira encerra aqui
+    // nunca empilha: mesmo setup ou mesmo ativo já em carteira NESTA sessão
     const alreadyOpen = this.paper
       .getOpenTrades()
-      .some((trade) => trade.setupId === setup.id || trade.symbol === setup.symbol);
+      .some(
+        (trade) =>
+          trade.mode === mode && (trade.setupId === setup.id || trade.symbol === setup.symbol),
+      );
     if (alreadyOpen) return null;
 
-    if (settings.mode === 'LIVE') {
-      const denial = liveAutoTradeDenial(settings);
+    if (mode === 'LIVE') {
+      const denial = liveAutoTradeDenial(policy);
       if (denial !== null) {
         await this.audit.record({
           action: 'AUTO_TRADE_BLOCKED_LIVE',
-          mode: settings.mode,
+          mode,
           symbol: setup.symbol,
           setupId: setup.id,
           detail: { motivo: denial },
@@ -428,20 +487,21 @@ export class ExecutionService {
       }
     }
 
-    // teto absoluto por ordem: o percentual do capital pode crescer sozinho
-    // quando a carteira cresce; este número não
-    const capitalView = await this.getCapital();
-    const desired = round((capitalView.available * settings.autoTrade.percentOfCapital) / 100, 2);
-    const quoteAmount = Math.min(desired, settings.autoTrade.maxNotionalPerTrade);
-
-    const preview = await this.preview({ setupId: setup.id, quoteAmount }, setup, true);
+    // O tamanho sai do preview, que dimensiona pelo risco. Nada de calcular
+    // aqui um valor a investir: era exatamente esse caminho paralelo que
+    // deixava o risco por operação virar um aviso sem efeito.
+    const preview = await this.preview({ setupId: setup.id }, setup, true, mode);
     if (!preview.canExecute || !preview.confirmationToken) {
       await this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
-        mode: settings.mode,
+        mode,
         symbol: setup.symbol,
         setupId: setup.id,
-        detail: { blockers: preview.blockers, filterErrors: preview.filterErrors },
+        detail: {
+          blockers: preview.blockers,
+          filterErrors: preview.filterErrors,
+          risco: preview.riskSizing.blockReason,
+        },
       });
       return null;
     }
@@ -450,14 +510,18 @@ export class ExecutionService {
       {
         setupId: setup.id,
         confirmationToken: preview.confirmationToken,
-        idempotencyKey: `auto${setup.id.replace(/-/g, '').slice(0, 20)}`,
+        // a chave inclui o modo: a mesma oportunidade comprada em duas sessões
+        // são duas ordens diferentes, e compartilhar a chave faria a segunda
+        // devolver silenciosamente a operação da primeira
+        idempotencyKey: `auto${mode.slice(0, 2)}${setup.id.replace(/-/g, '').slice(0, 18)}`,
       },
       setup,
+      mode,
     );
 
     await this.audit.record({
       action: 'AUTO_TRADE_EXECUTED',
-      mode: settings.mode,
+      mode,
       symbol: setup.symbol,
       setupId: setup.id,
       tradeId: trade.id,
@@ -466,6 +530,10 @@ export class ExecutionService {
         riskRewardLiquido: preview.netRiskReward,
         quantidade: trade.requestedQuantity,
         valor: trade.notional,
+        riscoNoStop: preview.riskSizing.riskAmount,
+        riscoPercentDoPatrimonio: preview.riskSizing.riskPercentOfEquity,
+        limitouOTamanho: preview.riskSizing.boundBy,
+        decisao: decision?.code ?? 'ALLOWED',
       },
     });
     // o setup precisa sair do radar aqui também, senão ele expira sozinho mais
@@ -474,9 +542,12 @@ export class ExecutionService {
     return trade;
   }
 
-  private async runExecution(request: ExecuteRequest, setup: TradeSetup): Promise<Trade> {
-    const settings = this.settings.get();
-    const mode = settings.mode;
+  private async runExecution(
+    request: ExecuteRequest,
+    setup: TradeSetup,
+    mode: TradingMode = this.settings.get().mode,
+  ): Promise<Trade> {
+    const settings = { ...this.settings.get(), ...this.settings.forMode(mode), mode };
     const clientOrderId = buildClientOrderId(request.idempotencyKey);
 
     // clique duplo: a operação já existe, devolve a mesma em vez de duplicar
@@ -742,7 +813,9 @@ export class ExecutionService {
  * Ordem proposital: a trava do servidor é a primeira, porque é a única que a
  * interface não consegue desfazer sozinha.
  */
-export function liveAutoTradeDenial(settings: AppSettings): string | null {
+export function liveAutoTradeDenial(
+  settings: { autoTrade: AppSettings['autoTrade'] },
+): string | null {
   if (!config.allowLiveAutoTrade) {
     return 'ALLOW_LIVE_AUTOTRADE não está ligado no .env do servidor';
   }
@@ -767,4 +840,62 @@ function clampToZone(price: number, setup: TradeSetup): number {
 export function buildClientOrderId(idempotencyKey: string): string {
   const safe = idempotencyKey.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24);
   return `csh${safe}`.slice(0, 36);
+}
+
+const LIMIT_LABEL: Record<RiskSizingResult['boundBy'], string> = {
+  RISK_BUDGET: 'orçamento de risco por operação',
+  MAX_POSITION_PERCENT: 'percentual máximo do capital por posição',
+  MAX_NOTIONAL: 'teto absoluto por ordem',
+  AVAILABLE_BALANCE: 'saldo disponível',
+  REQUESTED: 'valor pedido',
+  EXCHANGE_STEP: 'passo de lote da Binance',
+};
+
+/**
+ * Adapta o dimensionamento por risco ao formato que a tela já consome.
+ *
+ * Repare que não existe mais um aviso de "risco acima do teto": com o tamanho
+ * saindo DO orçamento, estourá-lo deixou de ser possível por construção. A
+ * checagem que sobrou é defensiva — se algum dia alguém trocar a conta e o
+ * risco passar do limite, isso vira bloqueio, não recado.
+ */
+function toSizingResult(
+  sized: RiskSizingResult,
+  setup: TradeSetup,
+  entryPrice: number,
+  capital: number,
+  risk: AppSettings['risk'],
+): SizingResult {
+  const profit = (target: number | null): number | null =>
+    target === null ? null : round(sized.quantity * (target - entryPrice), 2);
+
+  const blockReasons: string[] = [];
+  if (sized.blocked && sized.blockReason !== null) blockReasons.push(sized.blockReason);
+  if (sized.riskPercentOfEquity > risk.riskPerTradePercent + 0.01) {
+    blockReasons.push(
+      `Risco de ${sized.riskPercentOfEquity.toFixed(2)}% do patrimônio acima do teto de ${risk.riskPerTradePercent}% por operação`,
+    );
+  }
+
+  const warnings: string[] = [];
+  if (!sized.blocked && sized.boundBy !== 'RISK_BUDGET') {
+    warnings.push(
+      `Tamanho limitado pelo ${LIMIT_LABEL[sized.boundBy]}, não pelo risco: a posição arrisca ${sized.riskPercentOfEquity.toFixed(2)}% do patrimônio`,
+    );
+  }
+
+  return {
+    quantity: sized.quantity,
+    entryPrice: round(entryPrice, 8),
+    notional: sized.notional,
+    riskAmount: sized.riskAmount,
+    riskPercentOfCapital: sized.riskPercentOfEquity,
+    potentialProfitTarget1: profit(setup.target1) ?? 0,
+    potentialProfitTarget2: profit(setup.target2),
+    potentialProfitTarget3: profit(setup.target3),
+    riskReward: setup.riskReward,
+    warnings,
+    blocked: blockReasons.length > 0,
+    blockReasons,
+  };
 }

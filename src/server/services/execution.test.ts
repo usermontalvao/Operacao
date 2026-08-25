@@ -159,7 +159,18 @@ test('preview em percentual do capital respeita o saldo disponível', async (t) 
     makeSetup(),
   );
   assert.equal(preview.available, 1000);
-  assert.equal(preview.sizing.notional, 100);
+
+  // 10% de 1000 são 100 USDT, mas o passo de lote (0,1) arredonda a quantidade
+  // para baixo — e o valor tem de acompanhar. Antes o notional continuava
+  // dizendo 100 enquanto a quantidade já era a arredondada: dois números na
+  // mesma tela que não fechavam entre si.
+  assert.ok(preview.sizing.notional <= 100, 'nunca acima do pedido');
+  assert.ok(preview.sizing.notional > 99, 'nem tão abaixo a ponto de indicar outro limite');
+  assert.equal(
+    preview.sizing.notional,
+    Math.round(preview.sizing.quantity * preview.entryPrice * 100) / 100,
+    'valor e quantidade precisam descrever a MESMA ordem',
+  );
 });
 
 test('ordem só é criada com o token da confirmação que o usuário aprovou', async (t) => {

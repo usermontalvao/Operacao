@@ -1,4 +1,4 @@
-export type Tab = 'RADAR' | 'HISTORICO' | 'DESEMPENHO' | 'AJUSTES' | 'DIARIO';
+export type Tab = 'RADAR' | 'HISTORICO' | 'DESEMPENHO' | 'AJUSTES' | 'DIARIO' | 'DIAGNOSTICO';
 
 interface TabDefinition {
   id: Tab;
@@ -35,6 +35,12 @@ const JournalIcon = ({ className }: { className: string }) => (
   </svg>
 );
 
+const PulseIcon = ({ className }: { className: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
+    <path d="M3 12h4l2.5-6 4 12 2.5-6h5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 const GearIcon = ({ className }: { className: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
     <circle cx="12" cy="12" r="3.2" />
@@ -51,6 +57,7 @@ export const TABS: TabDefinition[] = [
   { id: 'DESEMPENHO', label: 'Carteira', icon: ChartIcon },
   { id: 'AJUSTES', label: 'Ajustes', icon: GearIcon },
   { id: 'DIARIO', label: 'Diário', icon: JournalIcon },
+  { id: 'DIAGNOSTICO', label: 'Diagnóstico', icon: PulseIcon },
 ];
 
 /**

@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type RiskResponse, type SettingsResponse } from '../lib/api.ts';
+import {
+  api,
+  type BinanceBalanceSummary,
+  type RiskResponse,
+  type SettingsResponse,
+} from '../lib/api.ts';
 import { SymbolButton } from '../components/SymbolButton.tsx';
 import type {
   AutoTradeSettings,
   GuardSettings,
+  ModeSettings,
   RiskSettings,
   TradingMode,
   UniverseMode,
 } from '../lib/types.ts';
-import { brl, usd } from '../lib/format.ts';
+import { brl, quantity, usd } from '../lib/format.ts';
 import { logout, readSession, type SessionState } from '../lib/auth.ts';
 import { useResource } from '../lib/resource.ts';
 import { buscarAjustes, chaveAjustes } from '../lib/telas.ts';
@@ -40,13 +46,36 @@ const GUARD_FIELDS: Array<{ key: keyof GuardSettings; label: string; hint: strin
   { key: 'minQuoteVolume24h', label: 'Volume mínimo para operar', hint: 'Sair de par ilíquido custa caro', step: 1_000_000 },
 ];
 
-const AUTO_FIELDS: Array<{ key: keyof AutoTradeSettings; label: string; hint: string; step: number }> = [
-  { key: 'minimumScore', label: 'Score mínimo para comprar', hint: 'O robô só entra acima disto', step: 1 },
-  { key: 'minimumRiskReward', label: 'R/R mínimo do robô', hint: 'Costuma ser mais exigente que o do radar', step: 0.1 },
-  { key: 'percentOfCapital', label: 'Percentual do capital por compra', hint: 'Tamanho de cada posição automática', step: 1 },
-  { key: 'maxConcurrentTrades', label: 'Posições automáticas simultâneas', hint: 'Teto de exposição do robô', step: 1 },
-  { key: 'cooldownMinutes', label: 'Descanso por ativo (min)', hint: 'Evita recomprar o mesmo ativo em sequência', step: 15 },
-  { key: 'maxNotionalPerTrade', label: 'Teto por ordem (USDT)', hint: 'Vale mesmo que o percentual peça mais', step: 5 },
+/*
+ * Os limites vão declarados junto com o campo.
+ *
+ * O servidor já os aplicava, mas só na hora de salvar — e o formulário do robô
+ * manda os seis números de uma vez, então um valor recusado travava todos sem
+ * dizer qual. Com min/max no próprio input, o navegador avisa enquanto se
+ * digita, e o servidor continua sendo a palavra final.
+ */
+const AUTO_FIELDS: Array<{
+  key: keyof AutoTradeSettings;
+  label: string;
+  hint: string;
+  step: number;
+  min: number;
+  max: number;
+}> = [
+  {
+    key: 'minimumScore',
+    label: 'Score mínimo para comprar',
+    // o piso não é preferência: é o resultado que sustenta a automação
+    hint: 'Piso de 90 medido no laboratório — abaixo disso, só compra manual',
+    step: 1,
+    min: 90,
+    max: 100,
+  },
+  { key: 'minimumRiskReward', label: 'R/R mínimo do robô', hint: 'Costuma ser mais exigente que o do radar', step: 0.1, min: 1, max: 10 },
+  { key: 'percentOfCapital', label: 'Percentual do capital por compra', hint: 'Teto de tamanho — quem manda é o risco por operação', step: 1, min: 1, max: 100 },
+  { key: 'maxConcurrentTrades', label: 'Posições automáticas simultâneas', hint: 'Teto de exposição do robô', step: 1, min: 1, max: 20 },
+  { key: 'cooldownMinutes', label: 'Descanso por ativo (min)', hint: 'Evita recomprar o mesmo ativo em sequência', step: 15, min: 5, max: 1440 },
+  { key: 'maxNotionalPerTrade', label: 'Teto por ordem (USDT)', hint: 'Vale mesmo que o percentual peça mais', step: 5, min: 5, max: 1000000 },
 ];
 
 export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; onLoggedOut: () => void }) {
@@ -123,6 +152,12 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
     risk.paperCapitalCurrency === 'BRL'
       ? `${brl(risk.paperCapital)} — convertido para USDT pela cotação do par USDTBRL`
       : 'Valor em USDT';
+  const activeBinanceBalance =
+    settings.mode === 'LIVE'
+      ? settings.binance.production.balance
+      : settings.mode === 'TESTNET'
+        ? settings.binance.testnet.balance
+        : null;
 
   return (
     <div className="space-y-5 pb-6">
@@ -150,6 +185,17 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
               <span className="mt-1 block text-[10px] font-normal opacity-70">
                 {mode === 'PAPER' ? 'simulação com preço real' : mode === 'TESTNET' ? 'conta de teste da Binance' : 'dinheiro de verdade'}
               </span>
+              <ModoResumo
+                mode={mode}
+                settings={settings.byMode?.[mode]}
+                balance={
+                  mode === 'LIVE'
+                    ? settings.binance.production.balance
+                    : mode === 'TESTNET'
+                      ? settings.binance.testnet.balance
+                      : null
+                }
+              />
             </button>
           ))}
         </div>
@@ -173,14 +219,17 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
             testnet.binance.vision
           </a>{' '}
           e preencha <code>BINANCE_TESTNET_API_KEY</code> e <code>BINANCE_TESTNET_API_SECRET</code>.
-          Em conta real, habilite apenas spot e leitura, mantenha o saque desabilitado e use whitelist de IP.
+          Para consultar saldo, a permissão de leitura basta. Para o robô enviar ordens no LIVE,
+          habilite somente negociação Spot; mantenha saque desabilitado e use whitelist de IP.
         </p>
       </section>
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Compra automática</h2>
+            <h2 className="text-sm font-semibold">
+              Compra automática <EscopoDoModo mode={settings.mode} />
+            </h2>
             <p className="mt-0.5 text-[11px] text-terminal-muted">
               Nas contas demo o robô opera livre. Na conta real ele precisa de duas chaves ao mesmo
               tempo: a liberação no servidor e o armamento aqui — que vence sozinho.
@@ -285,21 +334,34 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
           ) : null}
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {AUTO_FIELDS.map((field) => (
+          {AUTO_FIELDS.map((field) => {
+            const valor = auto[field.key] as number;
+            const foraDoLimite = valor < field.min || valor > field.max;
+            return (
             <label key={field.key} className="block">
               <span className="text-xs text-terminal-muted">{field.label}</span>
               <input
                 type="number"
                 step={field.step}
-                value={auto[field.key] as number}
+                min={field.min}
+                max={field.max}
+                value={valor}
                 onChange={(event) =>
                   setAuto({ ...auto, [field.key]: Number(event.target.value) } as AutoTradeSettings)
                 }
-                className="mt-1 w-full rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-2 text-sm tabular outline-none"
+                className={`mt-1 w-full rounded-lg border bg-terminal-panel-soft px-3 py-2 text-sm tabular outline-none ${
+                  foraDoLimite ? 'border-bear' : 'border-terminal-border'
+                }`}
               />
-              <span className="text-[10px] text-terminal-muted">{field.hint}</span>
+              {/* o aviso aparece enquanto se digita, não só depois de salvar */}
+              <span className={`text-[10px] ${foraDoLimite ? 'text-bear' : 'text-terminal-muted'}`}>
+                {foraDoLimite
+                  ? `Aceito entre ${field.min} e ${field.max}. ${field.hint}`
+                  : field.hint}
+              </span>
             </label>
-          ))}
+            );
+          })}
           <label className="flex items-center gap-2 self-end pb-6 text-xs text-terminal-muted">
             <input
               type="checkbox"
@@ -377,7 +439,10 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">
-            Watchlist em tempo real ({settings.scanner.watchlist.length})
+            Watchlist em tempo real ({settings.scanner.watchlist.length}){' '}
+            <span className="rounded bg-terminal-panel-soft px-1.5 py-0.5 align-middle text-[10px] font-normal text-terminal-muted">
+              vale nas três contas
+            </span>
           </h2>
           <button
             type="button"
@@ -441,7 +506,9 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Disjuntor de risco</h2>
+            <h2 className="text-sm font-semibold">
+              Disjuntor de risco <EscopoDoModo mode={settings.mode} />
+            </h2>
             <p className="mt-0.5 text-[11px] text-terminal-muted">
               Quando parar, decidido antes de precisar. Estes limites valem para o robô e para a
               compra manual — e sobrevivem a reinício do servidor.
@@ -568,31 +635,48 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
       </section>
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
-        <h2 className="text-sm font-semibold">Capital e controle de risco</h2>
+        <h2 className="text-sm font-semibold">
+          {settings.mode === 'PAPER' ? 'Capital e controle de risco' : 'Saldo e controle de risco'}{' '}
+          <EscopoDoModo mode={settings.mode} />
+        </h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <label className="block">
-            <span className="text-xs text-terminal-muted">Capital da carteira de teste</span>
-            <div className="mt-1 flex gap-2">
-              <input
-                type="number"
-                step={100}
-                value={risk.paperCapital}
-                onChange={(event) => setRisk({ ...risk, paperCapital: Number(event.target.value) })}
-                className="w-full rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-2 text-sm tabular outline-none"
-              />
-              <select
-                value={risk.paperCapitalCurrency}
-                onChange={(event) =>
-                  setRisk({ ...risk, paperCapitalCurrency: event.target.value as 'USDT' | 'BRL' })
-                }
-                className="rounded-lg border border-terminal-border bg-terminal-panel-soft px-2 text-sm outline-none"
-              >
-                <option value="BRL">R$</option>
-                <option value="USDT">USDT</option>
-              </select>
+          {settings.mode === 'PAPER' ? (
+            <label className="block">
+              <span className="text-xs text-terminal-muted">Capital da carteira simulada</span>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="number"
+                  step={100}
+                  value={risk.paperCapital}
+                  onChange={(event) => setRisk({ ...risk, paperCapital: Number(event.target.value) })}
+                  className="w-full rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-2 text-sm tabular outline-none"
+                />
+                <select
+                  value={risk.paperCapitalCurrency}
+                  onChange={(event) =>
+                    setRisk({ ...risk, paperCapitalCurrency: event.target.value as 'USDT' | 'BRL' })
+                  }
+                  className="rounded-lg border border-terminal-border bg-terminal-panel-soft px-2 text-sm outline-none"
+                >
+                  <option value="BRL">R$</option>
+                  <option value="USDT">USDT</option>
+                </select>
+              </div>
+              <span className="text-[10px] text-terminal-muted">{capitalHint}</span>
+            </label>
+          ) : (
+            <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-2">
+              <span className="block text-xs text-terminal-muted">
+                Saldo {settings.mode === 'LIVE' ? 'Spot real' : 'Spot de teste'}
+              </span>
+              <strong className="mt-1 block text-sm tabular">
+                {formatUsdtBalance(activeBinanceBalance)}
+              </strong>
+              <span className="text-[10px] text-terminal-muted">
+                Lido automaticamente da Binance; não é configurado neste painel.
+              </span>
             </div>
-            <span className="text-[10px] text-terminal-muted">{capitalHint}</span>
-          </label>
+          )}
           {RISK_FIELDS.map((field) => (
             <label key={field.key} className="block">
               <span className="text-xs text-terminal-muted">{field.label}</span>
@@ -689,4 +773,64 @@ function Info({ label, value, tone }: { label: string; value: string; tone?: str
       <dd className={`font-medium ${tone ?? ''}`}>{value}</dd>
     </div>
   );
+}
+
+/**
+ * Etiqueta de escopo. Risco, robô e disjuntor são de UMA conta — sem dizer de
+ * qual, a tela parecia falar do programa inteiro, e era assim que se mexia no
+ * demo achando que valia no real.
+ */
+function EscopoDoModo({ mode }: { mode: TradingMode }) {
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold ${
+        mode === 'LIVE' ? 'bg-bear/15 text-bear' : 'bg-bull/15 text-bull'
+      }`}
+    >
+      só no {mode}
+    </span>
+  );
+}
+
+/**
+ * O que o outro modo tem guardado, lido antes de trocar de conta. Aqui só
+ * aparece o que assusta na hora errada: se o robô daquela conta está ligado e
+ * com quanto ele opera.
+ */
+function ModoResumo({
+  mode,
+  settings,
+  balance,
+}: {
+  mode: TradingMode;
+  settings: ModeSettings | undefined;
+  balance: BinanceBalanceSummary | null;
+}) {
+  if (!settings) return null;
+  const ligado = settings.autoTrade.enabled;
+  return (
+    <span className="mt-1.5 block text-[10px] font-normal">
+      <span className={ligado ? 'text-bull' : 'text-terminal-muted'}>
+        {ligado ? '● robô ligado' : '○ robô desligado'}
+      </span>
+      <span className="block opacity-60">
+        {mode === 'PAPER'
+          ? `capital simulado: ${
+              settings.risk.paperCapitalCurrency === 'BRL'
+                ? brl(settings.risk.paperCapital)
+                : usd(settings.risk.paperCapital)
+            }`
+          : formatUsdtBalance(balance)}
+      </span>
+      {mode === 'LIVE' && balance?.status === 'AVAILABLE' && balance.total !== null && balance.brlRate ? (
+        <span className="block opacity-60">≈ {brl(balance.total * balance.brlRate)}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function formatUsdtBalance(balance: BinanceBalanceSummary | null): string {
+  if (!balance || balance.status === 'UNAVAILABLE') return 'saldo indisponível';
+  if (balance.status === 'NOT_CONFIGURED') return 'saldo: chaves ausentes';
+  return `saldo: ${quantity(balance.total ?? 0)} USDT`;
 }

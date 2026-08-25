@@ -33,16 +33,19 @@ import { UniverseService } from './services/universeService.ts';
 import { NewsService } from './services/newsService.ts';
 
 async function main(): Promise<void> {
-  const repository = await createRepository();
+  const store = await createRepository();
+  const repository = store.repository;
   const settings = new SettingsService(repository);
-  await settings.load();
+  // em modo degradado NADA é lido: o SettingsService fica no padrão só para o
+  // painel ter o que desenhar enquanto explica que a persistência caiu
+  if (!store.degraded) await settings.load();
 
   const bus = new EventBus();
   const audit = new AuditService(repository);
   const market = new MarketDataService();
   const alerts = new AlertEngine(repository, bus);
   const paper = new PaperTradingEngine(repository, bus, audit, settings);
-  await paper.load();
+  if (!store.degraded) await paper.load();
 
   const risk = new RiskService(repository, settings, market);
   const scanner = new ScannerService(market, repository, settings, bus, alerts, paper, audit);
@@ -63,7 +66,8 @@ async function main(): Promise<void> {
   // cancela a própria ordem que acabou de ser aberta
   execution.setOnBought((setup) => scanner.markBought(setup));
 
-  const autoTrader = new AutoTrader(settings, execution, paper, audit);
+  const autoTrader = new AutoTrader(settings, execution, paper, audit, repository, market);
+  autoTrader.setPersistenceAvailable(!store.degraded);
   scanner.setAutoTrader(autoTrader);
 
   const close = new CloseService(repository, paper, market, audit, settings, bus, (trade) =>
@@ -101,6 +105,7 @@ async function main(): Promise<void> {
     paper,
     audit,
     bus,
+    persistence: store,
   };
 
   const auth = new AuthService(config.auth);
@@ -153,6 +158,21 @@ async function main(): Promise<void> {
   app.use('/api', requireSession(config.appSecret, (path) => path === '/health'));
   app.use('/api', apiRouter(context));
 
+  /*
+   * Rota /api desconhecida responde em JSON, nunca em HTML.
+   *
+   * Sem isto, o 404 padrão do Express devolve uma página HTML, e todo cliente
+   * que faz response.json() estoura "Unexpected token '<'" — um erro de
+   * sintaxe no lugar da informação útil, que é o status e o caminho. Acontece
+   * de verdade sempre que a tela é atualizada sem reiniciar o servidor: o
+   * navegador pede uma rota que o processo em execução ainda não tem.
+   */
+  app.use('/api', (request, response) => {
+    response.status(404).json({
+      error: `Rota ${request.method} ${request.path} não existe nesta versão do servidor`,
+    });
+  });
+
   const distDirectory = join(process.cwd(), 'dist');
   if (existsSync(distDirectory)) {
     app.use(express.static(distDirectory));
@@ -173,6 +193,7 @@ async function main(): Promise<void> {
       binanceEnv: environmentForMode(settings.get().mode).name,
       credentials: environmentForMode(settings.get().mode).hasCredentials ? 'configuradas' : 'ausentes',
       store: config.store,
+      persistencia: store.degraded ? 'INDISPONÍVEL — modo degradado' : 'ok',
       login: auth.backend,
     });
   });
@@ -190,7 +211,7 @@ async function main(): Promise<void> {
   }
 
   // primeira execução: já nasce com os pares mais líquidos da Binance
-  if (settings.firstRun && available) {
+  if (settings.firstRun && available && !store.degraded) {
     try {
       const curated = await buildCuratedWatchlist({ limit: 30 });
       if (curated.length > 0) await settings.update({ scanner: { watchlist: curated } });
@@ -201,15 +222,25 @@ async function main(): Promise<void> {
     }
   }
 
-  await market.start(withBitcoin(settings.get().scanner.watchlist));
-  await scanner.start();
-  universe.start();
-  news.start();
-  liveMonitor.start();
-  // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não há
-  // ordem na corretora para acompanhar
-  if (settings.get().mode !== 'PAPER' && environmentForMode(settings.get().mode).hasCredentials) {
-    userStream.start();
+  if (store.degraded) {
+    // Fail-closed. Sem persistência principal não se varre, não se decide e não
+    // se opera: cada uma dessas coisas grava, e gravar no lugar errado é como
+    // nascem dois históricos. O painel fica de pé apenas para mostrar o motivo.
+    logger.error(
+      'MODO DEGRADADO — scanner, robô e execução DESLIGADOS até a persistência principal voltar',
+      { store: store.kind, error: store.error },
+    );
+  } else {
+    await market.start(withBitcoin(settings.get().scanner.watchlist));
+    await scanner.start();
+    universe.start();
+    news.start();
+    liveMonitor.start();
+    // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não há
+    // ordem na corretora para acompanhar
+    if (settings.get().mode !== 'PAPER' && environmentForMode(settings.get().mode).hasCredentials) {
+      userStream.start();
+    }
   }
 
   const shutdown = (): void => {

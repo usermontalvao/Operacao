@@ -1,0 +1,99 @@
+# ============================================================================
+#  Painel Operação — stack de produção.
+#
+#  Para o Portainer: crie a stack apontando para este repositório (Git) ou
+#  cole este arquivo. As variáveis sensíveis NÃO ficam aqui — são preenchidas
+#  no próprio Portainer, em "Environment variables". Um compose com chave
+#  dentro vira segredo no histórico do Git.
+#
+#  ANTES DE SUBIR, leia o aviso sobre DUAS INSTÂNCIAS no fim do arquivo.
+# ============================================================================
+services:
+  operacao:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: operacao
+    restart: unless-stopped
+
+    # Publica só no localhost do host. Quem expõe para a internet é o proxy
+    # (Caddy/nginx/Cloudflare) na frente — esta API envia ordem de compra e
+    # não pode ficar aberta na porta 3010 do servidor.
+    ports:
+      - "127.0.0.1:3010:3010"
+
+    environment:
+      TZ: "America/Cuiaba"
+      HOST: "0.0.0.0"
+      PORT: "3010"
+
+      # --- persistência --------------------------------------------------
+      # supabase: nada é gravado em disco, e o painel se recusa a operar se o
+      # banco cair (fail-closed). É o modo recomendado para servidor.
+      #
+      # A sintaxe :? faz o compose RECUSAR o deploy quando a variável falta,
+      # com o nome dela na mensagem. Sem isso a stack subiria e o painel só
+      # revelaria o problema depois, recusando login sem dizer por quê.
+      STORE: "supabase"
+      SUPABASE_URL: "${SUPABASE_URL:?defina SUPABASE_URL nas variáveis da stack}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:?defina SUPABASE_SERVICE_ROLE_KEY nas variáveis da stack}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      # em branco resolve o dono pelo e-mail do painel
+      SUPABASE_OWNER_ID: "${SUPABASE_OWNER_ID:-}"
+
+      # --- entrada no painel ----------------------------------------------
+      PANEL_USER: "${PANEL_USER:?defina PANEL_USER — sem login a API recusa tudo}"
+      PANEL_PASSWORD_HASH: "${PANEL_PASSWORD_HASH:?gere com npm run senha e cole o hash aqui}"
+      AUTH_BACKEND: "${AUTH_BACKEND:-auto}"
+      SESSION_HOURS: "${SESSION_HOURS:-12}"
+      APP_SECRET: "${APP_SECRET:?defina APP_SECRET — assina o token de confirmação de ordem}"
+
+      # Domínio pelo qual o painel é acessado. A API confere o cabeçalho Host
+      # para que uma página qualquer não aponte um domínio próprio para cá e
+      # converse com uma API que envia ordem. Deixar em branco DESLIGA a
+      # conferência — preencha.
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:?informe o domínio do painel, ex.: operacao.seudominio.com}"
+
+      # --- corretora -------------------------------------------------------
+      TRADING_MODE: "${TRADING_MODE:-PAPER}"
+      BINANCE_API_KEY: "${BINANCE_API_KEY:-}"
+      BINANCE_API_SECRET: "${BINANCE_API_SECRET:-}"
+      BINANCE_TESTNET_API_KEY: "${BINANCE_TESTNET_API_KEY:-}"
+      BINANCE_TESTNET_API_SECRET: "${BINANCE_TESTNET_API_SECRET:-}"
+
+      # Segunda chave da compra automática em conta real. Fica de fora do
+      # painel de propósito: quem opera pela tela não consegue ligar isto.
+      # Mantenha em "false" até haver evidência fora da amostra.
+      ALLOW_LIVE_AUTOTRADE: "${ALLOW_LIVE_AUTOTRADE:-false}"
+
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================================================
+#  AVISO — DUAS INSTÂNCIAS OPERAM A MESMA CONTA
+#
+#  Não existe trava de líder. Se este contêiner subir enquanto o painel também
+#  roda no seu Mac, os DOIS varrem o mercado e os DOIS podem comprar, contra o
+#  mesmo Supabase e a mesma carteira. O limite de "uma posição automática por
+#  vez" é por processo, não compartilhado — dois processos abrem duas.
+#
+#  Enquanto a trava não existir, escolha um: ou o servidor, ou o Mac.
+#  Para desligar o robô do Mac sem fechar o painel, use o distintivo no topo
+#  da tela.
+#
+#  PERSISTÊNCIA: com STORE=supabase não há volume, de propósito. Se preferir
+#  STORE=json, descomente abaixo e monte /app/data — sem volume, o histórico
+#  se perde a cada recriação do contêiner.
+#
+#    volumes:
+#      - operacao_data:/app/data
+#
+#  volumes:
+#    operacao_data:
+#      name: operacao_data
+# ============================================================================

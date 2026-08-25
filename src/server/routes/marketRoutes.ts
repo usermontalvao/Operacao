@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { DashboardSnapshot, Timeframe } from '../../core/types.ts';
+import type {
+  DashboardSnapshot,
+  EntryDecision,
+  Timeframe,
+  TradeSetup,
+  TradingMode,
+} from '../../core/types.ts';
 import { TIMEFRAMES } from '../../core/types.ts';
 import { environmentForMode } from '../config.ts';
 import { getKlines, getUsdtBrlRate, parseKline, searchSymbols } from '../binance/rest.ts';
@@ -13,12 +19,17 @@ export function marketRoutes(context: ApiContext): Router {
     '/state',
     asyncHandler(async (_request, response) => {
       const mode = context.settings.get().mode;
+      const setups = context.scanner.getSetups();
       const snapshot: DashboardSnapshot = {
         mode,
+        // a explicação do robô viaja junto com os setups: o card precisa poder
+        // dizer POR QUE não houve entrada sem uma segunda chamada, e sobretudo
+        // sem reimplementar a regra no navegador
+        decisions: await explainSetups(context, setups, mode),
         connection: context.market.getConnectionState(),
         marketContext: context.scanner.getContext(),
         assets: context.scanner.getAssets(),
-        setups: context.scanner.getSetups(),
+        setups,
         alerts: [],
         openTrades: context.paper.getOpenTrades().filter((trade) => trade.mode === mode),
         settings: context.settings.get(),
@@ -104,4 +115,25 @@ export function marketRoutes(context: ApiContext): Router {
   );
 
   return router;
+}
+
+/**
+ * Decisão do robô para cada setup do radar, na sessão em exibição.
+ *
+ * Sai do backend de propósito: a regra que decide entrada não pode ter uma
+ * segunda implementação no navegador. Duas cópias divergem, e a que o usuário
+ * lê passa a ser a errada justamente quando ele mais precisa dela.
+ */
+async function explainSetups(
+  context: ApiContext,
+  setups: TradeSetup[],
+  mode: TradingMode,
+): Promise<Record<string, EntryDecision>> {
+  if (context.persistence.degraded) return {};
+  const pares = await Promise.all(
+    setups.map(async (setup) => [setup.id, await context.scanner.explain(setup, mode)] as const),
+  );
+  const resultado: Record<string, EntryDecision> = {};
+  for (const [id, decision] of pares) if (decision !== null) resultado[id] = decision;
+  return resultado;
 }
