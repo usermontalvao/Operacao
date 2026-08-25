@@ -1,0 +1,369 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  CandlestickSeries,
+  HistogramSeries,
+  LineStyle,
+  createChart,
+  createSeriesMarkers,
+  type IChartApi,
+  type IPriceLine,
+  type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type Time,
+  type UTCTimestamp,
+} from 'lightweight-charts';
+import { api } from '../lib/api.ts';
+import type { Candle, Timeframe } from '../lib/types.ts';
+
+const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+/**
+ * Quantos candles a tela mostra ao abrir.
+ *
+ * Antes o gráfico abria com os 300 candles carregados espremidos na largura, e
+ * o usuário precisava dar seis zooms para conseguir ler o preço. Abrir já
+ * aproximado é o padrão certo: quem quiser o histórico inteiro afasta uma vez.
+ */
+const VISIBLE_BARS = 90;
+
+/**
+ * As linhas do plano operacional desenhadas sobre o preço. Todas opcionais: o
+ * gráfico aberto a partir de um ativo qualquer não tem plano nenhum, e nem por
+ * isso deixa de ser gráfico.
+ */
+export interface ChartPlan {
+  stopLoss?: number | null;
+  entryLow?: number | null;
+  entryHigh?: number | null;
+  target1?: number | null;
+  target2?: number | null;
+  target3?: number | null;
+}
+
+/** Um acontecimento da operação desenhado sobre o candle em que aconteceu. */
+export interface ChartMarker {
+  /** milissegundos */
+  time: number;
+  kind: 'ENTRY' | 'EXIT';
+  label: string;
+}
+
+interface PriceChartProps {
+  symbol: string;
+  /** timeframe em que o gráfico abre; o usuário troca nos botões */
+  timeframe?: Timeframe;
+  plan?: ChartPlan | null;
+  markers?: ChartMarker[] | null;
+  /** momento que a tela deve enquadrar ao abrir (ex.: a hora do encerramento) */
+  focusTime?: number | null;
+  livePrice: number | null;
+  height?: number;
+}
+
+/** Casas decimais suficientes para o par, lidas dos próprios candles. */
+function decimalsFor(candles: Candle[]): number {
+  let decimals = 2;
+  for (const candle of candles.slice(-60)) {
+    const text = String(candle.close);
+    const fraction = text.includes('e') ? '' : (text.split('.')[1] ?? '');
+    decimals = Math.max(decimals, Math.min(fraction.length, 8));
+  }
+  return decimals;
+}
+
+/**
+ * Gráfico de verdade: candles, volume, escala de preço e de tempo, crosshair,
+ * zoom e as linhas do plano operacional (zona de entrada, stop e alvos)
+ * desenhadas sobre o preço. Os dados vêm do próprio servidor.
+ *
+ * Três regras de comportamento, todas aprendidas apanhando:
+ *  1. o enquadramento é do usuário. Só o carregamento de candles novos
+ *     (símbolo ou timeframe) reposiciona a tela; preço vivo e mudança de plano
+ *     nunca — era isso que tirava o gráfico do zoom sozinho a cada segundo;
+ *  2. as linhas do plano dependem dos NÚMEROS, não do objeto que os carrega.
+ *     O setup chega novo a cada atualização do servidor, e comparar por
+ *     identidade fazia o gráfico recarregar sem parar;
+ *  3. abre aproximado, não com o histórico inteiro espremido.
+ */
+export function PriceChart({
+  symbol,
+  timeframe: initialTimeframe = '1h',
+  plan = null,
+  markers = null,
+  focusTime = null,
+  livePrice,
+  height = 340,
+}: PriceChartProps) {
+  const container = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeries = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeries = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const markerPlugin = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const lastCandle = useRef<Candle | null>(null);
+  const loadedCandles = useRef<Candle[]>([]);
+  /** as linhas do plano são recriadas a cada carga — sem isto elas se acumulam */
+  const priceLines = useRef<IPriceLine[]>([]);
+
+  const [timeframe, setTimeframe] = useState<Timeframe>(initialTimeframe);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  /** muda a cada carga de candles: é o gatilho para redesenhar o que é sobreposto */
+  const [dataVersion, setDataVersion] = useState(0);
+
+  // a identidade do objeto muda a cada atualização vinda do servidor; o que
+  // importa são os preços, e é por eles que este gráfico se compara
+  const levelsKey = [
+    plan?.stopLoss,
+    plan?.entryLow,
+    plan?.entryHigh,
+    plan?.target1,
+    plan?.target2,
+    plan?.target3,
+  ].join('|');
+  const markersKey = (markers ?? []).map((item) => `${item.kind}@${item.time}`).join('|');
+
+  const levels = useMemo(
+    () => [
+      { price: plan?.target3 ?? null, color: '#16c784', title: 'Alvo 3', dashed: true, label: false },
+      { price: plan?.target2 ?? null, color: '#16c784', title: 'Alvo 2', dashed: true, label: false },
+      { price: plan?.target1 ?? null, color: '#16c784', title: 'Alvo 1', dashed: false, label: true },
+      { price: plan?.entryHigh ?? null, color: '#4b8ef7', title: 'Entrada', dashed: true, label: false },
+      { price: plan?.entryLow ?? null, color: '#4b8ef7', title: 'Entrada', dashed: true, label: false },
+      { price: plan?.stopLoss ?? null, color: '#ea3943', title: 'Stop', dashed: false, label: true },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [levelsKey],
+  );
+
+  useEffect(() => {
+    if (!container.current) return;
+    const chart = createChart(container.current, {
+      height,
+      layout: {
+        background: { color: 'transparent' },
+        textColor: '#8b909a',
+        fontSize: 11,
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: 'rgba(35,38,46,0.6)' },
+        horzLines: { color: 'rgba(35,38,46,0.6)' },
+      },
+      rightPriceScale: { borderColor: '#23262e', scaleMargins: { top: 0.1, bottom: 0.28 } },
+      timeScale: { borderColor: '#23262e', timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 1 },
+      localization: { locale: 'pt-BR' },
+    });
+    chartRef.current = chart;
+
+    candleSeries.current = chart.addSeries(CandlestickSeries, {
+      upColor: '#16c784',
+      downColor: '#ea3943',
+      wickUpColor: '#16c784',
+      wickDownColor: '#ea3943',
+      borderVisible: false,
+    });
+    volumeSeries.current = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+    });
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    markerPlugin.current = createSeriesMarkers(candleSeries.current, []);
+
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) chart.applyOptions({ width });
+    });
+    observer.observe(container.current);
+
+    return () => {
+      observer.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      candleSeries.current = null;
+      volumeSeries.current = null;
+      markerPlugin.current = null;
+      priceLines.current = [];
+    };
+  }, [height]);
+
+  // carga dos candles: só o par e o timeframe mandam recarregar
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    api
+      .candles(symbol, timeframe)
+      .then((result) => {
+        if (!active || !candleSeries.current || !volumeSeries.current) return;
+        const candles = result.candles;
+        loadedCandles.current = candles;
+        candleSeries.current.setData(
+          candles.map((candle) => ({
+            time: (candle.openTime / 1000) as UTCTimestamp,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+          })),
+        );
+        volumeSeries.current.setData(
+          candles.map((candle) => ({
+            time: (candle.openTime / 1000) as UTCTimestamp,
+            value: candle.volume,
+            color: candle.close >= candle.open ? 'rgba(22,199,132,0.35)' : 'rgba(234,57,67,0.35)',
+          })),
+        );
+        lastCandle.current = candles[candles.length - 1] ?? null;
+
+        // a escala segue a moeda: 0,0047 não pode virar "0.00"
+        const decimals = decimalsFor(candles);
+        candleSeries.current.applyOptions({
+          priceFormat: { type: 'price', precision: decimals, minMove: 10 ** -decimals },
+        });
+
+        frame(chartRef.current, candles, focusTime);
+        setDataVersion((version) => version + 1);
+        setLoading(false);
+      })
+      .catch((failure: Error) => {
+        if (!active) return;
+        setError(failure.message);
+        setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+    // focusTime entra só como leitura do enquadramento inicial: mudá-lo não
+    // deve recarregar candle nenhum
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, timeframe]);
+
+  // linhas do plano: redesenhadas quando os preços mudam ou chegam candles novos
+  useEffect(() => {
+    const series = candleSeries.current;
+    if (!series) return;
+    for (const line of priceLines.current) series.removePriceLine(line);
+    priceLines.current = [];
+    for (const level of levels) {
+      if (level.price === null || !Number.isFinite(level.price)) continue;
+      priceLines.current.push(
+        series.createPriceLine({
+          price: level.price,
+          color: level.color,
+          lineWidth: 1,
+          lineStyle: level.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          axisLabelVisible: level.label,
+          title: level.title,
+        }),
+      );
+    }
+  }, [levels, dataVersion]);
+
+  // marcas de entrada e saída sobre o candle em que aconteceram
+  useEffect(() => {
+    const plugin = markerPlugin.current;
+    if (!plugin) return;
+    const candles = loadedCandles.current;
+    const list = (markers ?? [])
+      .map((marker) => {
+        const candle = candleAt(candles, marker.time);
+        if (!candle) return null;
+        return {
+          time: (candle.openTime / 1000) as UTCTimestamp,
+          position: marker.kind === 'ENTRY' ? ('belowBar' as const) : ('aboveBar' as const),
+          color: marker.kind === 'ENTRY' ? '#4b8ef7' : '#f0b90b',
+          shape: marker.kind === 'ENTRY' ? ('arrowUp' as const) : ('arrowDown' as const),
+          text: marker.label,
+        };
+      })
+      .filter((item) => item !== null);
+    plugin.setMarkers(list);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markersKey, dataVersion]);
+
+  // o último candle acompanha o preço que chega pelo stream
+  useEffect(() => {
+    if (livePrice === null || !candleSeries.current || !lastCandle.current) return;
+    const candle = lastCandle.current;
+    const updated = {
+      ...candle,
+      close: livePrice,
+      high: Math.max(candle.high, livePrice),
+      low: Math.min(candle.low, livePrice),
+    };
+    lastCandle.current = updated;
+    candleSeries.current.update({
+      time: (updated.openTime / 1000) as UTCTimestamp,
+      open: updated.open,
+      high: updated.high,
+      low: updated.low,
+      close: updated.close,
+    });
+  }, [livePrice]);
+
+  return (
+    <div className="rounded-xl border border-terminal-border bg-terminal-panel-soft p-2">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <div className="flex gap-1">
+          {TIMEFRAMES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setTimeframe(option)}
+              className={`rounded px-2 py-1 text-[11px] font-semibold ${
+                timeframe === option
+                  ? 'bg-terminal-border text-terminal-text'
+                  : 'text-terminal-muted hover:text-terminal-text'
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] text-terminal-muted">{symbol} · dados da Binance</span>
+      </div>
+      {error ? (
+        <div className="flex items-center justify-center text-xs text-bear" style={{ height }}>
+          {error}
+        </div>
+      ) : null}
+      <div className={loading ? 'opacity-40' : ''} ref={container} />
+    </div>
+  );
+}
+
+/** O candle que contém um instante — é sobre ele que a marca é desenhada. */
+function candleAt(candles: Candle[], time: number): Candle | null {
+  if (!Number.isFinite(time) || candles.length === 0) return null;
+  let found: Candle | null = null;
+  for (const candle of candles) {
+    if (candle.openTime > time) break;
+    found = candle;
+  }
+  return found;
+}
+
+/**
+ * Enquadramento inicial: os últimos candles, ou a janela em volta do momento
+ * pedido (o encerramento de uma operação antiga, por exemplo).
+ */
+function frame(chart: IChartApi | null, candles: Candle[], focusTime: number | null): void {
+  if (!chart || candles.length === 0) return;
+  const total = candles.length;
+  const scale = chart.timeScale();
+
+  if (focusTime !== null && Number.isFinite(focusTime)) {
+    const index = candles.findIndex((candle) => candle.openTime > focusTime);
+    const at = index === -1 ? total - 1 : Math.max(index - 1, 0);
+    const half = Math.round(VISIBLE_BARS / 2);
+    scale.setVisibleLogicalRange({
+      from: Math.max(at - half, 0),
+      to: Math.min(at + half, total + 5),
+    });
+    return;
+  }
+
+  scale.setVisibleLogicalRange({ from: Math.max(total - VISIBLE_BARS, 0), to: total + 3 });
+}

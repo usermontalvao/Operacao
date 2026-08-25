@@ -1,0 +1,576 @@
+import type { SymbolFilters } from '../../core/types.ts';
+import {
+  ENVIRONMENTS,
+  readCredentials,
+  type BinanceEnvironment,
+  type EnvironmentEndpoints,
+} from '../config.ts';
+import { logger } from '../logger.ts';
+import { buildQuery, signQuery } from './signer.ts';
+
+export class BinanceError extends Error {
+  code: number;
+  httpStatus: number;
+  constructor(message: string, code: number, httpStatus: number) {
+    super(message);
+    this.name = 'BinanceError';
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
+export interface RawKline {
+  0: number; 1: string; 2: string; 3: string; 4: string; 5: string;
+  6: number; 7: string; 8: number; 9: string; 10: string; 11: string;
+}
+
+/** Ambiente ativo (produção ou testnet). Trocado quando o modo muda. */
+let active: EnvironmentEndpoints = ENVIRONMENTS.production;
+
+export function setActiveEnvironment(environment: BinanceEnvironment): void {
+  if (active.name === environment) return;
+  active = ENVIRONMENTS[environment];
+  exchangeInfoCache.clear();
+  universeCache.clear();
+  pairStateCache.clear();
+  logger.info('Ambiente da Binance alterado', { environment });
+}
+
+export function getActiveEnvironment(): EnvironmentEndpoints {
+  return active;
+}
+
+let bannedUntil = 0;
+let lastRequestAt = 0;
+const MIN_INTERVAL_MS = 60;
+/** Diferença entre o relógio local e o da Binance, medida no boot. */
+let clockOffsetMs = 0;
+
+async function throttle(): Promise<void> {
+  const now = Date.now();
+  if (bannedUntil > now) {
+    throw new BinanceError(
+      `Limite de requisições atingido — liberado em ${Math.ceil((bannedUntil - now) / 1000)}s`,
+      -1003,
+      429,
+    );
+  }
+  const wait = lastRequestAt + MIN_INTERVAL_MS - now;
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  lastRequestAt = Date.now();
+}
+
+async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  await throttle();
+  const response = await fetch(url, init);
+
+  if (response.status === 429 || response.status === 418) {
+    const retryAfter = Number(response.headers.get('retry-after') ?? '30');
+    bannedUntil = Date.now() + retryAfter * 1000;
+    throw new BinanceError('Binance pediu para desacelerar (429/418)', -1003, response.status);
+  }
+
+  const text = await response.text();
+  let payload: unknown = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    throw new BinanceError(`Resposta inválida da Binance (${response.status})`, -1, response.status);
+  }
+
+  if (!response.ok) {
+    const detail = payload as { code?: number; msg?: string } | null;
+    throw new BinanceError(
+      detail?.msg ?? `Erro HTTP ${response.status} na Binance`,
+      detail?.code ?? -1,
+      response.status,
+    );
+  }
+  return payload as T;
+}
+
+function publicUrl(path: string, params: Record<string, string | number | undefined> = {}): string {
+  const query = buildQuery(params);
+  return `${active.marketRestBase}${path}${query ? `?${query}` : ''}`;
+}
+
+/** Chamada assinada. Só existe caminho para cá com credenciais configuradas. */
+async function signedRequest<T>(
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+): Promise<T> {
+  const credentials = readCredentials(active.name);
+  if (!credentials) {
+    throw new BinanceError('Credenciais da Binance não configuradas no servidor', -2015, 401);
+  }
+  const query = buildQuery({
+    ...params,
+    timestamp: Date.now() + clockOffsetMs,
+    recvWindow: 5000,
+  });
+  const signature = signQuery(query, credentials.apiSecret);
+  const url = `${active.tradeRestBase}${path}?${query}&signature=${signature}`;
+  return request<T>(url, {
+    method,
+    headers: { 'X-MBX-APIKEY': credentials.apiKey },
+  });
+}
+
+export async function ping(): Promise<boolean> {
+  try {
+    await request(publicUrl('/api/v3/ping'));
+    return true;
+  } catch (error) {
+    logger.warn('Binance indisponível', { error: (error as Error).message });
+    return false;
+  }
+}
+
+/** Sincroniza o relógio: assinatura fora da janela é recusada com -1021. */
+export async function syncClock(): Promise<number> {
+  const before = Date.now();
+  const result = await request<{ serverTime: number }>(publicUrl('/api/v3/time'));
+  const latency = (Date.now() - before) / 2;
+  clockOffsetMs = Math.round(result.serverTime - (before + latency));
+  if (Math.abs(clockOffsetMs) > 1000) {
+    logger.warn('Relógio local fora de sincronia com a Binance', { clockOffsetMs });
+  }
+  return clockOffsetMs;
+}
+
+export function getClockOffset(): number {
+  return clockOffsetMs;
+}
+
+export async function getKlines(
+  symbol: string,
+  interval: string,
+  limit = 300,
+): Promise<RawKline[]> {
+  return request<RawKline[]>(publicUrl('/api/v3/klines', { symbol, interval, limit }));
+}
+
+export interface Ticker24h {
+  symbol: string;
+  lastPrice: string;
+  priceChangePercent: string;
+  quoteVolume: string;
+}
+
+let brlRate = { value: 0, fetchedAt: 0 };
+const BRL_RATE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Cotação USDT→BRL pelo próprio par da Binance. O motor opera em USDT; isto
+ * existe só para o usuário informar e ler valores em reais.
+ * Guarda a última cotação boa: se a chamada falhar, é melhor uma cotação de
+ * minutos atrás do que um número inventado.
+ */
+export async function getUsdtBrlRate(): Promise<number | null> {
+  if (brlRate.value > 0 && Date.now() - brlRate.fetchedAt < BRL_RATE_TTL_MS) return brlRate.value;
+  try {
+    const result = await request<{ price: string }>(
+      `https://data-api.binance.vision/api/v3/ticker/price?symbol=USDTBRL`,
+    );
+    const value = Number(result.price);
+    if (Number.isFinite(value) && value > 0) {
+      brlRate = { value, fetchedAt: Date.now() };
+      return value;
+    }
+  } catch (error) {
+    logger.warn('Cotação USDT/BRL indisponível', { error: (error as Error).message });
+  }
+  return brlRate.value > 0 ? brlRate.value : null;
+}
+
+/** Acima deste tamanho a lista não cabe na URL (a Binance devolve 414). */
+const TICKER_URL_LIMIT = 80;
+
+export async function getTickers(symbols: string[]): Promise<Ticker24h[]> {
+  if (symbols.length === 0) return [];
+
+  if (symbols.length > TICKER_URL_LIMIT) {
+    // uma chamada só para o mercado inteiro e filtragem local sai mais barato
+    const all = await request<Ticker24h[]>(publicUrl('/api/v3/ticker/24hr'));
+    const wanted = new Set(symbols);
+    return all.filter((ticker) => wanted.has(ticker.symbol));
+  }
+
+  const list = JSON.stringify(symbols);
+  return request<Ticker24h[]>(publicUrl('/api/v3/ticker/24hr', { symbols: list }));
+}
+
+interface ExchangeInfoResponse {
+  symbols: Array<{
+    symbol: string;
+    status: string;
+    baseAsset: string;
+    quoteAsset: string;
+    baseAssetPrecision: number;
+    quotePrecision: number;
+    isSpotTradingAllowed: boolean;
+    otoAllowed?: boolean;
+    ocoAllowed?: boolean;
+    filters: Array<Record<string, string>>;
+    permissionSets?: string[][];
+  }>;
+}
+
+/** exchangeInfo é pesado: fica em cache por 12h como manda o bom senso de rate limit. */
+const exchangeInfoCache = new Map<string, { value: SymbolFilters; fetchedAt: number }>();
+const universeCache = new Map<string, { symbols: SymbolFilters[]; fetchedAt: number }>();
+const EXCHANGE_INFO_TTL_MS = 12 * 60 * 60 * 1000;
+const pairStateCache = new Map<string, { symbols: SymbolFilters[]; fetchedAt: number }>();
+/** Estado do par envelhece rápido: uma suspensão de 12h atrás não serve. */
+const PAIR_STATE_TTL_MS = 5 * 60 * 1000;
+
+export async function getSymbolFilters(symbols: string[]): Promise<Map<string, SymbolFilters>> {
+  const now = Date.now();
+  const result = new Map<string, SymbolFilters>();
+  const missing: string[] = [];
+
+  for (const symbol of symbols) {
+    const cached = exchangeInfoCache.get(cacheKey(symbol));
+    if (cached && now - cached.fetchedAt < EXCHANGE_INFO_TTL_MS) result.set(symbol, cached.value);
+    else missing.push(symbol);
+  }
+  if (missing.length === 0) return result;
+
+  const info = await request<ExchangeInfoResponse>(
+    publicUrl('/api/v3/exchangeInfo', { symbols: JSON.stringify(missing) }),
+  );
+
+  for (const entry of info.symbols) {
+    const filters = new Map(entry.filters.map((filter) => [filter.filterType as string, filter]));
+    const lotSize = filters.get('LOT_SIZE');
+    const priceFilter = filters.get('PRICE_FILTER');
+    const notional = filters.get('NOTIONAL') ?? filters.get('MIN_NOTIONAL');
+
+    const value: SymbolFilters = {
+      symbol: entry.symbol,
+      baseAsset: entry.baseAsset,
+      quoteAsset: entry.quoteAsset,
+      status: entry.status,
+      tickSize: Number(priceFilter?.tickSize ?? '0.00000001'),
+      stepSize: Number(lotSize?.stepSize ?? '0.00000001'),
+      minQty: Number(lotSize?.minQty ?? '0'),
+      maxQty: Number(lotSize?.maxQty ?? '0'),
+      minNotional: Number(notional?.minNotional ?? notional?.notional ?? '0'),
+      applyMinToMarket: (notional?.applyMinToMarket ?? 'true') !== 'false',
+      baseAssetPrecision: entry.baseAssetPrecision,
+      quotePrecision: entry.quotePrecision,
+      isSpotTradingAllowed: entry.isSpotTradingAllowed,
+      ocoAllowed: entry.ocoAllowed ?? true,
+    };
+    exchangeInfoCache.set(cacheKey(entry.symbol), { value, fetchedAt: now });
+    result.set(entry.symbol, value);
+  }
+  return result;
+}
+
+function cacheKey(symbol: string): string {
+  return `${active.name}:${symbol}`;
+}
+
+function toFilters(entry: ExchangeInfoResponse['symbols'][number]): SymbolFilters {
+  const filters = new Map(entry.filters.map((filter) => [filter.filterType as string, filter]));
+  const lotSize = filters.get('LOT_SIZE');
+  const priceFilter = filters.get('PRICE_FILTER');
+  const notional = filters.get('NOTIONAL') ?? filters.get('MIN_NOTIONAL');
+  return {
+    symbol: entry.symbol,
+    baseAsset: entry.baseAsset,
+    quoteAsset: entry.quoteAsset,
+    status: entry.status,
+    tickSize: Number(priceFilter?.tickSize ?? '0.00000001'),
+    stepSize: Number(lotSize?.stepSize ?? '0.00000001'),
+    minQty: Number(lotSize?.minQty ?? '0'),
+    maxQty: Number(lotSize?.maxQty ?? '0'),
+    minNotional: Number(notional?.minNotional ?? notional?.notional ?? '0'),
+    applyMinToMarket: (notional?.applyMinToMarket ?? 'true') !== 'false',
+    baseAssetPrecision: entry.baseAssetPrecision,
+    quotePrecision: entry.quotePrecision,
+    isSpotTradingAllowed: entry.isSpotTradingAllowed,
+    ocoAllowed: entry.ocoAllowed ?? true,
+  };
+}
+
+/**
+ * Todos os pares spot de uma moeda de cotação. É a base do modo "universo":
+ * uma chamada de exchangeInfo (peso 20) por ambiente, cacheada por 12h,
+ * alimenta a varredura de centenas de ativos.
+ */
+export async function listSpotSymbols(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
+  const key = `${active.name}:${quoteAsset}`;
+  const cached = universeCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < EXCHANGE_INFO_TTL_MS) return cached.symbols;
+
+  const info = await request<ExchangeInfoResponse>(publicUrl('/api/v3/exchangeInfo', { permissions: 'SPOT' }));
+  const symbols = info.symbols
+    .filter(
+      (entry) =>
+        entry.status === 'TRADING' && entry.isSpotTradingAllowed && entry.quoteAsset === quoteAsset,
+    )
+    .map(toFilters);
+
+  universeCache.set(key, { symbols, fetchedAt: Date.now() });
+  const now = Date.now();
+  for (const value of symbols) exchangeInfoCache.set(cacheKey(value.symbol), { value, fetchedAt: now });
+  return symbols;
+}
+
+/**
+ * Todos os pares de uma moeda de cotação COM o estado que a corretora declara,
+ * inclusive os que não estão negociando.
+ *
+ * `listSpotSymbols` corta quem não é TRADING — é o que a varredura quer. O
+ * monitor quer o contrário: é justamente o par suspenso que precisa aparecer,
+ * porque sumir da lista e estar parado são notícias diferentes, e sem esta
+ * leitura as duas ficariam indistinguíveis.
+ */
+export async function listSpotPairsWithState(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
+  const key = `${active.name}:${quoteAsset}:all`;
+  const cached = pairStateCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < PAIR_STATE_TTL_MS) return cached.symbols;
+
+  const info = await request<ExchangeInfoResponse>(publicUrl('/api/v3/exchangeInfo', { permissions: 'SPOT' }));
+  const symbols = info.symbols.filter((entry) => entry.quoteAsset === quoteAsset).map(toFilters);
+  pairStateCache.set(key, { symbols, fetchedAt: Date.now() });
+  return symbols;
+}
+
+/** Busca pares por texto — usado pelo "+ Adicionar ativo" da watchlist. */
+export async function searchSymbols(term: string, quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
+  const needle = term.trim().toUpperCase();
+  const universe = await listSpotSymbols(quoteAsset);
+  return universe
+    .filter((entry) => entry.baseAsset.includes(needle) || entry.symbol.includes(needle))
+    .sort((a, b) => a.symbol.length - b.symbol.length)
+    .slice(0, 20);
+}
+
+// ---------------------------------------------------------------------------
+// Endpoints assinados (conta e ordens)
+// ---------------------------------------------------------------------------
+
+export interface AccountBalance {
+  asset: string;
+  free: number;
+  locked: number;
+}
+
+export async function getAccountBalances(): Promise<AccountBalance[]> {
+  const account = await signedRequest<{
+    balances: Array<{ asset: string; free: string; locked: string }>;
+    canTrade: boolean;
+  }>('GET', '/api/v3/account', { omitZeroBalances: true });
+  return account.balances.map((balance) => ({
+    asset: balance.asset,
+    free: Number(balance.free),
+    locked: Number(balance.locked),
+  }));
+}
+
+export interface OrderResponse {
+  symbol: string;
+  orderId: number;
+  orderListId: number;
+  clientOrderId: string;
+  transactTime?: number;
+  price: string;
+  origQty: string;
+  executedQty: string;
+  cummulativeQuoteQty: string;
+  status: string;
+  type: string;
+  side: string;
+  fills?: Array<{ price: string; qty: string; commission: string; commissionAsset: string }>;
+}
+
+export interface NewOrderParams extends Record<string, string | number | boolean | undefined> {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  type: 'LIMIT' | 'MARKET';
+  quantity: string;
+  price?: string;
+  timeInForce?: 'GTC' | 'IOC' | 'FOK';
+  newClientOrderId: string;
+}
+
+export async function newOrder(params: NewOrderParams): Promise<OrderResponse> {
+  return signedRequest<OrderResponse>('POST', '/api/v3/order', {
+    ...params,
+    newOrderRespType: 'FULL',
+  });
+}
+
+/** Valida a ordem na Binance sem enviá-la para o livro. */
+export async function testOrder(params: NewOrderParams): Promise<void> {
+  await signedRequest('POST', '/api/v3/order/test', params);
+}
+
+export interface OtocoParams {
+  symbol: string;
+  listClientOrderId: string;
+  workingQuantity: string;
+  workingPrice: string;
+  pendingQuantity: string;
+  /** preço do take profit (LIMIT_MAKER acima) */
+  takeProfitPrice: string;
+  /** gatilho do stop */
+  stopPrice: string;
+  /** preço limite do stop (um tick abaixo do gatilho evita ordem parada) */
+  stopLimitPrice: string;
+}
+
+export interface OrderListResponse {
+  orderListId: number;
+  contingencyType: string;
+  listStatusType: string;
+  listOrderStatus: string;
+  listClientOrderId: string;
+  orders: Array<{ symbol: string; orderId: number; clientOrderId: string }>;
+}
+
+/**
+ * Bracket real da Binance: a entrada LIMIT entra no livro e, quando preenchida
+ * por completo, dispara automaticamente o par OCO de alvo e stop.
+ * Endpoint atual (`/api/v3/orderList/otoco`) — o antigo `/api/v3/order/oco`
+ * está marcado como deprecated na documentação oficial.
+ */
+export async function newOtocoOrder(params: OtocoParams): Promise<OrderListResponse> {
+  return signedRequest<OrderListResponse>('POST', '/api/v3/orderList/otoco', {
+    symbol: params.symbol,
+    listClientOrderId: params.listClientOrderId,
+    workingType: 'LIMIT',
+    workingSide: 'BUY',
+    workingPrice: params.workingPrice,
+    workingQuantity: params.workingQuantity,
+    workingTimeInForce: 'GTC',
+    pendingSide: 'SELL',
+    pendingQuantity: params.pendingQuantity,
+    pendingAboveType: 'LIMIT_MAKER',
+    pendingAbovePrice: params.takeProfitPrice,
+    pendingBelowType: 'STOP_LOSS_LIMIT',
+    pendingBelowStopPrice: params.stopPrice,
+    pendingBelowPrice: params.stopLimitPrice,
+    pendingBelowTimeInForce: 'GTC',
+    newOrderRespType: 'RESULT',
+  });
+}
+
+export interface OcoSellParams {
+  symbol: string;
+  listClientOrderId: string;
+  quantity: string;
+  /** preço do take profit (LIMIT_MAKER, acima do mercado) */
+  takeProfitPrice: string;
+  stopPrice: string;
+  stopLimitPrice: string;
+}
+
+/**
+ * Proteção de uma posição que JÁ existe: alvo e stop, os dois vendendo.
+ *
+ * Não confundir com o OTOCO. O OTOCO nasce com uma ordem de trabalho de
+ * COMPRA — usá-lo para reposicionar o stop de uma posição aberta manda comprar
+ * de novo, no preço do alvo, acima do mercado. Quando a posição já está na
+ * mão, o que se envia é este OCO puro de venda.
+ */
+export async function newOcoSellOrder(params: OcoSellParams): Promise<OrderListResponse> {
+  return signedRequest<OrderListResponse>('POST', '/api/v3/orderList/oco', {
+    symbol: params.symbol,
+    listClientOrderId: params.listClientOrderId,
+    side: 'SELL',
+    quantity: params.quantity,
+    aboveType: 'LIMIT_MAKER',
+    abovePrice: params.takeProfitPrice,
+    belowType: 'STOP_LOSS_LIMIT',
+    belowStopPrice: params.stopPrice,
+    belowPrice: params.stopLimitPrice,
+    belowTimeInForce: 'GTC',
+    newOrderRespType: 'RESULT',
+  });
+}
+
+/** Venda a mercado do que sobrou: usada quando a proteção não pôde ser recriada. */
+export async function marketSell(symbol: string, quantity: string, clientOrderId: string): Promise<OrderResponse> {
+  return signedRequest<OrderResponse>('POST', '/api/v3/order', {
+    symbol,
+    side: 'SELL',
+    type: 'MARKET',
+    quantity,
+    newClientOrderId: clientOrderId,
+    newOrderRespType: 'RESULT',
+  });
+}
+
+export async function getOrder(symbol: string, origClientOrderId: string): Promise<OrderResponse> {
+  return signedRequest<OrderResponse>('GET', '/api/v3/order', { symbol, origClientOrderId });
+}
+
+export async function getOrderById(symbol: string, orderId: string): Promise<OrderResponse> {
+  return signedRequest<OrderResponse>('GET', '/api/v3/order', { symbol, orderId });
+}
+
+export async function getOpenOrders(symbol?: string): Promise<OrderResponse[]> {
+  return signedRequest<OrderResponse[]>('GET', '/api/v3/openOrders', symbol ? { symbol } : {});
+}
+
+export async function cancelOrder(symbol: string, origClientOrderId: string): Promise<OrderResponse> {
+  return signedRequest<OrderResponse>('DELETE', '/api/v3/order', { symbol, origClientOrderId });
+}
+
+export async function cancelOrderList(symbol: string, listClientOrderId: string): Promise<OrderListResponse> {
+  return signedRequest<OrderListResponse>('DELETE', '/api/v3/orderList', { symbol, listClientOrderId });
+}
+
+export async function getOrderList(listClientOrderId: string): Promise<OrderListResponse> {
+  return signedRequest<OrderListResponse>('GET', '/api/v3/orderList', { origClientOrderId: listClientOrderId });
+}
+
+/**
+ * Chave do fluxo da conta.
+ *
+ * É o único grupo de endpoints assinado só pelo cabeçalho: não leva
+ * assinatura HMAC nem timestamp. A chave morre em 60 minutos e precisa de
+ * renovação — sem ela o socket fecha sozinho e as execuções passam a chegar
+ * apenas pela reconciliação lenta.
+ */
+async function keyedRequest<T>(method: 'POST' | 'PUT' | 'DELETE', params: Record<string, string> = {}): Promise<T> {
+  const credentials = readCredentials(active.name);
+  if (!credentials) {
+    throw new BinanceError('Credenciais da Binance não configuradas no servidor', -2015, 401);
+  }
+  const query = buildQuery(params);
+  const url = `${active.tradeRestBase}/api/v3/userDataStream${query ? `?${query}` : ''}`;
+  return request<T>(url, { method, headers: { 'X-MBX-APIKEY': credentials.apiKey } });
+}
+
+export async function createListenKey(): Promise<string> {
+  const result = await keyedRequest<{ listenKey: string }>('POST');
+  return result.listenKey;
+}
+
+export async function keepAliveListenKey(listenKey: string): Promise<void> {
+  await keyedRequest('PUT', { listenKey });
+}
+
+export async function closeListenKey(listenKey: string): Promise<void> {
+  await keyedRequest('DELETE', { listenKey });
+}
+
+export function parseKline(raw: RawKline, closed: boolean) {
+  return {
+    openTime: raw[0],
+    open: Number(raw[1]),
+    high: Number(raw[2]),
+    low: Number(raw[3]),
+    close: Number(raw[4]),
+    volume: Number(raw[5]),
+    closeTime: raw[6],
+    quoteVolume: Number(raw[7]),
+    closed,
+  };
+}

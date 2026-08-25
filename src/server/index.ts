@@ -1,0 +1,205 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
+import type { Trade } from '../core/types.ts';
+import { config, environmentForMode } from './config.ts';
+import { logger } from './logger.ts';
+import { EventBus } from './events.ts';
+import { createRepository } from './store/index.ts';
+import { ping, setActiveEnvironment, syncClock } from './binance/rest.ts';
+import { AlertEngine } from './services/alertEngine.ts';
+import { AutoTrader } from './services/autoTrader.ts';
+import { DecisionJournal } from './services/decisionJournal.ts';
+import { LiveTradeMonitor } from './services/liveTradeMonitor.ts';
+import { LiveProtection } from './services/liveProtection.ts';
+import { UserDataStream } from './binance/userStream.ts';
+import { buildCuratedWatchlist } from './services/curatedWatchlist.ts';
+import { AuditService } from './services/auditService.ts';
+import { ExecutionService } from './services/executionService.ts';
+import { MarketDataService } from './services/marketDataService.ts';
+import { PaperTradingEngine } from './services/paperTradingEngine.ts';
+import { CloseService } from './services/closeService.ts';
+import { RiskService } from './services/riskService.ts';
+import { ScannerService } from './services/scannerService.ts';
+import { SettingsService } from './services/settingsService.ts';
+import { apiRouter, type ApiContext } from './routes/index.ts';
+import { withBitcoin } from './services/focus.ts';
+import { UniverseService } from './services/universeService.ts';
+import { NewsService } from './services/newsService.ts';
+
+async function main(): Promise<void> {
+  const repository = await createRepository();
+  const settings = new SettingsService(repository);
+  await settings.load();
+
+  const bus = new EventBus();
+  const audit = new AuditService(repository);
+  const market = new MarketDataService();
+  const alerts = new AlertEngine(repository, bus);
+  const paper = new PaperTradingEngine(repository, bus, audit, settings);
+  await paper.load();
+
+  const risk = new RiskService(repository, settings, market);
+  const scanner = new ScannerService(market, repository, settings, bus, alerts, paper, audit);
+  risk.setContextProvider(() => scanner.getContext()?.state ?? null);
+
+  // o que acontece com o ativo fora do gráfico entra no porteiro de entrada
+  const news = new NewsService();
+  risk.setNewsProvider((symbol) => news.verdict(symbol));
+
+  const universe = new UniverseService(settings, scanner);
+  const execution = new ExecutionService(repository, settings, market, paper, audit, bus, risk);
+
+  // diário de decisões: toda operação encerrada vira material de análise
+  const journal = new DecisionJournal(repository);
+  paper.setOnClosed((trade) => journal.record(trade));
+
+  // o setup comprado pelo robô sai do radar; senão ele expira depois e
+  // cancela a própria ordem que acabou de ser aberta
+  execution.setOnBought((setup) => scanner.markBought(setup));
+
+  const autoTrader = new AutoTrader(settings, execution, paper, audit);
+  scanner.setAutoTrader(autoTrader);
+
+  const close = new CloseService(repository, paper, market, audit, settings, bus, (trade) =>
+    journal.record(trade),
+  );
+
+  // fluxo da conta: a corretora avisa a execução em vez de sermos nós a perguntar
+  const userStream = new UserDataStream();
+  const protection = new LiveProtection(audit, settings);
+  const liveMonitor = new LiveTradeMonitor(
+    repository,
+    paper,
+    bus,
+    audit,
+    settings,
+    market,
+    protection,
+    (trade: Trade) => journal.record(trade),
+    userStream,
+  );
+
+  // o ambiente segue o modo: PAPER e LIVE usam produção, TESTNET usa o testnet
+  setActiveEnvironment(environmentForMode(settings.get().mode).name);
+
+  const context: ApiContext = {
+    repository,
+    settings,
+    market,
+    scanner,
+    universe,
+    news,
+    execution,
+    close,
+    risk,
+    paper,
+    audit,
+    bus,
+  };
+
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '100kb' }));
+  app.use((_request, response, next) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
+
+  /**
+   * O painel escuta só em 127.0.0.1, mas isso não basta: uma página aberta no
+   * navegador pode apontar um domínio próprio para 127.0.0.1 e falar com esta
+   * API como se fosse local. Conferir o Host fecha essa porta — e ela dá para
+   * uma API que envia ordem com dinheiro real.
+   */
+  app.use('/api', (request, response, next) => {
+    const host = (request.headers.host ?? '').toLowerCase();
+    if (config.allowedHosts.length > 0 && !config.allowedHosts.includes(host)) {
+      logger.warn('Chamada recusada por Host desconhecido', { host });
+      response.status(403).json({ error: 'Host não autorizado' });
+      return;
+    }
+    next();
+  });
+  app.use('/api', apiRouter(context));
+
+  const distDirectory = join(process.cwd(), 'dist');
+  if (existsSync(distDirectory)) {
+    app.use(express.static(distDirectory));
+    app.get(/^(?!\/api).*/, (_request, response) => {
+      response.sendFile(join(distDirectory, 'index.html'));
+    });
+  }
+
+  app.use((error: Error, _request: Request, response: Response, _next: NextFunction) => {
+    logger.error('Erro não tratado na API', { error: error.message });
+    response.status(500).json({ error: 'Erro interno — verifique os logs do servidor' });
+  });
+
+  const server = app.listen(config.port, config.host, () => {
+    logger.info('Crypto Setup Hunter no ar', {
+      url: `http://${config.host}:${config.port}`,
+      mode: settings.get().mode,
+      binanceEnv: environmentForMode(settings.get().mode).name,
+      credentials: environmentForMode(settings.get().mode).hasCredentials ? 'configuradas' : 'ausentes',
+      store: config.store,
+    });
+  });
+
+  const heartbeat = setInterval(() => bus.heartbeat(), 25_000);
+  heartbeat.unref?.();
+
+  const available = await ping();
+  if (!available) {
+    logger.error('Binance inacessível no boot — o painel vai mostrar DADOS INDISPONÍVEIS');
+  } else if (environmentForMode(settings.get().mode).hasCredentials) {
+    await syncClock().catch((error) =>
+      logger.warn('Não foi possível sincronizar o relógio', { error: (error as Error).message }),
+    );
+  }
+
+  // primeira execução: já nasce com os pares mais líquidos da Binance
+  if (settings.firstRun && available) {
+    try {
+      const curated = await buildCuratedWatchlist({ limit: 30 });
+      if (curated.length > 0) await settings.update({ scanner: { watchlist: curated } });
+    } catch (error) {
+      logger.warn('Não foi possível montar a watchlist inicial', {
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  await market.start(withBitcoin(settings.get().scanner.watchlist));
+  await scanner.start();
+  universe.start();
+  news.start();
+  liveMonitor.start();
+  // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não há
+  // ordem na corretora para acompanhar
+  if (settings.get().mode !== 'PAPER' && environmentForMode(settings.get().mode).hasCredentials) {
+    userStream.start();
+  }
+
+  const shutdown = (): void => {
+    logger.info('Encerrando…');
+    scanner.stop();
+    universe.stop();
+    news.stop();
+    liveMonitor.stop();
+    void userStream.stop();
+    market.stop();
+    clearInterval(heartbeat);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+main().catch((error) => {
+  logger.error('Falha fatal ao iniciar', { error: (error as Error).message, stack: error.stack });
+  process.exit(1);
+});

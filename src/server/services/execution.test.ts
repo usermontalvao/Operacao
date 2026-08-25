@@ -1,0 +1,506 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import type { SymbolFilters, TradeSetup } from '../../core/types.ts';
+import { EventBus } from '../events.ts';
+import { JsonStore } from '../store/jsonStore.ts';
+import { AuditService } from './auditService.ts';
+import { ExecutionService } from './executionService.ts';
+import type { MarketDataService } from './marketDataService.ts';
+import { PaperTradingEngine } from './paperTradingEngine.ts';
+import { RiskService } from './riskService.ts';
+import { SettingsService } from './settingsService.ts';
+
+const FILTERS: SymbolFilters = {
+  symbol: 'XRPUSDT',
+  baseAsset: 'XRP',
+  quoteAsset: 'USDT',
+  status: 'TRADING',
+  tickSize: 0.0001,
+  stepSize: 0.1,
+  minQty: 0.1,
+  maxQty: 9222449,
+  minNotional: 5,
+  applyMinToMarket: true,
+  baseAssetPrecision: 8,
+  quotePrecision: 8,
+  isSpotTradingAllowed: true,
+  ocoAllowed: true,
+};
+
+function makeSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
+  return {
+    id: 'setup-xrp-1',
+    symbol: 'XRPUSDT',
+    side: 'BUY',
+    timeframe: '4h',
+    anchorTimeframe: '1d',
+    setupType: 'PULLBACK',
+    currentPrice: 1.43,
+    entryLow: 1.41,
+    entryHigh: 1.44,
+    stopLoss: 1.37,
+    target1: 1.52,
+    target2: 1.61,
+    target3: 1.7,
+    riskReward: 2.1,
+    score: 84,
+    classification: 'SETUP_FORTE',
+    scoreBreakdown: { total: 84, classification: 'SETUP_FORTE', components: [], penalties: [] },
+    reasons: ['Suporte defendido no 4H'],
+    btcContext: 'BTC_NEUTRAL',
+    status: 'ACTIVE',
+    visualState: 'COMPRAVEL',
+    extended: false,
+    extensionReasons: [],
+    evidence: {
+      rsi14: 45,
+      atrPercent: 1.8,
+      relativeVolume: 1.3,
+      macdHistogram: 0.002,
+      distanceToEma20InAtr: -0.4,
+      triggerTrend: 'UP',
+      anchorTrend: 'UP',
+      anchorStructure: 'HH_HL',
+      levelQuality: 0.8,
+      volumeConfirmation: true,
+      momentumTurning: true,
+      btcScoreModifier: 5,
+    },
+    fingerprint: 'XRPUSDT:PULLBACK:4h:1.41',
+    invalidationNote: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    ignoredAt: null,
+    ...overrides,
+  };
+}
+
+async function harness(price = 1.43) {
+  const directory = await mkdtemp(join(tmpdir(), 'hunter-test-'));
+  const repository = new JsonStore(directory);
+  await repository.init();
+  const settings = new SettingsService(repository);
+  await settings.load();
+  await settings.update({
+    risk: { paperCapital: 1000, paperCapitalCurrency: 'USDT' },
+    // o disjuntor tem testes próprios; aqui ele fica frouxo de propósito para
+    // que estas provas falem só sobre o caminho da ordem
+    guard: { minNetRiskReward: 1, lossCooldownMinutes: 0, maxDailyTrades: 50 },
+  });
+  const bus = new EventBus();
+  const audit = new AuditService(repository);
+  const paper = new PaperTradingEngine(repository, bus, audit, settings);
+  let currentPrice = price;
+  const market = {
+    getPrice: () => currentPrice,
+    getSnapshot: () => ({ quoteVolume24h: 500_000_000 }),
+  } as unknown as MarketDataService;
+  const risk = new RiskService(repository, settings, market);
+  const execution = new ExecutionService(repository, settings, market, paper, audit, bus, risk, {
+    loadFilters: async () => FILTERS,
+    loadUsdtBalance: async () => ({ free: 1000, locked: 0 }),
+    loadBrlRate: async () => 5.16,
+  });
+  return {
+    directory,
+    repository,
+    settings,
+    paper,
+    audit,
+    risk,
+    execution,
+    setPrice: (value: number) => {
+      currentPrice = value;
+    },
+    cleanup: () => rm(directory, { recursive: true, force: true }),
+  };
+}
+
+test('preview calcula quantidade, risco e devolve token de confirmação', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  const preview = await context.execution.preview(
+    { setupId: 'setup-xrp-1', quoteAmount: 200 },
+    makeSetup(),
+  );
+
+  assert.equal(preview.mode, 'PAPER');
+  assert.equal(preview.entryPrice, 1.43);
+  assert.equal(preview.sizing.quantity, 139.8, 'quantidade arredondada pelo stepSize');
+  assert.ok(preview.sizing.riskAmount > 0);
+  assert.equal(preview.canExecute, true);
+  assert.ok(preview.confirmationToken);
+  assert.equal(preview.blockers.length, 0);
+});
+
+test('preview em percentual do capital respeita o saldo disponível', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const preview = await context.execution.preview(
+    { setupId: 'setup-xrp-1', percentOfCapital: 10 },
+    makeSetup(),
+  );
+  assert.equal(preview.available, 1000);
+  assert.equal(preview.sizing.notional, 100);
+});
+
+test('ordem só é criada com o token da confirmação que o usuário aprovou', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const setup = makeSetup();
+
+  await assert.rejects(
+    context.execution.execute(
+      {
+        setupId: setup.id,
+        confirmationToken: 'ZmFsc28.deadbeef',
+        idempotencyKey: 'chave-invalida-1',
+      },
+      setup,
+    ),
+    /não conferem|inválida|expirou/i,
+  );
+
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'chave-valida-1',
+    },
+    setup,
+  );
+  assert.equal(trade.mode, 'PAPER');
+  assert.equal(trade.symbol, 'XRPUSDT');
+  assert.equal(trade.status, 'OPEN', 'preço dentro da zona preenche na hora');
+  assert.equal(trade.filledQuantity, 139.8);
+});
+
+test('token de outro setup ou com plano alterado é recusado', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const token = preview.confirmationToken as string;
+
+  // mesmo setup, mas o stop mudou desde a confirmação
+  await assert.rejects(
+    context.execution.execute(
+      { setupId: setup.id, confirmationToken: token, idempotencyKey: 'plano-mudou' },
+      { ...setup, stopLoss: 1.39 },
+    ),
+    /plano do setup mudou/i,
+  );
+
+  // token válido apontando para outro setup
+  await assert.rejects(
+    context.execution.execute(
+      { setupId: 'setup-xrp-9', confirmationToken: token, idempotencyKey: 'outro-setup' },
+      makeSetup({ id: 'setup-xrp-9' }),
+    ),
+    /outro setup/i,
+  );
+
+  // assinatura adulterada
+  const [body] = token.split('.');
+  await assert.rejects(
+    context.execution.execute(
+      { setupId: setup.id, confirmationToken: `${body}.00`, idempotencyKey: 'assinatura-falsa' },
+      setup,
+    ),
+    /não conferem/i,
+  );
+});
+
+test('robô compra na conta de teste e não empilha no mesmo ativo', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const setup = makeSetup();
+
+  await context.settings.update({
+    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 70, maxNotionalPerTrade: 500 },
+  });
+  const trade = await context.execution.executeAutomatic(setup);
+  assert.ok(trade, 'esperava uma operação automática no modo PAPER');
+  assert.equal(trade.automatic, true);
+  assert.equal(trade.mode, 'PAPER');
+  assert.equal(trade.status, 'OPEN');
+
+  // segunda tentativa no mesmo setup não vira ordem nenhuma
+  assert.equal(await context.execution.executeAutomatic(setup), null);
+  // nem em outro setup do mesmo ativo: a exposição seria dobrada no mesmo risco
+  assert.equal(
+    await context.execution.executeAutomatic(makeSetup({ id: 'setup-xrp-2', fingerprint: 'outro' })),
+    null,
+  );
+  assert.equal((await context.repository.listTrades()).length, 1);
+});
+
+test('teto por ordem limita a compra automática mesmo com percentual alto', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({
+    autoTrade: {
+      enabled: true,
+      percentOfCapital: 90,
+      minimumScore: 70,
+      maxNotionalPerTrade: 40,
+    },
+  });
+  const trade = await context.execution.executeAutomatic(makeSetup());
+  assert.ok(trade, 'esperava a operação');
+  assert.ok(trade.notional <= 40.5, `notional ${trade.notional} deveria respeitar o teto de 40`);
+});
+
+test('conta real exige as duas chaves: servidor e armamento no painel', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({
+    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 70 },
+    mode: 'LIVE',
+  });
+
+  // sem nada liberado
+  assert.equal(await context.execution.executeAutomatic(makeSetup({ id: 'live-1' })), null);
+
+  // liberado nos ajustes, mas ainda desarmado
+  await context.settings.update({ autoTrade: { allowLive: true } });
+  assert.equal(await context.execution.executeAutomatic(makeSetup({ id: 'live-2' })), null);
+
+  // armado, porém com o armamento já vencido
+  await context.settings.update({
+    autoTrade: { liveArmedUntil: new Date(Date.now() - 60_000).toISOString() },
+  });
+  assert.equal(await context.execution.executeAutomatic(makeSetup({ id: 'live-3' })), null);
+
+  const audit = await context.audit.list(50);
+  const blocked = audit.filter((entry) => entry.action === 'AUTO_TRADE_BLOCKED_LIVE');
+  assert.equal(blocked.length, 3, 'cada recusa precisa deixar rastro na auditoria');
+  assert.equal((await context.repository.listTrades()).length, 0);
+});
+
+test('desligar o robô desarma a conta real junto', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({
+    autoTrade: {
+      enabled: true,
+      allowLive: true,
+      liveArmedUntil: new Date(Date.now() + 600_000).toISOString(),
+    },
+  });
+  assert.ok(context.settings.get().autoTrade.liveArmedUntil !== null);
+
+  const off = await context.settings.update({ autoTrade: { enabled: false } });
+  assert.equal(off.autoTrade.liveArmedUntil, null, 'religar não pode herdar o armamento antigo');
+});
+
+test('clique duplo não cria duas ordens', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const request = {
+    setupId: setup.id,
+    confirmationToken: preview.confirmationToken as string,
+    idempotencyKey: 'clique-duplo',
+  };
+
+  const [first, second] = await Promise.all([
+    context.execution.execute(request, setup),
+    context.execution.execute(request, setup),
+  ]);
+  const third = await context.execution.execute(request, setup);
+
+  assert.equal(first.id, second.id);
+  assert.equal(first.id, third.id);
+  const trades = await context.repository.listTrades();
+  assert.equal(trades.length, 1);
+});
+
+test('paper trade percorre entrada, alvos e fechamento com PnL', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'ciclo-completo',
+    },
+    setup,
+  );
+  assert.equal(trade.status, 'OPEN');
+
+  await context.paper.onPrice('XRPUSDT', 1.52);
+  let current = context.paper.getOpenTrades()[0];
+  assert.ok(current);
+  assert.ok(current.fills.some((fill) => fill.kind === 'TARGET1'), 'alvo 1 realiza parcial');
+  assert.ok(current.realizedPnl > 0);
+
+  await context.paper.onPrice('XRPUSDT', 1.61);
+  await context.paper.onPrice('XRPUSDT', 1.7);
+
+  const trades = await context.repository.listTrades();
+  const closed = trades[0];
+  assert.ok(closed);
+  assert.equal(closed.status, 'CLOSED');
+  assert.equal(closed.outcome, 'TARGET3');
+  assert.equal(closed.remainingQuantity, 0);
+  assert.ok(closed.realizedPnl > 20, `esperava lucro relevante, veio ${closed.realizedPnl}`);
+  assert.ok(closed.maxFavorablePercent >= 18);
+});
+
+test('stop encerra a operação com prejuízo controlado', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'stopado',
+    },
+    setup,
+  );
+
+  await context.paper.onPrice('XRPUSDT', 1.4);
+  await context.paper.onPrice('XRPUSDT', 1.36);
+
+  const trades = await context.repository.listTrades();
+  const closed = trades[0];
+  assert.ok(closed);
+  assert.equal(closed.status, 'CLOSED');
+  assert.equal(closed.outcome, 'STOP');
+  assert.ok(closed.realizedPnl < 0);
+  assert.ok(closed.maxAdversePercent < 0);
+});
+
+test('limite de operações abertas bloqueia nova compra', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({ risk: { maxOpenTrades: 1 } });
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'primeira-ordem',
+    },
+    setup,
+  );
+
+  const second = makeSetup({ id: 'setup-xrp-2', fingerprint: 'XRPUSDT:PULLBACK:1h:1.41' });
+  const blocked = await context.execution.preview({ setupId: second.id, quoteAmount: 100 }, second);
+  assert.equal(blocked.canExecute, false);
+  assert.ok(blocked.blockers.some((item) => item.includes('operações abertas')));
+});
+
+test('setup inválido não pode ser comprado', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const dead = makeSetup({ status: 'INVALIDATED' });
+  const preview = await context.execution.preview({ setupId: dead.id, quoteAmount: 100 }, dead);
+  assert.equal(preview.canExecute, false);
+  assert.ok(preview.blockers.some((item) => item.includes('não está mais válido')));
+});
+
+test('corretagem sai do resultado e fica registrada', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    { setupId: setup.id, confirmationToken: preview.confirmationToken as string, idempotencyKey: 'taxa-1' },
+    setup,
+  );
+
+  // a taxa da compra já é cobrada no preenchimento
+  const afterEntry = context.paper.getOpenTrades().find((item) => item.id === trade.id);
+  assert.ok(afterEntry && afterEntry.feesPaid > 0, 'entrada tem de cobrar corretagem');
+
+  await context.paper.onPrice('XRPUSDT', 1.52);
+  await context.paper.onPrice('XRPUSDT', 1.61);
+  await context.paper.onPrice('XRPUSDT', 1.7);
+
+  const closed = (await context.repository.listTrades())[0];
+  assert.ok(closed);
+  assert.equal(closed.status, 'CLOSED');
+
+  const quantity = closed.filledQuantity;
+  const grossTarget1 = (1.52 - 1.43) * quantity * 0.5;
+  const grossTarget2 = (1.61 - 1.43) * quantity * 0.3;
+  const grossTarget3 = (1.7 - 1.43) * quantity * 0.2;
+  const gross = grossTarget1 + grossTarget2 + grossTarget3;
+  assert.ok(
+    closed.realizedPnl < gross,
+    `líquido ${closed.realizedPnl} deveria ficar abaixo do bruto ${gross.toFixed(2)}`,
+  );
+  assert.ok(closed.feesPaid > 0, 'a corretagem paga precisa ficar gravada');
+  assert.ok(
+    Math.abs(gross - closed.realizedPnl - closed.feesPaid) < 0.05,
+    'bruto menos taxa tem de bater com o líquido',
+  );
+});
+
+test('depois do alvo 1 o stop vai para o empate e a operação não vira prejuízo', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    { setupId: setup.id, confirmationToken: preview.confirmationToken as string, idempotencyKey: 'empate-1' },
+    setup,
+  );
+
+  await context.paper.onPrice('XRPUSDT', 1.52);
+  const afterTarget = context.paper.getOpenTrades().find((item) => item.id === trade.id);
+  assert.ok(afterTarget, 'a posição continua aberta com a sobra');
+  assert.ok(
+    afterTarget.stopLoss > 1.43,
+    `stop deveria ter subido para o empate, ficou em ${afterTarget.stopLoss}`,
+  );
+  assert.equal(afterTarget.protectiveStop, afterTarget.stopLoss);
+
+  // o preço volta até onde ficava o stop original: antes isso era prejuízo
+  await context.paper.onPrice('XRPUSDT', 1.37);
+  const closed = (await context.repository.listTrades()).find((item) => item.id === trade.id);
+  assert.ok(closed);
+  assert.equal(closed.status, 'CLOSED');
+  assert.ok(
+    closed.realizedPnl > 0,
+    `com o stop no empate o resultado não pode ser negativo, veio ${closed.realizedPnl}`,
+  );
+});
+
+test('encerramento manual sai a mercado, com escorregamento e taxa', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    { setupId: setup.id, confirmationToken: preview.confirmationToken as string, idempotencyKey: 'manual-1' },
+    setup,
+  );
+
+  const closed = await context.paper.closeAtMarket(trade, 1.48, 'encerrado pelo usuário');
+  assert.equal(closed.status, 'CLOSED');
+  assert.equal(closed.outcome, 'MANUAL');
+  assert.equal(closed.closeReason, 'encerrado pelo usuário');
+  assert.equal(closed.remainingQuantity, 0);
+
+  const gross = (1.48 - 1.43) * closed.filledQuantity;
+  assert.ok(
+    closed.realizedPnl < gross,
+    `saída a mercado não pode render o preço cheio: ${closed.realizedPnl} vs ${gross.toFixed(2)}`,
+  );
+  assert.ok(closed.realizedPnl > 0);
+});
