@@ -132,7 +132,10 @@ export interface AuthConfig {
 
 function resolveAuth(): AuthConfig {
   const hasLocal = !!parsed.PANEL_PASSWORD_HASH && !!parsed.PANEL_USER;
-  const authKey = parsed.SUPABASE_ANON_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
+  const authKey = selectSupabaseAuthKey(
+    parsed.SUPABASE_ANON_KEY,
+    parsed.SUPABASE_SERVICE_ROLE_KEY,
+  );
   const hasSupabase = !!parsed.SUPABASE_URL && !!authKey && !!parsed.PANEL_USER;
 
   let backend: AuthBackendName = 'none';
@@ -152,6 +155,20 @@ function resolveAuth(): AuthConfig {
     sessionMs: parsed.SESSION_HOURS * 60 * 60_000,
     secureCookie: false,
   };
+}
+
+/**
+ * O Compose envia SUPABASE_ANON_KEY="" quando ela não foi configurada.
+ * Coalescência nula (`??`) não trata string vazia como ausente e acabava
+ * descartando uma SERVICE_ROLE_KEY válida, apesar de a persistência já estar
+ * conectada com ela. Para autenticação, anon vence quando existe; caso
+ * contrário a service role é o fallback já aceito pelo projeto.
+ */
+export function selectSupabaseAuthKey(
+  anonKey: string | undefined,
+  serviceRoleKey: string | undefined,
+): string | undefined {
+  return anonKey?.trim() || serviceRoleKey?.trim() || undefined;
 }
 
 export const config: AppConfig = {

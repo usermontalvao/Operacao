@@ -10,7 +10,12 @@ import {
   netRiskReward,
   stopFillPrice,
 } from './costs.ts';
-import { DEFAULT_GUARD, computeRiskSnapshot, evaluateEntryGate } from './governor.ts';
+import {
+  DEFAULT_GUARD,
+  PANIC_CLOSE_REASON,
+  computeRiskSnapshot,
+  evaluateEntryGate,
+} from './governor.ts';
 import { nextProtectiveStop, sanitizeTargets } from './stops.ts';
 
 function makeTrade(overrides: Partial<Trade> = {}): Trade {
@@ -101,6 +106,66 @@ test('disjuntor dispara por perdas seguidas', () => {
   assert.equal(snapshot.consecutiveLosses, 3);
   assert.equal(snapshot.halted, true);
   assert.match(snapshot.haltReasons.join(' '), /perdas seguidas/);
+});
+
+test('a sequência ruim de ontem não trava o robô hoje', () => {
+  // sem isto o disjuntor vira armadilha: bloqueado, o robô não abre operação
+  // nova, e sem operação nova nenhuma vitória chega para quebrar a sequência
+  const trades = [
+    makeTrade({ id: 'a', realizedPnl: -5, closedAt: '2026-08-24T09:00:00.000Z' }),
+    makeTrade({ id: 'b', realizedPnl: -4, closedAt: '2026-08-24T10:00:00.000Z' }),
+    makeTrade({ id: 'c', realizedPnl: -3, closedAt: '2026-08-24T11:00:00.000Z' }),
+  ];
+  const snapshot = computeRiskSnapshot({
+    trades,
+    mode: 'PAPER',
+    capital: 1000,
+    dailyLossLimitPercent: 50,
+    guard: { ...DEFAULT_GUARD, maxConsecutiveLosses: 3 },
+    prices: {},
+    now: new Date('2026-08-25T12:00:00.000Z'),
+  });
+  assert.equal(snapshot.consecutiveLosses, 0);
+  assert.equal(snapshot.halted, false);
+});
+
+test('encerrar tudo no pânico não conta como sequência de perdas', () => {
+  const trades = [
+    makeTrade({
+      id: 'a',
+      realizedPnl: -0.2,
+      closedAt: '2026-08-25T09:00:00.000Z',
+      outcome: 'MANUAL',
+      closeReason: PANIC_CLOSE_REASON,
+    }),
+    makeTrade({
+      id: 'b',
+      realizedPnl: -0.3,
+      closedAt: '2026-08-25T09:00:01.000Z',
+      outcome: 'MANUAL',
+      closeReason: PANIC_CLOSE_REASON,
+    }),
+    makeTrade({
+      id: 'c',
+      realizedPnl: -0.1,
+      closedAt: '2026-08-25T09:00:02.000Z',
+      outcome: 'MANUAL',
+      closeReason: PANIC_CLOSE_REASON,
+    }),
+    makeTrade({ id: 'd', realizedPnl: -4, closedAt: '2026-08-25T10:00:00.000Z' }),
+  ];
+  const snapshot = computeRiskSnapshot({
+    trades,
+    mode: 'PAPER',
+    capital: 1000,
+    dailyLossLimitPercent: 50,
+    guard: { ...DEFAULT_GUARD, maxConsecutiveLosses: 3 },
+    prices: {},
+    now: new Date('2026-08-25T12:00:00.000Z'),
+  });
+  // um clique fechou três posições; o único erro do sistema foi o stop
+  assert.equal(snapshot.consecutiveLosses, 1);
+  assert.equal(snapshot.halted, false);
 });
 
 test('um ganho no meio zera a contagem de perdas seguidas', () => {

@@ -542,7 +542,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
                 tone={riskState.drawdownPercent >= guard.maxDrawdownPercent ? 'text-bear' : undefined}
               />
               <Info
-                label="Perdas seguidas"
+                label="Perdas seguidas hoje"
                 value={`${riskState.consecutiveLosses} de ${guard.maxConsecutiveLosses}`}
                 tone={riskState.consecutiveLosses > 0 ? 'text-warn' : undefined}
               />

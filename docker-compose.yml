@@ -53,9 +53,9 @@ services:
       # para que uma página qualquer não aponte um domínio próprio para cá e
       # converse com uma API que envia ordem. Deixar em branco DESLIGA a
       # conferência — preencha.
-      # Sem domínio configurado, aceita somente os nomes locais. No servidor,
-      # ALLOWED_HOSTS definido no Portainer substitui integralmente este valor.
-      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost:3010,127.0.0.1:3010,[::1]:3010}"
+      # Domínio de produção mais os nomes locais. ALLOWED_HOSTS definido no
+      # Portainer substitui integralmente este valor.
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-finan.jurius-api.com,localhost:3010,127.0.0.1:3010,[::1]:3010}"
 
       # --- corretora -------------------------------------------------------
       TRADING_MODE: "${TRADING_MODE:-PAPER}"

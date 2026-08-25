@@ -13,7 +13,7 @@ import type { CostSettings } from './costs.ts';
 import { round } from './riskReward.ts';
 
 export interface GuardSettings extends CostSettings {
-  /** perdas seguidas que desligam a operação do dia */
+  /** perdas seguidas NO DIA que desligam a operação (o pânico não entra na conta) */
   maxConsecutiveLosses: number;
   /** queda máxima aceita a partir do topo da carteira, em % */
   maxDrawdownPercent: number;
@@ -91,6 +91,17 @@ export const DEFAULT_GUARD: GuardSettings = {
 
 /** Moedas que não entram na conta de exposição em altcoin. */
 const MAJORS = new Set(['BTCUSDT', 'ETHUSDT']);
+
+/**
+ * Motivo gravado pelo botão "encerrar tudo". Fica aqui, e não na rota, porque
+ * quem precisa reconhecê-lo é o disjuntor: um clique que fecha cinco posições
+ * de uma vez não é uma sequência de cinco erros do sistema.
+ */
+export const PANIC_CLOSE_REASON = 'pânico: encerrar tudo';
+
+function isPanicClose(trade: Trade): boolean {
+  return trade.closeReason === PANIC_CLOSE_REASON;
+}
 
 export interface RiskSnapshotInput {
   trades: Trade[];
@@ -186,10 +197,25 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
     2,
   );
 
-  // perdas seguidas: conta do fim para o começo e para na primeira que ganhou
+  // Perdas seguidas: conta do fim para o começo e para na primeira que ganhou.
+  //
+  // Duas restrições, e as duas nasceram de o robô ficar parado para sempre:
+  //
+  // 1. só o dia de hoje. Contando o histórico inteiro, a trava vira armadilha:
+  //    ela impede a compra, sem compra não há operação nova, sem operação nova
+  //    a sequência ruim nunca é quebrada por um ganho. O disjuntor desliga a
+  //    operação DO DIA — amanhã a contagem começa do zero, como o resultado do
+  //    dia e o teto de operações já faziam.
+  // 2. o encerramento em massa não conta. O botão de pânico fecha tudo a
+  //    mercado no mesmo segundo: sem este filtro, um clique do usuário grava
+  //    três "perdas seguidas" que o sistema nunca cometeu e arma o disjuntor
+  //    sozinho.
+  const streakCandidates = closed.filter(
+    (trade) => new Date(trade.closedAt as string).getTime() >= dayStart && !isPanicClose(trade),
+  );
   let consecutiveLosses = 0;
-  for (let index = closed.length - 1; index >= 0; index -= 1) {
-    const trade = closed[index] as Trade;
+  for (let index = streakCandidates.length - 1; index >= 0; index -= 1) {
+    const trade = streakCandidates[index] as Trade;
     if (trade.realizedPnl >= 0) break;
     consecutiveLosses += 1;
   }
@@ -231,7 +257,7 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
     );
   }
   if (guard.maxConsecutiveLosses > 0 && consecutiveLosses >= guard.maxConsecutiveLosses) {
-    reasons.push(`${consecutiveLosses} perdas seguidas`);
+    reasons.push(`${consecutiveLosses} perdas seguidas hoje`);
   }
   if (guard.maxDrawdownPercent > 0 && drawdownPercent >= guard.maxDrawdownPercent) {
     reasons.push(

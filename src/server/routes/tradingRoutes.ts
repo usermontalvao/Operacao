@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { computePerformance } from '../../core/performance.ts';
 import { analyzeFactors, buildEquityCurve } from '../../core/analytics.ts';
 import { round } from '../../core/risk/index.ts';
+import { PANIC_CLOSE_REASON } from '../../core/risk/governor.ts';
 import { getTickers } from '../binance/rest.ts';
 import { ExecutionError, liveAutoTradeDenial } from '../services/executionService.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
@@ -153,7 +154,7 @@ export function tradingRoutes(context: ApiContext): Router {
     '/trades/close-all',
     asyncHandler(async (_request, response) => {
       const settings = await context.settings.update({ autoTrade: { enabled: false } });
-      const result = await context.close.closeAll('pânico: encerrar tudo');
+      const result = await context.close.closeAll(PANIC_CLOSE_REASON);
       context.bus.broadcast({ type: 'settings', payload: settings });
       response.json({ ...result, robotStopped: true });
     }),
