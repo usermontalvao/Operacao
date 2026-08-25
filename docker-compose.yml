@@ -43,11 +43,9 @@ services:
 
       # --- entrada no painel ----------------------------------------------
       PANEL_USER: "${PANEL_USER:?defina PANEL_USER — sem login a API recusa tudo}"
-      # No AUTH_BACKEND=supabase a senha é conferida no Supabase Auth e o
-      # hash local deve mesmo ficar vazio. No modo local, a própria aplicação
-      # recusa o login se o hash não tiver sido gerado com `npm run senha`.
-      PANEL_PASSWORD_HASH: "${PANEL_PASSWORD_HASH:-}"
-      AUTH_BACKEND: "${AUTH_BACKEND:-auto}"
+      # Produção usa exclusivamente a conta do Supabase Auth. A senha nunca
+      # entra no Compose e nenhum hash local é necessário no contêiner.
+      AUTH_BACKEND: "supabase"
       SESSION_HOURS: "${SESSION_HOURS:-12}"
       APP_SECRET: "${APP_SECRET:?defina APP_SECRET — assina o token de confirmação de ordem}"
 

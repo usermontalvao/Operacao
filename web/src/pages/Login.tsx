@@ -76,14 +76,16 @@ export function Login({ session, onEntered }: Props) {
 
         {!session.configured ? (
           <div className="rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
-            <p className="font-medium text-warn">Login ainda não configurado</p>
+            <p className="font-medium text-warn">Supabase Auth ainda não configurado</p>
             <p className="mt-2 text-terminal-muted">
-              Abra o terminal na pasta do projeto e rode:
+              Confira nas variáveis da stack:
             </p>
             <code className="mt-2 block rounded bg-terminal-bg px-3 py-2 font-mono text-xs text-terminal-text">
-              npm run senha
+              PANEL_USER · SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY
             </code>
-            <p className="mt-2 text-terminal-muted">Depois reinicie o servidor e recarregue esta página.</p>
+            <p className="mt-2 text-terminal-muted">
+              A senha é a mesma da conta do Supabase; nenhum hash local é necessário.
+            </p>
           </div>
         ) : (
           <form

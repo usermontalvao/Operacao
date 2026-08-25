@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   const auth = new AuthService(config.auth);
   if (!auth.configured) {
     logger.error(
-      'Login NÃO configurado — a API vai recusar tudo até você rodar: npm run senha',
+      'Supabase Auth NÃO configurado — confira PANEL_USER, SUPABASE_URL e SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY',
     );
   }
 

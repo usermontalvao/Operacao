@@ -83,7 +83,7 @@ export function authRoutes(auth: AuthService): Router {
       }
       if (result.outcome === 'unconfigured') {
         response.status(503).json({
-          error: 'Login ainda não configurado neste computador — rode: npm run senha',
+          error: 'Supabase Auth não configurado no servidor — confira PANEL_USER e as variáveis SUPABASE_*',
           code: 'LOGIN_NAO_CONFIGURADO',
         });
         return;
