@@ -171,12 +171,14 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
         onModeChange={(mode) => void changeAccount(mode)}
         connection={live.connection}
         streamConnected={live.streamConnected}
+        carregando={live.carregando}
         context={live.context}
         activeSetups={setups.filter((setup) => setup.ignoredAt === null).length}
         autoTradeOn={live.snapshot?.settings.autoTrade.enabled ?? false}
         robotBusy={robotBusy}
         onToggleRobot={() => void toggleRobot()}
         halted={live.risk?.halted ?? false}
+        resumesAt={live.risk?.resumesAt ?? null}
         tabs={
           <NavTabs
             active={tab}
@@ -193,7 +195,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
       />
 
       <main className="mx-auto max-w-6xl px-4 py-4">
-        {live.error ? (
+        {live.error && !live.carregando ? (
           <p className="mb-3 rounded-lg border border-bear/40 bg-bear/10 p-3 text-sm text-bear">{live.error}</p>
         ) : null}
 
@@ -212,6 +214,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
             openTrades={live.trades}
             openSymbols={openSymbols}
             binanceAvailable={live.snapshot?.binanceAvailable ?? false}
+            carregando={live.carregando}
             onOpenSetup={setOpenSetup}
             onGoToWallet={() => setTab('HISTORICO')}
           />

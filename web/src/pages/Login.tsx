@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoginError, login, type SessionState } from '../lib/auth.ts';
+import { Marca } from '../components/Marca.tsx';
 
 interface Props {
   session: SessionState;
@@ -67,7 +68,9 @@ export function Login({ session, onEntered }: Props) {
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
+        <div className="mb-6 flex flex-col items-center text-center">
+          {/* aqui ela é grande: é a primeira coisa que se vê do sistema */}
+          <Marca tamanho={56} className="mb-3" />
           <h1 className="text-lg font-semibold tracking-tight">Operação</h1>
           <p className="mt-1 text-sm text-terminal-muted">
             O painel envia ordens de compra. Entre para continuar.

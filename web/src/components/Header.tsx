@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ConnectionState, MarketContext, TradingMode } from '../lib/types.ts';
 import type { AccountBalanceResponse } from '../lib/api.ts';
 import { brl, quantity, usd } from '../lib/format.ts';
+import { Marca } from './Marca.tsx';
 import type { LiveEquity } from '../lib/equity.ts';
 
 const CONTEXT_LABEL: Record<string, string> = {
@@ -28,12 +29,16 @@ interface HeaderProps {
   onModeChange: (mode: 'PAPER' | 'LIVE') => void;
   connection: ConnectionState;
   streamConnected: boolean;
+  /** a primeira leitura ainda não voltou — o topo não sabe de nada ainda */
+  carregando: boolean;
   context: MarketContext | null;
   activeSetups: number;
   autoTradeOn: boolean;
   robotBusy: boolean;
   onToggleRobot: () => void;
   halted: boolean;
+  /** hora em que o intervalo por perdas seguidas acaba sozinho */
+  resumesAt: string | null;
   /** as abas de navegação, renderizadas dentro do cabeçalho no monitor */
   tabs: React.ReactNode;
   watchedSymbols: number;
@@ -53,24 +58,39 @@ export function Header(props: HeaderProps) {
     onModeChange,
     connection,
     streamConnected,
+    carregando,
     context,
     activeSetups,
     autoTradeOn,
     robotBusy,
     onToggleRobot,
     halted,
+    resumesAt,
     tabs,
     watchedSymbols,
     universe,
     userLabel,
     onLogout,
   } = props;
-  const connectionLabel =
-    !streamConnected ? 'OFFLINE' : connection === 'LIVE' ? 'LIVE' : connection === 'RECONNECTING' ? 'RECONECTANDO' : 'OFFLINE';
+  /*
+    OFFLINE é um diagnóstico, e no primeiro quadro ninguém tem diagnóstico
+    nenhum: o canal nasce fechado e o distintivo nascia vermelho por isso, em
+    toda abertura de painel. Enquanto a primeira leitura não volta, o estado
+    honesto é CONECTANDO.
+  */
+  const connectionLabel = carregando
+    ? 'CONECTANDO'
+    : !streamConnected
+      ? 'OFFLINE'
+      : connection === 'LIVE'
+        ? 'LIVE'
+        : connection === 'RECONNECTING'
+          ? 'RECONECTANDO'
+          : 'OFFLINE';
   const connectionTone =
     connectionLabel === 'LIVE'
       ? 'text-bull border-bull/40 bg-bull/10 ring-live'
-      : connectionLabel === 'RECONECTANDO'
+      : connectionLabel === 'RECONECTANDO' || connectionLabel === 'CONECTANDO'
         ? 'text-warn border-warn/40 bg-warn/10'
         : 'text-bear border-bear/40 bg-bear/10';
   const demoSelected = mode !== 'LIVE';
@@ -78,7 +98,13 @@ export function Header(props: HeaderProps) {
   // o saldo do topo é o patrimônio AGORA, com as posições marcadas a mercado —
   // não o caixa parado, que só se mexe quando uma operação encerra
   const balanceReady = balance !== null && !switchingMode;
-  const balanceLabel = balanceReady ? `${quantity(liveEquity.equity)} USDT` : '—';
+  // '···' é espera; '—' é ausência. Trocar os dois era dizer "sem saldo" antes
+  // de ter perguntado o saldo
+  const balanceLabel = balanceReady
+    ? `${quantity(liveEquity.equity)} USDT`
+    : carregando
+      ? '···'
+      : '—';
   const balanceInBrl =
     balanceReady && balance?.brlRate && balance.brlRate > 0
       ? brl(liveEquity.equity * balance.brlRate)
@@ -106,6 +132,7 @@ export function Header(props: HeaderProps) {
       <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
+            <Marca tamanho={26} />
             <span className="text-lg font-semibold tracking-tight">Crypto Hunter</span>
           </div>
 
@@ -165,19 +192,40 @@ export function Header(props: HeaderProps) {
             */}
             <button
               type="button"
-              disabled={robotBusy}
+              disabled={robotBusy || carregando}
               onClick={onToggleRobot}
               aria-pressed={autoTradeOn}
-              title={autoTradeOn ? 'Clique para desligar o robô' : 'Clique para ligar o robô'}
+              title={
+                resumesAt
+                  ? `No intervalo até ${new Date(resumesAt).toLocaleTimeString('pt-BR', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })} — depois volta sozinho`
+                  : autoTradeOn
+                    ? 'Clique para desligar o robô'
+                    : 'Clique para ligar o robô'
+              }
               className={`rounded border px-2 py-0.5 text-[10px] font-bold tracking-wider transition disabled:opacity-50 ${
-                halted
+                carregando
+                  ? 'border-terminal-border bg-terminal-panel-soft text-terminal-muted'
+                  : halted
                   ? 'border-warn/50 bg-warn/10 text-warn'
                   : autoTradeOn
                     ? 'border-bull/50 bg-bull/10 text-bull hover:bg-bull/20'
                     : 'border-terminal-border bg-terminal-panel-soft text-terminal-muted hover:text-terminal-text'
               }`}
             >
-              {robotBusy ? 'ROBÔ …' : halted ? 'ROBÔ PARADO' : autoTradeOn ? 'ROBÔ ON' : 'ROBÔ OFF'}
+              {carregando
+                ? 'ROBÔ ···'
+                : robotBusy
+                  ? 'ROBÔ …'
+                  : resumesAt
+                    ? 'ROBÔ EM PAUSA'
+                    : halted
+                      ? 'ROBÔ PARADO'
+                      : autoTradeOn
+                        ? 'ROBÔ ON'
+                        : 'ROBÔ OFF'}
             </button>
             <span className={`rounded border px-2 py-0.5 text-[10px] font-bold tracking-wider ${connectionTone}`}>
               {connectionLabel}

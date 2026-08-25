@@ -30,12 +30,18 @@ const RISK_FIELDS: Array<{ key: keyof RiskSettings; label: string; hint: string;
   { key: 'minimumScoreToShow', label: 'Score mínimo para exibir', hint: 'Setups abaixo nem aparecem', step: 1 },
 ];
 
+/** Só a hora e o minuto: a data seria ruído para algo que acaba hoje. */
+function horaCurta(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
 const GUARD_FIELDS: Array<{ key: keyof GuardSettings; label: string; hint: string; step: number }> = [
   { key: 'feePercent', label: 'Taxa por lado (%)', hint: 'Corretagem da Binance; entra em todo resultado', step: 0.01 },
   { key: 'stopSlippagePercent', label: 'Escorregamento do stop (%)', hint: 'Quanto o stop preenche abaixo do gatilho', step: 0.05 },
   { key: 'exitSlippagePercent', label: 'Escorregamento a mercado (%)', hint: 'Custo de sair correndo', step: 0.05 },
   { key: 'minNetRiskReward', label: 'R/R líquido mínimo', hint: 'Já descontadas taxa e escorregamento', step: 0.1 },
-  { key: 'maxConsecutiveLosses', label: 'Perdas seguidas até parar', hint: 'Trava o robô depois da sequência ruim', step: 1 },
+  { key: 'maxConsecutiveLosses', label: 'Perdas seguidas até pausar', hint: 'Manda o robô para o intervalo depois da sequência ruim', step: 1 },
+  { key: 'lossPauseMinutes', label: 'Duração da pausa (min)', hint: 'Passado o tempo ele volta sozinho e a contagem zera', step: 15 },
   { key: 'maxDrawdownPercent', label: 'Queda máxima do topo (%)', hint: 'Para quando a carteira recua demais', step: 1 },
   { key: 'maxDailyTrades', label: 'Operações por dia', hint: 'Impede metralhar o mercado', step: 1 },
   { key: 'maxTotalExposurePercent', label: 'Exposição total máxima (%)', hint: 'Soma de tudo que está aberto', step: 5 },
@@ -542,7 +548,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
                 tone={riskState.drawdownPercent >= guard.maxDrawdownPercent ? 'text-bear' : undefined}
               />
               <Info
-                label="Perdas seguidas hoje"
+                label="Perdas seguidas"
                 value={`${riskState.consecutiveLosses} de ${guard.maxConsecutiveLosses}`}
                 tone={riskState.consecutiveLosses > 0 ? 'text-warn' : undefined}
               />
@@ -553,9 +559,18 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
             </dl>
 
             {riskState.halted ? (
+              /*
+                Quando a parada tem hora para acabar, a tela diz a hora.
+                O botão antigo dizia "retomar por 60 min" — e prometia o
+                contrário do que fazia: 60 minutos de folga e trava de novo.
+                Agora ele é o atalho de quem não quer esperar o intervalo,
+                nada mais que isso.
+              */
               <div className="mt-3 rounded-lg border border-bear/50 bg-bear/10 p-3">
                 <p className="text-xs font-semibold text-bear">
-                  Disjuntor acionado — nenhuma compra nova sai daqui.
+                  {riskState.resumesAt
+                    ? `Robô no intervalo — volta sozinho às ${horaCurta(riskState.resumesAt)}.`
+                    : 'Disjuntor acionado — nenhuma compra nova sai daqui.'}
                 </p>
                 <ul className="mt-1 list-inside list-disc text-[11px] text-bear/90">
                   {riskState.haltReasons.map((reason) => (
@@ -566,11 +581,13 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
                   type="button"
                   disabled={busy}
                   onClick={() =>
-                    void run(() => api.acknowledgeRisk(60), 'Disjuntor reconhecido por 60 min')
+                    void run(() => api.acknowledgeRisk(60), 'Robô retomado por 60 min')
                   }
                   className="mt-2 rounded-lg border border-warn/50 bg-warn/10 px-3 py-1.5 text-[11px] font-semibold text-warn"
                 >
-                  Estou ciente — retomar por 60 min
+                  {riskState.resumesAt
+                    ? 'Não quero esperar — retomar agora'
+                    : 'Estou ciente — retomar por 60 min'}
                 </button>
               </div>
             ) : null}

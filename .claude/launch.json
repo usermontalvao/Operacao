@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5180
+    },
+    {
+      "//": "Só a tela. O `npm run dev` sobe TAMBÉM um servidor — e com o painel já rodando isso vira um segundo robô varrendo o mercado contra a mesma carteira (ver DEPLOY.md). Este aqui usa o proxy do vite para o servidor que já está de pé em 3010.",
+      "name": "operacao-tela",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:web"],
+      "port": 5180
     }
   ]
 }

@@ -2,6 +2,7 @@ import type { AssetView, EntryDecision, Trade, TradeSetup } from '../lib/types.t
 import { DecisionBadge } from '../components/DecisionPanel.tsx';
 import { PriceLadder } from '../components/PriceLadder.tsx';
 import { SymbolButton } from '../components/SymbolButton.tsx';
+import { RadarSkeleton } from '../components/Skeleton.tsx';
 import {
   SETUP_LABEL,
   STATE_LABEL,
@@ -23,6 +24,8 @@ interface DashboardProps {
   /** ativos com posição em andamento */
   openSymbols: Set<string>;
   binanceAvailable: boolean;
+  /** a primeira leitura ainda não voltou — nada nesta tela foi respondido */
+  carregando: boolean;
   onOpenSetup: (setup: TradeSetup) => void;
   onGoToWallet: () => void;
 }
@@ -43,8 +46,27 @@ const TREND_LABEL: Record<string, string> = {
  * varrer com o olho.
  */
 export function Dashboard(props: DashboardProps) {
-  const { assets, setups, decisions, prices, openTrades, openSymbols, binanceAvailable, onOpenSetup, onGoToWallet } =
-    props;
+  const {
+    assets,
+    setups,
+    decisions,
+    prices,
+    openTrades,
+    openSymbols,
+    binanceAvailable,
+    carregando,
+    onOpenSetup,
+    onGoToWallet,
+  } = props;
+
+  /*
+    Enquanto a primeira resposta não chega, o Radar mostra a forma do que vem —
+    e nenhuma afirmação. Antes ele abria dizendo "DADOS INDISPONÍVEIS — sem
+    resposta da Binance" e "Nenhum setup válido agora": duas frases categóricas
+    sobre um servidor a quem ainda não se tinha perguntado nada.
+  */
+  if (carregando) return <RadarSkeleton />;
+
   const visible = setups.filter((setup) => setup.ignoredAt === null);
 
   const openPnl = openTrades.reduce((total, trade) => {

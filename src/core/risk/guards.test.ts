@@ -88,24 +88,63 @@ test('R/R líquido é menor que o bruto e some quando o alvo é curto demais', (
   assert.equal(curto, 0);
 });
 
-test('disjuntor dispara por perdas seguidas', () => {
+const TRES_PERDIDAS = [
+  makeTrade({ id: 'a', realizedPnl: -5, closedAt: '2026-08-25T09:00:00.000Z' }),
+  makeTrade({ id: 'b', realizedPnl: -4, closedAt: '2026-08-25T10:00:00.000Z' }),
+  makeTrade({ id: 'c', realizedPnl: -3, closedAt: '2026-08-25T11:00:00.000Z' }),
+];
+
+test('perdas seguidas mandam o robô para o intervalo', () => {
+  const snapshot = computeRiskSnapshot({
+    trades: TRES_PERDIDAS,
+    mode: 'PAPER',
+    capital: 1000,
+    dailyLossLimitPercent: 50,
+    guard: { ...DEFAULT_GUARD, maxConsecutiveLosses: 3, lossPauseMinutes: 60 },
+    prices: {},
+    // meia hora depois da terceira perda: no meio do intervalo
+    now: new Date('2026-08-25T11:30:00.000Z'),
+  });
+  assert.equal(snapshot.consecutiveLosses, 3);
+  assert.equal(snapshot.halted, true);
+  assert.equal(snapshot.resumesAt, '2026-08-25T12:00:00.000Z');
+  assert.match(snapshot.haltReasons.join(' '), /volta sozinho em 30 min/);
+});
+
+test('passado o intervalo o robô volta sozinho, sem ninguém clicar', () => {
+  // ESTE é o defeito que o usuário apontou: antes o botão dava 60 minutos de
+  // folga e travava de novo — o alívio e a pausa estavam trocados de lado
+  const snapshot = computeRiskSnapshot({
+    trades: TRES_PERDIDAS,
+    mode: 'PAPER',
+    capital: 1000,
+    dailyLossLimitPercent: 50,
+    guard: { ...DEFAULT_GUARD, maxConsecutiveLosses: 3, lossPauseMinutes: 60 },
+    prices: {},
+    now: new Date('2026-08-25T12:00:01.000Z'),
+  });
+  assert.equal(snapshot.halted, false);
+  assert.equal(snapshot.resumesAt, null);
+  // a contagem zera junto: cumprido o intervalo, a sequência está paga
+  assert.equal(snapshot.consecutiveLosses, 0);
+});
+
+test('perder de novo depois do intervalo recomeça a contagem, não retranca na hora', () => {
   const trades = [
-    makeTrade({ id: 'a', realizedPnl: -5, closedAt: '2026-08-25T09:00:00.000Z' }),
-    makeTrade({ id: 'b', realizedPnl: -4, closedAt: '2026-08-25T10:00:00.000Z' }),
-    makeTrade({ id: 'c', realizedPnl: -3, closedAt: '2026-08-25T11:00:00.000Z' }),
+    ...TRES_PERDIDAS,
+    makeTrade({ id: 'd', realizedPnl: -2, closedAt: '2026-08-25T13:00:00.000Z' }),
   ];
   const snapshot = computeRiskSnapshot({
     trades,
     mode: 'PAPER',
     capital: 1000,
     dailyLossLimitPercent: 50,
-    guard: { ...DEFAULT_GUARD, maxConsecutiveLosses: 3 },
+    guard: { ...DEFAULT_GUARD, maxConsecutiveLosses: 3, lossPauseMinutes: 60 },
     prices: {},
-    now: new Date('2026-08-25T12:00:00.000Z'),
+    now: new Date('2026-08-25T13:05:00.000Z'),
   });
-  assert.equal(snapshot.consecutiveLosses, 3);
-  assert.equal(snapshot.halted, true);
-  assert.match(snapshot.haltReasons.join(' '), /perdas seguidas/);
+  assert.equal(snapshot.consecutiveLosses, 1);
+  assert.equal(snapshot.halted, false);
 });
 
 test('a sequência ruim de ontem não trava o robô hoje', () => {
@@ -207,19 +246,15 @@ test('operação de outro modo não aciona o disjuntor do modo ativo', () => {
 });
 
 test('reconhecer o disjuntor libera a operação até a hora marcada', () => {
-  const trades = [
-    makeTrade({ id: 'a', realizedPnl: -5, closedAt: '2026-08-25T09:00:00.000Z' }),
-    makeTrade({ id: 'b', realizedPnl: -4, closedAt: '2026-08-25T10:00:00.000Z' }),
-    makeTrade({ id: 'c', realizedPnl: -3, closedAt: '2026-08-25T11:00:00.000Z' }),
-  ];
   const snapshot = computeRiskSnapshot({
-    trades,
+    trades: TRES_PERDIDAS,
     mode: 'PAPER',
     capital: 1000,
     dailyLossLimitPercent: 50,
     guard: { ...DEFAULT_GUARD, mutedUntil: '2026-08-25T13:00:00.000Z' },
     prices: {},
-    now: new Date('2026-08-25T12:00:00.000Z'),
+    // dentro do intervalo: é aí que o atalho "não quero esperar" faz sentido
+    now: new Date('2026-08-25T11:30:00.000Z'),
   });
   assert.equal(snapshot.halted, false);
   assert.equal(snapshot.mutedReasons.length, 1);

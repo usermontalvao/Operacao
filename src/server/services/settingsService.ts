@@ -55,6 +55,8 @@ const guardSchema = z.object({
   stopSlippagePercent: z.number().min(0).max(5),
   exitSlippagePercent: z.number().min(0).max(5),
   maxConsecutiveLosses: z.number().int().min(1).max(20),
+  // teto de 12h: a partir daí não é intervalo, é parar o dia
+  lossPauseMinutes: z.number().int().min(5).max(720),
   maxDrawdownPercent: z.number().min(1).max(50),
   maxDailyTrades: z.number().int().min(1).max(100),
   maxTotalExposurePercent: z.number().min(5).max(100),
@@ -109,7 +111,8 @@ const FIELD_LABELS: Record<string, string> = {
   'guard.stopSlippagePercent': 'Escorregamento do stop (%)',
   'guard.exitSlippagePercent': 'Escorregamento a mercado (%)',
   'guard.minNetRiskReward': 'R/R líquido mínimo',
-  'guard.maxConsecutiveLosses': 'Perdas seguidas até parar',
+  'guard.maxConsecutiveLosses': 'Perdas seguidas até pausar',
+  'guard.lossPauseMinutes': 'Duração da pausa (min)',
   'guard.maxDrawdownPercent': 'Queda máxima do topo (%)',
   'guard.maxDailyTrades': 'Operações por dia',
   'guard.maxTotalExposurePercent': 'Exposição total máxima (%)',

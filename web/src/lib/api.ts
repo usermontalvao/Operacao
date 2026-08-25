@@ -140,6 +140,8 @@ export interface RiskResponse {
   dailyUnrealizedPnl: number;
   dailyLossLimit: number;
   consecutiveLosses: number;
+  /** quando a pausa por perdas seguidas acaba sozinha */
+  resumesAt: string | null;
   tradesToday: number;
   openPositions: number;
   exposure: number;

@@ -9,9 +9,142 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0b0d'/%3E%3Cpath d='M6 23 L13 15 L18 19 L26 9' fill='none' stroke='%2316c784' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
     />
     <title>Crypto Hunter</title>
+    <!--
+      Abertura.
+
+      Isto é escrito à mão, dentro do HTML, e não em componente nenhum: ele
+      precisa estar pintado ANTES de o navegador baixar e interpretar o pacote
+      de JavaScript. Feito em React, chegaria tarde demais — e o que se vê até
+      lá é a tela preta com o nada.
+
+      Quem apaga esta tela é o painel, quando tem o que mostrar. Enquanto isso
+      não acontece, o traço verde continua andando: é a diferença entre "está
+      carregando" e "está quebrado", e ela é lida sem uma palavra escrita.
+    -->
+    <style>
+      #abertura {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: radial-gradient(120% 90% at 50% 0%, #14171d 0%, #0a0b0d 62%);
+        color: #e6e8ec;
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        transition: opacity 260ms ease, visibility 260ms ease;
+      }
+      /* a saída é o começo da animação de entrada do painel, não um corte */
+      #abertura[data-saindo='sim'] {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      #abertura .marca {
+        width: 54px;
+        height: 54px;
+        animation: abertura-respira 1.9s ease-in-out infinite;
+      }
+      /*
+        O traço é riscado UMA vez e fica. Em laço, ele some por um instante a
+        cada volta — e um logotipo que pisca lê como falha de carregamento,
+        justamente o contrário do que esta tela existe para dizer. Quem
+        sustenta a sensação de "vivo" é a respiração da marca e o trilho.
+      */
+      #abertura .marca path {
+        stroke-dasharray: 40;
+        animation: abertura-risca 900ms ease-out both;
+      }
+      #abertura .nome {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #8b909a;
+      }
+      #abertura .trilho {
+        position: relative;
+        width: 132px;
+        height: 2px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: #23262e;
+      }
+      #abertura .trilho::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 42%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, transparent, #16c784, transparent);
+        animation: abertura-corre 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+      /*
+        Demora demais é sintoma, não paciência. Passados 9 segundos sem o
+        painel assumir, a suspeita mais provável aparece sozinha — sem
+        JavaScript, que é justamente o que pode não ter carregado.
+      */
+      #abertura .demora {
+        max-width: 260px;
+        margin: 0;
+        text-align: center;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #8b909a;
+        opacity: 0;
+        animation: abertura-demora 400ms ease forwards 9s;
+      }
+      @keyframes abertura-corre {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(240%); }
+      }
+      @keyframes abertura-respira {
+        0%, 100% { opacity: 0.55; }
+        50% { opacity: 1; }
+      }
+      @keyframes abertura-risca {
+        0% { stroke-dashoffset: 40; }
+        55%, 100% { stroke-dashoffset: 0; }
+      }
+      @keyframes abertura-demora {
+        to { opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #abertura .marca,
+        #abertura .marca path,
+        #abertura .trilho::after {
+          animation: none;
+        }
+        #abertura .marca { opacity: 1; }
+        #abertura .trilho::after { width: 100%; background: #23262e; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="abertura" role="status" aria-live="polite">
+      <svg class="marca" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="#121419" />
+        <path
+          d="M6 23 L13 15 L18 19 L26 9"
+          fill="none"
+          stroke="#16c784"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span class="nome">Crypto Hunter</span>
+      <div class="trilho"></div>
+      <p class="demora">Está demorando mais que o normal. O servidor do painel está no ar?</p>
+      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">
+        Carregando o painel
+      </span>
+    </div>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

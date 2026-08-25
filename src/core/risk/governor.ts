@@ -13,8 +13,18 @@ import type { CostSettings } from './costs.ts';
 import { round } from './riskReward.ts';
 
 export interface GuardSettings extends CostSettings {
-  /** perdas seguidas NO DIA que desligam a operação (o pânico não entra na conta) */
+  /** perdas seguidas que mandam o robô para o intervalo (o pânico não entra na conta) */
   maxConsecutiveLosses: number;
+  /**
+   * Quanto dura o intervalo depois da sequência ruim, em minutos.
+   *
+   * O disjuntor é um INTERVALO, não um fim de jogo: passado este tempo o robô
+   * volta sozinho e a sequência recomeça do zero. A versão anterior fazia o
+   * contrário — parava para sempre e o botão dava 60 minutos de folga, depois
+   * dos quais travava de novo. Bastava reparar que, travado, ele nunca abriria
+   * a operação capaz de quebrar a sequência.
+   */
+  lossPauseMinutes: number;
   /** queda máxima aceita a partir do topo da carteira, em % */
   maxDrawdownPercent: number;
   /** teto de operações abertas por dia — evita metralhar o mercado */
@@ -70,6 +80,7 @@ export const DEFAULT_GUARD: GuardSettings = {
   stopSlippagePercent: 0.15,
   exitSlippagePercent: 0.1,
   maxConsecutiveLosses: 3,
+  lossPauseMinutes: 60,
   maxDrawdownPercent: 10,
   maxDailyTrades: 6,
   maxTotalExposurePercent: 60,
@@ -126,6 +137,8 @@ export interface RiskSnapshot {
   dailyUnrealizedPnl: number;
   dailyLossLimit: number;
   consecutiveLosses: number;
+  /** quando o intervalo por perdas seguidas acaba sozinho (null = sem intervalo) */
+  resumesAt: string | null;
   tradesToday: number;
   openPositions: number;
   exposure: number;
@@ -213,12 +226,35 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
   const streakCandidates = closed.filter(
     (trade) => new Date(trade.closedAt as string).getTime() >= dayStart && !isPanicClose(trade),
   );
-  let consecutiveLosses = 0;
-  for (let index = streakCandidates.length - 1; index >= 0; index -= 1) {
-    const trade = streakCandidates[index] as Trade;
-    if (trade.realizedPnl >= 0) break;
-    consecutiveLosses += 1;
+
+  // Caminha do começo para o fim porque o que interessa é ONDE a sequência
+  // estourou pela última vez: é dali que o relógio do intervalo começa a
+  // correr. Estourar zera a contagem — o intervalo paga a sequência —, então
+  // uma perda que feche durante o intervalo já conta para a próxima.
+  let streak = 0;
+  let pausedAt: string | null = null;
+  let lossesAtPause = 0;
+  for (const trade of streakCandidates) {
+    if (trade.realizedPnl >= 0) {
+      streak = 0;
+      continue;
+    }
+    streak += 1;
+    if (guard.maxConsecutiveLosses > 0 && streak >= guard.maxConsecutiveLosses) {
+      pausedAt = trade.closedAt;
+      lossesAtPause = streak;
+      streak = 0;
+    }
   }
+
+  const pauseMs = Math.max(guard.lossPauseMinutes, 0) * 60_000;
+  const resumesAt =
+    pausedAt === null ? null : new Date(new Date(pausedAt).getTime() + pauseMs).toISOString();
+  const pausing = resumesAt !== null && new Date(resumesAt).getTime() > now.getTime();
+  // durante o intervalo a tela mostra a sequência que o causou; depois dele,
+  // a que está correndo agora — mostrar 0 enquanto o robô está parado por
+  // perdas seguidas seria a tela contradizendo o próprio motivo
+  const consecutiveLosses = pausing ? lossesAtPause : streak;
 
   const lastLoss = [...closed].reverse().find((trade) => trade.realizedPnl < 0) ?? null;
 
@@ -256,8 +292,11 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
       `perda do dia (${dailyRealizedPnl.toFixed(2)} USDT) atingiu o limite de ${dailyLossLimit.toFixed(2)}`,
     );
   }
-  if (guard.maxConsecutiveLosses > 0 && consecutiveLosses >= guard.maxConsecutiveLosses) {
-    reasons.push(`${consecutiveLosses} perdas seguidas hoje`);
+  if (pausing && resumesAt !== null) {
+    const left = Math.max(Math.ceil((new Date(resumesAt).getTime() - now.getTime()) / 60_000), 1);
+    reasons.push(
+      `${consecutiveLosses} perdas seguidas — intervalo de ${guard.lossPauseMinutes} min, volta sozinho em ${left} min`,
+    );
   }
   if (guard.maxDrawdownPercent > 0 && drawdownPercent >= guard.maxDrawdownPercent) {
     reasons.push(
@@ -281,6 +320,7 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
     dailyUnrealizedPnl,
     dailyLossLimit,
     consecutiveLosses,
+    resumesAt: pausing ? resumesAt : null,
     tradesToday,
     openPositions: open.length,
     exposure,

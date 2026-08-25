@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { App } from './App.tsx';
 import { Login } from './pages/Login.tsx';
+import { AberturaEntrada } from './components/AberturaEntrada.tsx';
 import { SESSION_LOST, readSession, type SessionState } from './lib/auth.ts';
+import { encerrarAbertura } from './lib/abertura.ts';
 
 /**
  * Quem decide entre a porta e o painel.
@@ -17,6 +19,8 @@ export function Root() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [entradas, setEntradas] = useState(0);
+  // entrou agora: o painel monta e carrega POR BAIXO da tela de entrada
+  const [entrando, setEntrando] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -39,6 +43,10 @@ export function Root() {
     return () => window.removeEventListener(SESSION_LOST, aoPerder);
   }, []);
 
+  // a abertura do index.html cobre a leitura da sessão; daqui para a frente
+  // sempre há tela de verdade — porta, erro ou painel — e ela pode sair
+  if (erro || session) encerrarAbertura();
+
   if (erro) {
     return (
       <div className="flex min-h-full items-center justify-center px-4">
@@ -49,13 +57,10 @@ export function Root() {
     );
   }
 
-  if (!session) {
-    return (
-      <div className="flex min-h-full items-center justify-center">
-        <p className="text-sm text-terminal-muted">Carregando…</p>
-      </div>
-    );
-  }
+  // Enquanto a sessão não foi lida, quem está na tela é a abertura do
+  // index.html — desenhar um "Carregando…" por baixo dela só criaria um
+  // segundo quadro de espera quando ela saísse.
+  if (!session) return null;
 
   if (!session.authenticated) {
     return (
@@ -63,11 +68,24 @@ export function Root() {
         session={session}
         onEntered={() => {
           setEntradas((valor) => valor + 1);
+          setEntrando(true);
           void carregar();
         }}
       />
     );
   }
 
-  return <App key={entradas} userLabel={session.user} onLoggedOut={() => void carregar()} />;
+  return (
+    <>
+      <App key={entradas} userLabel={session.user} onLoggedOut={() => void carregar()} />
+      {/*
+        Depois do App, e não no lugar dele: o painel precisa estar montado e
+        buscando dados enquanto a tela de entrada cobre a espera. Trocado de
+        ordem, os cinco segundos seriam cinco segundos perdidos.
+      */}
+      {entrando ? (
+        <AberturaEntrada nome={session.user} onFim={() => setEntrando(false)} />
+      ) : null}
+    </>
+  );
 }

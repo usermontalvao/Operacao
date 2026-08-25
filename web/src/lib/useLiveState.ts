@@ -14,6 +14,16 @@ const REFRESH_MS = 15_000;
 
 export interface LiveState {
   snapshot: DashboardSnapshot | null;
+  /**
+   * A primeira leitura ainda não voltou.
+   *
+   * Sem esta distinção a tela abria mentindo: `binanceAvailable` nasce
+   * `false`, o canal nasce `OFFLINE` e o saldo nasce `—`, então o painel
+   * anunciava "DADOS INDISPONÍVEIS — sem resposta da Binance" antes de ter
+   * perguntado qualquer coisa a ela. Alarme falso no primeiro quadro é pior
+   * que demora: ensina a desconfiar do aviso que um dia vai ser verdadeiro.
+   */
+  carregando: boolean;
   balance: AccountBalanceResponse | null;
   /** retrato do disjuntor — o topo da tela precisa saber se a operação parou */
   risk: RiskResponse | null;
@@ -52,6 +62,7 @@ export function useLiveState(): LiveState {
   const [connection, setConnection] = useState<ConnectionState>('OFFLINE');
   const [streamConnected, setStreamConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(true);
   const sourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -81,6 +92,10 @@ export function useLiveState(): LiveState {
       setError(null);
     } catch (failure) {
       setError((failure as Error).message);
+    } finally {
+      // vale também para a falha: a partir daqui a tela sabe de alguma coisa,
+      // e o erro tem de aparecer em vez de o esqueleto pulsar para sempre
+      setCarregando(false);
     }
   }, []);
 
@@ -153,6 +168,7 @@ export function useLiveState(): LiveState {
 
   return {
     snapshot,
+    carregando,
     balance,
     risk,
     equity,
