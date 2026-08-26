@@ -494,7 +494,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
           {(
             [
               { id: 'WATCHLIST', label: 'Só a watchlist', hint: 'tempo real, poucos pares' },
-              { id: 'ALL_USDT', label: 'Todo o spot USDT', hint: 'varredura completa por lotes' },
+              { id: 'ALL_USDT', label: 'Todo o spot USDT', hint: 'todos os pares negociáveis, por lotes' },
             ] as Array<{ id: UniverseMode; label: string; hint: string }>
           ).map((option) => (
             <button
@@ -520,27 +520,17 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
         </div>
         <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
           <Info label="Pares do universo" value={String(settings.universe.total)} />
-          <Info label="Com volume suficiente" value={String(settings.universe.liquid)} />
+          <Info label="Na varredura por lotes" value={String(settings.universe.liquid)} />
           <Info
             label="Última volta completa"
             value={settings.universe.lastCycleSeconds ? `${settings.universe.lastCycleSeconds}s` : '—'}
           />
         </div>
-        <label className="mt-3 block max-w-xs">
-          <span className="text-xs text-terminal-muted">Volume mínimo em 24h (USDT)</span>
-          <input
-            type="number"
-            step={1_000_000}
-            defaultValue={settings.scanner.minQuoteVolume24h}
-            onBlur={(event) =>
-              void run(
-                () => api.updateSettings({ scanner: { minQuoteVolume24h: Number(event.target.value) } }),
-                'Filtro de volume atualizado',
-              )
-            }
-            className="mt-1 w-full rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-2 text-sm tabular outline-none"
-          />
-        </label>
+        <p className="mt-3 text-xs leading-relaxed text-terminal-muted">
+          A watchlist recebe preço em tempo real. Todos os demais pares Spot/USDT são analisados em
+          lotes; quando surge uma oportunidade, ela entra no Radar e passa a receber acompanhamento
+          em tempo real. O volume mínimo para autorizar uma operação continua nas travas de risco.
+        </p>
       </section>
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">

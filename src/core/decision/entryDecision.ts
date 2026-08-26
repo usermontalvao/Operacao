@@ -1,5 +1,5 @@
 import type { FreshnessReport } from '../health/freshness.ts';
-import { automaticStrategyRejectionReason, maxSignalAgeMs } from '../strategy/automationPolicy.ts';
+import { automaticRejection, maxSignalAgeMs } from '../strategy/automationPolicy.ts';
 import { MIN_VALIDATED_AUTOMATIC_SCORE } from '../strategy/automationPolicy.ts';
 import type { AutoTradeSettings, TradeSetup } from '../types.ts';
 import {
@@ -57,24 +57,6 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
   const price = input.currentPrice ?? setup.currentPrice;
   const distance = distanceToEntryPercent(price, setup.entryLow, setup.entryHigh);
 
-  /*
-   * O robô não opera vendido.
-   *
-   * A recusa já existia na execução, mas chegava tarde demais para a tela: o
-   * painel dizia "o robô compraria este setup" numa tese de VENDA e só depois
-   * a ordem era negada, num registro de auditoria que ninguém abre. O motivo
-   * mora aqui porque é aqui que a decisão vira texto, funil e diário.
-   */
-  if (setup.side === 'SELL') {
-    blockers.push(
-      reason(
-        'SHORT_NOT_AUTOMATED',
-        'automationPolicy',
-        'O robô não opera vendido: o laboratório mediu apenas o lado comprado. Esta tese é entrada manual',
-      ),
-    );
-  }
-
   // --- plataforma -----------------------------------------------------------
   if (!input.persistenceAvailable) {
     blockers.push(
@@ -107,17 +89,16 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
   }
 
   // --- estratégia e evidência ----------------------------------------------
-  const strategyRejection = automaticStrategyRejectionReason(setup);
-  if (strategyRejection !== null) {
-    const code =
-      setup.score < MIN_VALIDATED_AUTOMATIC_SCORE &&
-      !strategyRejection.includes('observação')
-        ? 'SCORE_BELOW_VALIDATED_FLOOR'
-        : 'STRATEGY_NOT_VALIDATED';
+  // o código vem da política, não de adivinhar lendo a frase: a versão antiga
+  // procurava a palavra "observação" no texto e quebrava calada a cada
+  // redação nova
+  const rejection = automaticRejection(setup);
+  if (rejection !== null) {
     blockers.push(
-      reason(code, 'automationPolicy', strategyRejection, {
+      reason(rejection.code, 'automationPolicy', rejection.message, {
         estrategia: setup.setupType,
         score: setup.score,
+        modalidade: setup.market,
         pisoValidado: MIN_VALIDATED_AUTOMATIC_SCORE,
       }),
     );

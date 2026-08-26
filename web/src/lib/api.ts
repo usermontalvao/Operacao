@@ -338,7 +338,13 @@ export const api = {
     request<Array<{ symbol: string; baseAsset: string }>>(
       `/symbols/search?q=${encodeURIComponent(term)}`,
     ),
-  preview: (body: { setupId: string; quoteAmount?: number; percentOfCapital?: number }) =>
+  preview: (body: {
+    setupId: string;
+    quoteAmount?: number;
+    percentOfCapital?: number;
+    /** alavancagem desta ordem; ausente = a dos ajustes da modalidade */
+    leverage?: number;
+  }) =>
     request<PreviewResponse>('/orders/preview', { method: 'POST', body: JSON.stringify(body) }),
   execute: (body: { setupId: string; confirmationToken: string; idempotencyKey: string }) =>
     request<Trade>('/orders/execute', { method: 'POST', body: JSON.stringify(body) }),

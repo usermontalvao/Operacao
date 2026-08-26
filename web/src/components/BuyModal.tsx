@@ -35,9 +35,20 @@ const PERCENT_OPTIONS = [10, 25, 50];
 export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
   const side = setup.side;
   const verbo = SIDE_VERB[side];
+  const futuros = setup.market === 'FUTURES';
   const [step, setStep] = useState<'SIZE' | 'CONFIRM'>('SIZE');
   const [amount, setAmount] = useState<number | null>(null);
   const [percentChoice, setPercentChoice] = useState<number | null>(25);
+  /*
+    Alavancagem desta ordem.
+
+    Null = a dos ajustes, que é o padrão e o que a maioria das ordens usa.
+    Existe seletor porque alavancagem é decisão de OPERAÇÃO: o stop de uma
+    tese aceita 5x com folga e o da seguinte liquida antes do stop em 3x. Todo
+    ajuste refaz o preview — margem e preço de liquidação mudam junto, e o
+    token da confirmação carrega a alavancagem aprovada.
+  */
+  const [leverage, setLeverage] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -45,13 +56,16 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
   const idempotencyKey = useRef(crypto.randomUUID().replace(/-/g, '').slice(0, 24));
 
   const load = useCallback(
-    async (body: { quoteAmount?: number; percentOfCapital?: number }) => {
+    async (body: { quoteAmount?: number; percentOfCapital?: number; leverage?: number }) => {
       setLoading(true);
       setError(null);
       try {
         const result = await api.preview({ setupId: setup.id, ...body });
         setPreview(result);
         if (body.percentOfCapital !== undefined) setAmount(result.sizing.notional);
+        // a primeira resposta traz a alavancagem dos ajustes; é dela que o
+        // seletor parte, em vez de inventar um número que ninguém escolheu
+        setLeverage((current) => current ?? result.leverage);
       } catch (failure) {
         setError((failure as Error).message);
         setPreview(null);
@@ -66,15 +80,24 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
     void load({ percentOfCapital: 25 });
   }, [load]);
 
+  /** O tamanho pedido de agora, para reenviar junto quando a alavancagem muda. */
+  const tamanhoAtual = (): { quoteAmount?: number; percentOfCapital?: number } =>
+    percentChoice !== null ? { percentOfCapital: percentChoice } : { quoteAmount: amount ?? undefined };
+
   const applyPercent = (value: number): void => {
     setPercentChoice(value);
-    void load({ percentOfCapital: value });
+    void load({ percentOfCapital: value, leverage: leverage ?? undefined });
   };
 
   const applyAmount = (value: number): void => {
     setPercentChoice(null);
     setAmount(value);
-    if (value > 0) void load({ quoteAmount: value });
+    if (value > 0) void load({ quoteAmount: value, leverage: leverage ?? undefined });
+  };
+
+  const applyLeverage = (value: number): void => {
+    setLeverage(value);
+    void load({ ...tamanhoAtual(), leverage: value });
   };
 
   const confirm = async (): Promise<void> => {
@@ -169,6 +192,58 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
                 />
               </div>
             </div>
+
+            {/*
+              A alavancagem fica JUNTO do tamanho, e não nos ajustes, porque é
+              a mesma decisão vista de dois lados: ela não muda o quanto se
+              arrisca (isso continua saindo do stop), muda quanta margem a
+              posição prende e onde a corretora liquida. Mexer nela sem ver os
+              dois números ao lado é como o painel deixa de proteger.
+            */}
+            {futuros && preview ? (
+              <div className="mt-4">
+                <label className="text-xs uppercase tracking-wide text-terminal-muted">
+                  Alavancagem
+                </label>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {alavancagensAte(preview.safeLeverage, leverage ?? preview.leverage).map((value) => {
+                    const arriscada = preview.safeLeverage !== null && value > preview.safeLeverage;
+                    const ativa = (leverage ?? preview.leverage) === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => applyLeverage(value)}
+                        title={
+                          arriscada
+                            ? `Com este stop, acima de ${preview.safeLeverage}x a liquidação chega antes dele`
+                            : undefined
+                        }
+                        className={`min-w-11 flex-1 rounded-lg border px-2 py-2 text-sm font-semibold ${
+                          ativa
+                            ? arriscada
+                              ? 'border-bear/60 bg-bear/10 text-bear'
+                              : 'border-info/60 bg-info/10 text-info'
+                            : arriscada
+                              ? 'border-terminal-border text-bear/60'
+                              : 'border-terminal-border text-terminal-muted'
+                        }`}
+                      >
+                        {value}x
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1.5 text-[10px] leading-relaxed text-terminal-muted">
+                  Não muda o risco — o prejuízo no stop continua sendo{' '}
+                  <span className="text-bear">{usd(preview.sizing.riskAmount)}</span>. Muda a margem
+                  presa e a linha de liquidação.
+                  {preview.safeLeverage !== null
+                    ? ` Com este stop, o máximo seguro é ${preview.safeLeverage}x.`
+                    : ''}
+                </p>
+              </div>
+            ) : null}
 
             </div>
             {preview ? (
@@ -291,6 +366,22 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * As opções do seletor de alavancagem.
+ *
+ * A escada fixa 1·2·3·5·10 cobre o uso real sem virar um campo livre onde se
+ * digita 50 por engano. O máximo seguro entra na lista mesmo fora da escada —
+ * é o número que interessa quando o stop é apertado — e a alavancagem em uso
+ * também, para o botão aceso nunca sumir da fileira.
+ */
+function alavancagensAte(safeLeverage: number | null, atual: number): number[] {
+  const escada = [1, 2, 3, 5, 10];
+  const extras = [atual, ...(safeLeverage !== null ? [safeLeverage] : [])];
+  return [...new Set([...escada, ...extras])]
+    .filter((value) => value >= 1 && value <= 10)
+    .sort((a, b) => a - b);
 }
 
 function Row({ label, value, tone }: { label: string; value: string; tone?: string }) {

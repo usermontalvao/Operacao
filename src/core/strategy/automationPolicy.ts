@@ -1,4 +1,4 @@
-import type { Side } from '../direction.ts';
+import type { MarketKind, Side } from '../direction.ts';
 import type { SetupType } from '../types.ts';
 
 /**
@@ -19,9 +19,28 @@ export interface AutomaticStrategyCandidate {
   score: number;
   /** ausente = comprado, que é o único lado medido */
   side?: Side;
+  /** ausente = spot, que é o único mercado medido */
+  market?: MarketKind;
 }
 
-export function automaticStrategyRejectionReason(setup: AutomaticStrategyCandidate): string | null {
+/**
+ * Por que uma tese não pode rodar sozinha — com código, para o funil contar.
+ *
+ * A frase é apresentação e muda quando a redação melhorar; o código é estável
+ * e é por ele que o painel escolhe a cor e a auditoria agrupa. Antes o
+ * chamador adivinhava o código lendo a frase (`includes('observação')`), o que
+ * quebrava calado a cada texto novo.
+ */
+export interface AutomaticRejection {
+  code:
+    | 'SHORT_NOT_AUTOMATED'
+    | 'MARKET_NOT_VALIDATED'
+    | 'STRATEGY_NOT_VALIDATED'
+    | 'SCORE_BELOW_VALIDATED_FLOOR';
+  message: string;
+}
+
+export function automaticRejection(setup: AutomaticStrategyCandidate): AutomaticRejection | null {
   /*
    * O lado vendido existe no radar e pode ser executado à mão em futuros, mas
    * NÃO pelo robô. Os números que autorizam a automação — treino e teste, duas
@@ -31,15 +50,56 @@ export function automaticStrategyRejectionReason(setup: AutomaticStrategyCandida
    * fato de a mecânica ser simétrica não é evidência de que o resultado é.
    */
   if (setup.side === 'SELL') {
-    return 'tese vendida: o laboratório só mediu o lado comprado, então a venda a descoberto é entrada manual';
+    return {
+      code: 'SHORT_NOT_AUTOMATED',
+      message:
+        'tese vendida: o laboratório só mediu o lado comprado, então a venda a descoberto é entrada manual',
+    };
+  }
+  /*
+   * E o COMPRADO em futuros também não foi medido.
+   *
+   * É o mesmo erro do parágrafo acima, por outro eixo, e mais fácil de
+   * cometer porque a tese parece idêntica à do spot. Não é:
+   *
+   *  - o backtest que autoriza a automação rodou sobre histórico de SPOT, e o
+   *    contrato perpétuo tem candle e volume próprios;
+   *  - o preço do futuro se afasta do à vista (basis), então entrada, stop e
+   *    alvo medidos num livro não são os mesmos no outro;
+   *  - funding é um custo recorrente que o backtest de spot não tinha e que
+   *    come justamente a expectativa das operações que duram mais;
+   *  - a liquidação é uma saída que não existe em spot, e ela chega antes do
+   *    stop quando a alavancagem sobe.
+   *
+   * Enquanto a coluna de futuros for alimentada por candle de spot, "positivo
+   * no laboratório" é uma frase sobre outro mercado. Entrada manual continua
+   * liberada — quem clica está olhando o gráfico e assumindo a diferença.
+   */
+  if (setup.market === 'FUTURES') {
+    return {
+      code: 'MARKET_NOT_VALIDATED',
+      message:
+        'futuros não foi medido: a expectativa positiva veio de histórico de spot, e o perpétuo tem candle próprio, basis, funding e liquidação. Em futuros o robô não entra — a operação é manual',
+    };
   }
   if (!validated.has(setup.setupType)) {
-    return `${setup.setupType} está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST`;
+    return {
+      code: 'STRATEGY_NOT_VALIDATED',
+      message: `${setup.setupType} está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST`,
+    };
   }
   if (setup.score < MIN_VALIDATED_AUTOMATIC_SCORE) {
-    return `score ${setup.score} abaixo do piso validado de ${MIN_VALIDATED_AUTOMATIC_SCORE}`;
+    return {
+      code: 'SCORE_BELOW_VALIDATED_FLOOR',
+      message: `score ${setup.score} abaixo do piso validado de ${MIN_VALIDATED_AUTOMATIC_SCORE}`,
+    };
   }
   return null;
+}
+
+/** Só a frase, para quem não precisa do código. */
+export function automaticStrategyRejectionReason(setup: AutomaticStrategyCandidate): string | null {
+  return automaticRejection(setup)?.message ?? null;
 }
 
 /**

@@ -159,10 +159,32 @@ test('venda a descoberto é recusada em spot e quando não está liberada', asyn
   assert.equal(bloqueado.canExecute, false);
   assert.ok(bloqueado.blockers.some((item) => /não está liberada/i.test(item)));
 
-  await context.settings.update({ futures: { allowShort: true }, market: 'SPOT' });
-  const emSpot = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
-  assert.equal(emSpot.canExecute, false);
-  assert.ok(emSpot.blockers.some((item) => /só existe em futuros/i.test(item)));
+  // o SELETOR da tela não decide mais onde a ordem cai: quem decide é a tese
+  // clicada. Com as duas colunas no radar, olhar spot e clicar numa tese de
+  // futuros é o caminho normal, não um erro
+  // libera a venda NO BALDE DE FUTUROS e depois leva a tela para spot: o
+  // ajuste é de cada modalidade, e mandar os dois no mesmo patch escreveria
+  // `allowShort` no balde do spot, onde ele não significa nada
+  await context.settings.update({ futures: { allowShort: true } });
+  await context.settings.update({ market: 'SPOT' });
+  const comSeletorEmSpot = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 300 },
+    setup,
+  );
+  assert.equal(comSeletorEmSpot.market, 'FUTURES');
+  assert.deepEqual(comSeletorEmSpot.blockers, [], 'o seletor da tela não pode bloquear a tese');
+  assert.equal(comSeletorEmSpot.canExecute, true);
+
+  // a trava continua de pé para quem forçar a modalidade errada por dentro
+  const forcadoEmSpot = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 300 },
+    setup,
+    false,
+    'PAPER',
+    'SPOT',
+  );
+  assert.equal(forcadoEmSpot.canExecute, false);
+  assert.ok(forcadoEmSpot.blockers.some((item) => /só existe em futuros/i.test(item)));
 });
 
 test('alavancagem que coloca a liquidação antes do stop é bloqueio, com o máximo seguro junto', async (t) => {
@@ -278,4 +300,49 @@ test('a carteira de papel de futuros é separada da de spot', async (t) => {
 
   assert.ok(futuros.available < spot.available, 'a margem presa é da conta de futuros');
   assert.equal(spot.available, spot.capital, 'a demo de spot continua intacta');
+});
+
+test('a modalidade da ordem é a da TESE, não a do seletor da tela', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({ market: 'SPOT' });
+
+  // é o caminho normal com as duas colunas: olhando spot, clicando em futuros
+  const setup = makeShortSetup({ side: 'BUY', stopLoss: 1.35, target1: 1.58, target2: null, target3: null });
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+
+  assert.equal(preview.market, 'FUTURES');
+  assert.ok(preview.leverage > 1, 'a alavancagem da modalidade tem de aparecer');
+  assert.ok(preview.liquidationPrice !== null, 'futuros sempre tem linha de liquidação');
+  assert.ok(
+    !preview.blockers.some((item) => /modalidade ativa é outra/i.test(item)),
+    `o seletor não pode recusar a tese: ${preview.blockers.join(' | ')}`,
+  );
+});
+
+test('a alavancagem do modal vale para a ordem, e o teto dos ajustes não é furado', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({ futures: { leverage: 3, maxLeverage: 5 } });
+
+  const setup = makeShortSetup({ side: 'BUY', stopLoss: 1.35, target1: 1.58, target2: null, target3: null });
+
+  const padrao = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  assert.equal(padrao.leverage, 3, 'sem pedir nada, vale a alavancagem dos ajustes');
+
+  const pedida = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 300, leverage: 5 },
+    setup,
+  );
+  assert.equal(pedida.leverage, 5);
+  // mais alavancagem = menos margem presa, e o RISCO no stop não se mexe
+  assert.ok(pedida.margin < padrao.margin, 'com mais alavancagem a posição prende menos margem');
+  assert.equal(pedida.sizing.riskAmount, padrao.sizing.riskAmount);
+
+  // e o teto dos ajustes segura: pedir 10 com teto 5 entrega 5
+  const furada = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 300, leverage: 10 },
+    setup,
+  );
+  assert.equal(furada.leverage, 5, 'o modal não é caminho para furar o teto configurado');
 });

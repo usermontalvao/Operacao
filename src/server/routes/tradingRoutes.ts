@@ -15,6 +15,8 @@ const previewSchema = z
     setupId: z.string().min(1),
     quoteAmount: z.number().positive().max(1_000_000).optional(),
     percentOfCapital: z.number().positive().max(100).optional(),
+    // o teto real é o dos ajustes; 25 aqui é só sanidade de entrada
+    leverage: z.number().int().min(1).max(25).optional(),
   })
   .refine((value) => value.quoteAmount !== undefined || value.percentOfCapital !== undefined, {
     message: 'Informe o valor a investir ou o percentual do capital',
@@ -260,9 +262,10 @@ export function tradingRoutes(context: ApiContext): Router {
   router.get(
     '/risk',
     asyncHandler(async (_request, response) => {
-      const capital = await context.execution.getCapital();
-      const snapshot = await context.risk.snapshot(capital.capital);
       const settings = context.settings.get();
+      const capital = await context.execution.getCapital();
+      // o retrato é da carteira EM EXIBIÇÃO: modo e modalidade juntos
+      const snapshot = await context.risk.snapshot(capital.capital, settings.mode, settings.market);
       response.json({
         ...snapshot,
         guard: settings.guard,

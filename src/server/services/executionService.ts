@@ -91,6 +91,15 @@ export interface PreviewRequest {
   setupId: string;
   quoteAmount?: number;
   percentOfCapital?: number;
+  /**
+   * Alavancagem desta ordem, quando o usuário mexe no seletor do modal.
+   *
+   * Ausente = a dos ajustes daquela modalidade. Existe porque alavancagem é
+   * decisão de OPERAÇÃO, não de conta: o stop de uma tese pode aceitar 5x com
+   * folga e o da seguinte liquidar antes do stop em 3x. O teto configurado
+   * continua valendo — o modal não é caminho para furá-lo.
+   */
+  leverage?: number;
 }
 
 export interface CapitalView {
@@ -259,20 +268,35 @@ export class ExecutionService {
     return round(amount / brlRate, 2);
   }
 
-  /** Passo 1 do fluxo de compra: mostra a conta exata antes de qualquer ordem. */
+  /**
+   * Passo 1 do fluxo de ordem: a conta exata antes de qualquer envio.
+   *
+   * A modalidade vem do SETUP, não do seletor da tela.
+   *
+   * Enquanto havia uma modalidade ativa por vez as duas coisas eram a mesma;
+   * com as duas colunas no radar, não são. Clicar numa tese de futuros com o
+   * seletor em spot pedia a ordem no livro errado — e o painel respondia com
+   * "este setup é de futuros e a modalidade ativa é outra", uma recusa
+   * correta para uma pergunta que ninguém fez. O seletor organiza; quem
+   * decide onde a ordem cai é a tese que foi clicada.
+   */
   async preview(
     request: PreviewRequest,
     setup: TradeSetup,
     automatic = false,
     mode: TradingMode = this.settings.get().mode,
-    market: MarketKind = this.settings.get().market,
+    market: MarketKind = setup.market ?? this.settings.get().market,
   ): Promise<PreviewResult> {
     const policy = this.settings.forMode(mode, market);
     const side = setup.side;
     const futures = market === 'FUTURES';
     // spot não tem alavancagem: forçar 1 aqui evita que uma configuração de
     // futuros esquecida no balde do spot vire margem inventada
-    const leverage = futures ? Math.max(1, Math.round(policy.futures.leverage)) : 1;
+    const pedida = request.leverage ?? policy.futures.leverage;
+    // o teto dos ajustes vale sempre: o seletor do modal escolhe DENTRO dele
+    const leverage = futures
+      ? Math.min(Math.max(1, Math.round(pedida)), Math.max(1, Math.round(policy.futures.maxLeverage)))
+      : 1;
     const currentPrice = this.market.getPrice(setup.symbol) ?? setup.currentPrice;
     const entryPrice = clampToZone(currentPrice, setup);
 
@@ -292,7 +316,7 @@ export class ExecutionService {
       side,
     });
 
-    const snapshot = await this.risk.snapshot(capitalView.capital, mode);
+    const snapshot = await this.risk.snapshot(capitalView.capital, mode, market);
     const openTrades = this.paper
       .getOpenTrades()
       .filter((trade) => trade.mode === mode && trade.market === market);
@@ -304,6 +328,7 @@ export class ExecutionService {
       openTrades,
       side,
       mode,
+      market,
     });
 
     // mercado nervoso não bloqueia a compra, encolhe a compra
@@ -319,6 +344,7 @@ export class ExecutionService {
             openTrades,
             side,
             mode,
+            market,
           })
         : firstGate;
 
@@ -547,12 +573,18 @@ export class ExecutionService {
     return blockers;
   }
 
-  /** Passo 2: só executa com o token da confirmação que o usuário aprovou. */
+  /**
+   * Passo 2: só executa com o token da confirmação que o usuário aprovou.
+   *
+   * A modalidade é a da TESE, pela mesma razão do preview — e o token carrega
+   * a modalidade aprovada, então divergir aqui invalidaria a confirmação em
+   * vez de mandar a ordem para o lugar errado.
+   */
   async execute(
     request: ExecuteRequest,
     setup: TradeSetup,
     mode: TradingMode = this.settings.get().mode,
-    market: MarketKind = this.settings.get().market,
+    market: MarketKind = setup.market ?? this.settings.get().market,
   ): Promise<Trade> {
     const existing = this.inFlight.get(request.idempotencyKey);
     if (existing) return existing;
@@ -586,7 +618,7 @@ export class ExecutionService {
     setup: TradeSetup,
     mode: TradingMode = this.settings.get().mode,
     decision?: EntryDecision,
-    market: MarketKind = this.settings.get().market,
+    market: MarketKind = setup.market ?? this.settings.get().market,
   ): Promise<Trade | null> {
     const policy = this.settings.forMode(mode, market);
     if (!policy.autoTrade.enabled) return null;
@@ -690,7 +722,7 @@ export class ExecutionService {
     request: ExecuteRequest,
     setup: TradeSetup,
     mode: TradingMode = this.settings.get().mode,
-    market: MarketKind = this.settings.get().market,
+    market: MarketKind = setup.market ?? this.settings.get().market,
   ): Promise<Trade> {
     const settings = { ...this.settings.get(), ...this.settings.forMode(mode, market), mode, market };
     const side = setup.side;

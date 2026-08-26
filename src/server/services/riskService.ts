@@ -1,4 +1,4 @@
-import type { BtcContextState, Side, Trade, TradingMode } from '../../core/types.ts';
+import type { BtcContextState, MarketKind, Side, Trade, TradingMode } from '../../core/types.ts';
 import {
   computeRiskSnapshot,
   evaluateEntryGate,
@@ -51,12 +51,27 @@ export class RiskService {
     return prices;
   }
 
-  async snapshot(capital: number, mode?: TradingMode): Promise<RiskSnapshot> {
+  /**
+   * Retrato do risco de uma conta E de uma modalidade.
+   *
+   * O disjuntor é de cada balde — limite de perda no dia, perdas seguidas,
+   * exposição. Sem a modalidade aqui, avaliar uma tese de futuros com o radar
+   * mostrando spot lia o disjuntor errado: o limite de uma carteira aplicado
+   * às operações da outra.
+   */
+  async snapshot(
+    capital: number,
+    mode?: TradingMode,
+    market?: MarketKind,
+  ): Promise<RiskSnapshot> {
     const target = mode ?? this.settings.get().mode;
-    const policy = this.settings.forMode(target);
+    const modalidade = market ?? this.settings.get().market;
+    const policy = this.settings.forMode(target, modalidade);
     const trades = await this.repository.listTrades();
     return computeRiskSnapshot({
-      trades,
+      // cada carteira conta só as suas: somar as duas faria o disjuntor de
+      // futuros disparar por causa de um dia ruim no spot
+      trades: trades.filter((trade) => (trade.market ?? 'SPOT') === modalidade),
       mode: target,
       capital,
       dailyLossLimitPercent: policy.risk.dailyLossLimitPercent,
@@ -77,8 +92,13 @@ export class RiskService {
     side?: Side;
     /** sessão avaliada; cada modo tem o seu disjuntor */
     mode?: TradingMode;
+    /** modalidade avaliada; o disjuntor e os custos também são de cada uma */
+    market?: MarketKind;
   }): EntryGateResult {
-    const guard = this.settings.forMode(input.mode ?? this.settings.get().mode).guard;
+    const guard = this.settings.forMode(
+      input.mode ?? this.settings.get().mode,
+      input.market ?? this.settings.get().market,
+    ).guard;
     return evaluateEntryGate({
       snapshot: input.snapshot,
       guard,
