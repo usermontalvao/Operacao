@@ -1,3 +1,4 @@
+import { DEFAULT_MICRO_SCALP } from '../core/scalp/config.ts';
 import type { SymbolAnalysis, TimeframeAnalysis } from '../core/analysis.ts';
 import type { AppSettings, Candle, MarketContext, Timeframe } from '../core/types.ts';
 import { DEFAULT_GUARD } from '../core/risk/governor.ts';
@@ -51,6 +52,7 @@ export function labSettings(overrides: Partial<AppSettings> = {}): AppSettings {
       anchorTimeframe: '1d',
       setupTtlMinutes: 720,
       cooldownMinutes: 120,
+      microScalp: DEFAULT_MICRO_SCALP,
       universe: 'ALL_USDT',
       minQuoteVolume24h: 3_000_000,
     },

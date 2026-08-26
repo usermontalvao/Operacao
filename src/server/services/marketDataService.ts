@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { SymbolAnalysis, TimeframeAnalysis } from '../../core/analysis.ts';
 import type { Candle, ConnectionState, Timeframe } from '../../core/types.ts';
-import { TIMEFRAMES } from '../../core/types.ts';
+import { MICRO_TIMEFRAME, TIMEFRAMES } from '../../core/types.ts';
 import { computeIndicators } from '../../core/engines/indicatorEngine.ts';
 import { computeStructure } from '../../core/engines/structureEngine.ts';
 import { getKlines, getTickers, parseKline } from '../binance/rest.ts';
@@ -38,6 +38,16 @@ export class MarketDataService extends EventEmitter {
   private readonly dirty = new Set<string>();
   private readonly stream = new BinanceStreamClient();
   private symbols: string[] = [];
+  /*
+   * Os pares que recebem candle de 1 minuto — e SÓ eles.
+   *
+   * Este conjunto é a diferença entre "o micro scalp é opt-in" e "o micro
+   * scalp é opt-in na aparência". Se o 1m entrasse em TIMEFRAMES, todo par do
+   * universo abriria um stream de 1 minuto no boot, ligado ou desligado o
+   * módulo. Vazio, o sistema se comporta exatamente como antes de o 1m
+   * existir — nenhum stream, nenhuma carga, nenhum recálculo.
+   */
+  private microSymbols = new Set<string>();
   private available = false;
 
   constructor() {
@@ -146,18 +156,73 @@ export class MarketDataService extends EventEmitter {
     await this.start(symbols);
   }
 
+  /** Os timeframes que ESTE par recebe: os quatro de sempre, mais 1m se for do scalp. */
+  private timeframesFor(symbol: string): Timeframe[] {
+    return this.microSymbols.has(symbol) ? [...TIMEFRAMES, MICRO_TIMEFRAME] : TIMEFRAMES;
+  }
+
   private buildStreams(symbols: string[]): string[] {
     const streams: string[] = [];
     for (const symbol of symbols) {
       streams.push(miniTickerStream(symbol));
-      for (const timeframe of TIMEFRAMES) streams.push(klineStream(symbol, timeframe));
+      for (const timeframe of this.timeframesFor(symbol)) {
+        streams.push(klineStream(symbol, timeframe));
+      }
     }
     return streams;
   }
 
+  /**
+   * Troca a lista de pares que recebem 1 minuto.
+   *
+   * Chamado pelo universo de scalp a cada remedição. Assina o que entrou,
+   * cancela o que saiu e joga fora os candles de quem saiu — guardar série de
+   * 1m de um par que não é mais acompanhado é vazamento de memória lento e
+   * silencioso, do tipo que só aparece depois de dias no ar.
+   */
+  async setMicroSymbols(symbols: string[]): Promise<void> {
+    const proximo = new Set(symbols.filter((symbol) => this.symbols.includes(symbol)));
+    const entraram = [...proximo].filter((symbol) => !this.microSymbols.has(symbol));
+    const sairam = [...this.microSymbols].filter((symbol) => !proximo.has(symbol));
+    if (entraram.length === 0 && sairam.length === 0) return;
+
+    this.microSymbols = proximo;
+
+    for (const symbol of sairam) {
+      this.candles.delete(key(symbol, MICRO_TIMEFRAME));
+      this.dirty.add(symbol);
+    }
+
+    this.stream.updateStreams(this.buildStreams(this.symbols));
+
+    for (const symbol of entraram) {
+      try {
+        const raw = await getKlines(symbol, MICRO_TIMEFRAME, BOOTSTRAP_LIMIT);
+        const candles = raw.map((item, index) => parseKline(item, index < raw.length - 1));
+        this.candles.set(key(symbol, MICRO_TIMEFRAME), candles);
+        this.dirty.add(symbol);
+      } catch (error) {
+        logger.error('Falha ao carregar candles de 1m', {
+          symbol,
+          error: (error as Error).message,
+        });
+      }
+    }
+
+    logger.info('Streams de 1m ajustados', {
+      entraram: entraram.length,
+      sairam: sairam.length,
+      total: this.microSymbols.size,
+    });
+  }
+
+  getMicroSymbols(): string[] {
+    return [...this.microSymbols];
+  }
+
   private async loadHistory(symbols: string[]): Promise<void> {
     for (const symbol of symbols) {
-      for (const timeframe of TIMEFRAMES) {
+      for (const timeframe of this.timeframesFor(symbol)) {
         try {
           const raw = await getKlines(symbol, timeframe, BOOTSTRAP_LIMIT);
           const candles = raw.map((item, index) => parseKline(item, index < raw.length - 1));
@@ -195,7 +260,10 @@ export class MarketDataService extends EventEmitter {
 
   private onKline(event: KlineEvent): void {
     const timeframe = event.interval as Timeframe;
-    if (!TIMEFRAMES.includes(timeframe)) return;
+    const aceito =
+      TIMEFRAMES.includes(timeframe) ||
+      (timeframe === MICRO_TIMEFRAME && this.microSymbols.has(event.symbol));
+    if (!aceito) return;
     const seriesKey = key(event.symbol, timeframe);
     const series = this.candles.get(seriesKey);
     if (!series) return;
@@ -253,7 +321,7 @@ export class MarketDataService extends EventEmitter {
     const timeframes: Partial<Record<Timeframe, TimeframeAnalysis>> = {};
     let hasData = false;
 
-    for (const timeframe of TIMEFRAMES) {
+    for (const timeframe of this.timeframesFor(symbol)) {
       const series = this.candles.get(key(symbol, timeframe));
       if (!series) continue;
       const closed = series.filter((candle) => candle.closed);

@@ -217,10 +217,36 @@ export class SupabaseStore implements Repository {
   }
 
   async saveSetup(setup: TradeSetup): Promise<void> {
-    const { error } = await this.db()
-      .from('trade_setups')
-      .upsert({ ...setupToRow(setup), user_id: this.userId }, { onConflict: 'id' });
-    if (error) throw new Error(error.message);
+    const row = { ...setupToRow(setup), user_id: this.userId };
+    const { error } = await this.db().from('trade_setups').upsert(row, { onConflict: 'id' });
+    if (!error) return;
+
+    /*
+     * A migration do micro scalp ainda não subiu.
+     *
+     * Sem este resgate, uma coluna que falta derruba a gravação de TODO setup,
+     * não só a dos de 1 minuto: o PostgREST recusa a linha inteira, a varredura
+     * do universo falha e o painel para de persistir qualquer tese. Foi o que
+     * aconteceu no primeiro boot depois desta mudança.
+     *
+     * Aqui o sistema antigo continua funcionando exatamente como antes
+     * enquanto o banco não é atualizado — e o aviso é ALTO, porque isto é uma
+     * ponte para a janela entre subir o código e rodar a migration, não um
+     * modo de operação. Sem a coluna, o laudo do micro scalp não é gravado, e
+     * sem ele não há como medir depois se o 1m teve borda líquida.
+     */
+    const faltaColuna = /column .*micro.* (of|in) .*trade_setups|'micro' column/i.test(error.message);
+    if (!faltaColuna) throw new Error(error.message);
+
+    const { micro: _descartado, ...semMicro } = row as Record<string, unknown>;
+    const repetido = await this.db().from('trade_setups').upsert(semMicro, { onConflict: 'id' });
+    if (repetido.error) throw new Error(repetido.error.message);
+
+    logger.warn(
+      'Coluna trade_setups.micro ausente: setup gravado SEM o laudo do micro scalp. ' +
+        'Rode a migration supabase/migrations/20260826150000_micro_scalp_1m.sql',
+      { symbol: setup.symbol, setupType: setup.setupType },
+    );
   }
 
   async listTrades(): Promise<Trade[]> {
@@ -464,6 +490,10 @@ function setupToRow(setup: TradeSetup): Row {
     extended: setup.extended,
     extension_reasons: setup.extensionReasons,
     evidence: setup.evidence,
+    // null explícito, e não `undefined`: o PostgREST omite chave indefinida do
+    // corpo, então um setup que DEIXOU de ser micro manteria o laudo antigo
+    // gravado — e a tela mostraria a medição de outra oportunidade
+    micro: setup.micro ?? null,
     fingerprint: setup.fingerprint,
     invalidation_note: setup.invalidationNote,
     created_at: setup.createdAt,
@@ -500,6 +530,9 @@ function rowToSetup(row: Row): TradeSetup {
     extended: Boolean(row.extended),
     extensionReasons: (row.extension_reasons as string[]) ?? [],
     evidence: row.evidence as TradeSetup['evidence'],
+    // linha gravada antes do micro scalp não tem a coluna; ausente é o valor
+    // correto para ela, não um defeito a preencher
+    ...(row.micro ? { micro: row.micro as TradeSetup['micro'] } : {}),
     fingerprint: row.fingerprint as string,
     invalidationNote: (row.invalidation_note as string | null) ?? null,
     createdAt: row.created_at as string,

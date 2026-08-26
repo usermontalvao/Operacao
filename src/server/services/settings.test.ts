@@ -9,7 +9,10 @@ import {
   SettingsService,
   defaultStoredSettings,
   normalizeStoredSettings,
+  rejeicaoDeVarreduraVazia,
+  settingsUpdateSchema,
 } from './settingsService.ts';
+import { DEFAULT_MICRO_SCALP } from '../../core/scalp/config.ts';
 
 async function servico() {
   const directory = await mkdtemp(join(tmpdir(), 'hunter-settings-'));
@@ -245,4 +248,57 @@ test('o radar varre as duas modalidades — e só uma quando futuros está barra
   } finally {
     await cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Só 1 minuto: desligar todos os gatilhos de tendência
+// ---------------------------------------------------------------------------
+
+test('dá para desligar 4h e ficar só com o micro scalp', () => {
+  const scanner = {
+    ...defaultStoredSettings().scanner,
+    triggerTimeframes: [],
+    microScalp: { ...DEFAULT_MICRO_SCALP, enabled: true },
+  };
+  assert.equal(rejeicaoDeVarreduraVazia(scanner), null);
+});
+
+test('desligar TUDO é recusado — o radar pararia de procurar', () => {
+  /*
+   * Cada lado pode ser desligado sozinho. Os dois juntos deixam o painel de
+   * pé, conectado, com preço atualizando e nenhum detector rodando: uma tela
+   * que parece viva e não procura mais nada. É o único estado que a
+   * combinação não pode alcançar em silêncio.
+   */
+  const scanner = {
+    ...defaultStoredSettings().scanner,
+    triggerTimeframes: [],
+    microScalp: { ...DEFAULT_MICRO_SCALP, enabled: false },
+  };
+  const recusa = rejeicaoDeVarreduraVazia(scanner);
+  assert.ok(recusa !== null);
+  assert.ok(recusa.includes('micro scalp'), recusa);
+});
+
+test('só tendência, sem micro scalp, continua válido', () => {
+  const scanner = {
+    ...defaultStoredSettings().scanner,
+    triggerTimeframes: ['1h' as const],
+    microScalp: { ...DEFAULT_MICRO_SCALP, enabled: false },
+  };
+  assert.equal(rejeicaoDeVarreduraVazia(scanner), null);
+});
+
+test('o schema aceita lista de gatilhos vazia', () => {
+  // era `.min(1)`, que fazia sentido antes de o 1m existir: sem gatilho não
+  // havia o que varrer. Hoje "nenhum gatilho de tendência" é configuração
+  const parsed = settingsUpdateSchema.safeParse({ scanner: { triggerTimeframes: [] } });
+  assert.equal(parsed.success, true);
+});
+
+test('o 1m continua barrado como gatilho de tendência', () => {
+  // ligar o micro scalp é outro campo; aceitar '1m' aqui rodaria pullback e
+  // rompimento em candle de 1 minuto, que é a ideia que a medição reprovou
+  const parsed = settingsUpdateSchema.safeParse({ scanner: { triggerTimeframes: ['1m'] } });
+  assert.equal(parsed.success, false);
 });

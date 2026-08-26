@@ -69,6 +69,26 @@ export const EXIT_POLICIES: Record<SetupType, ExitPolicy> = {
     primaryTargetExemptFromCeiling: true,
     notes: 'Observacional: expectativa negativa em treino e teste. Não opera automático.',
   },
+  /*
+   * O micro scalp sai INTEIRO no primeiro alvo, e essa é a diferença que mais
+   * importa entre ele e o resto.
+   *
+   * Sair em 50/30/20 dilui o custo fixo sobre três vendas: a operação paga
+   * corretagem três vezes para capturar um movimento que já é pequeno. Numa
+   * tese cujo alvo inteiro vale ~2x o custo, a segunda e a terceira parcelas
+   * saem no zero a zero. Um alvo, uma saída.
+   */
+  RANGE_FADE: {
+    targets: 1,
+    scaleOut: false,
+    primaryTargetR: 1,
+    stopSource: 'além da borda da faixa, com folga de ATR de 1m',
+    // o alvo é a borda oposta da faixa: por construção ele é curto, nunca
+    // esbarra num teto pensado para alvo de tendência
+    primaryTargetExemptFromCeiling: false,
+    notes:
+      'Micro scalp de 1 minuto: alvo único na borda oposta da faixa, saída integral. Sem validação de laboratório — não opera automático.',
+  },
 };
 
 export interface PolicyConflict {

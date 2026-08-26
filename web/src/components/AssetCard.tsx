@@ -108,6 +108,36 @@ export function AssetCard({ asset, livePrice, setup, onOpen }: AssetCardProps) {
           <div className="mt-1 tabular">
             Entrada <span className="font-medium">{price(setup.entryLow)}–{price(setup.entryHigh)}</span>
           </div>
+          {/*
+            No micro scalp o custo NÃO é ruído perto do alvo — ele é metade da
+            conta. Mostrar só entrada e R/R aqui repetiria, no cartão, o erro
+            que o módulo inteiro existe para evitar: um número que parece bom
+            porque a taxa ficou de fora dele.
+          */}
+          {setup.micro ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
+              <span className="rounded bg-bull/10 px-1 py-px font-bold text-bull">MICRO SCALP · 1M</span>
+              <span className="text-terminal-muted">
+                faixa {setup.micro.regime.amplitudePercent.toFixed(2)}%
+              </span>
+              <span className="text-terminal-muted">
+                custo {setup.micro.economics.allInCostPercent.toFixed(2)}%
+              </span>
+              <span
+                className={
+                  setup.micro.economics.netExpectedProfitPercent > 0 ? 'text-bull' : 'text-bear'
+                }
+              >
+                líquido {setup.micro.economics.netExpectedProfitPercent >= 0 ? '+' : ''}
+                {setup.micro.economics.netExpectedProfitPercent.toFixed(2)}%
+              </span>
+              {/* a ressalva viaja com o cartão, não só com a tese aberta:
+                  quem decide olhando a lista precisa ver o mesmo alerta */}
+              {setup.micro.economics.warning ? (
+                <span className="rounded bg-bear/15 px-1 py-px font-bold text-bear">⚠ sem margem</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mt-3 border-t border-terminal-border pt-2 text-xs text-terminal-muted">

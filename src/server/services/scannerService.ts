@@ -6,11 +6,15 @@ import type {
   EntryDecision,
   MarketContext,
   MarketKind,
+  Timeframe,
   TradeSetup,
   TradingMode,
 } from '../../core/types.ts';
 import { evaluateMarketContext } from '../../core/engines/marketContextEngine.ts';
+import { MICRO_TIMEFRAME } from '../../core/types.ts';
 import { applyPriceUpdate, generateSetups } from '../../core/engines/setupEngine.ts';
+import { generateMicroSetups, type MicroBlock } from '../../core/engines/microScalpEngine.ts';
+import type { ScalpUniverseService } from './scalpUniverseService.ts';
 import type { EventBus } from '../events.ts';
 import { listTradableSymbols } from '../binance/rest.ts';
 import { logger } from '../logger.ts';
@@ -24,6 +28,16 @@ import type { AutoTrader } from './autoTrader.ts';
 import { prioritizedFocus } from './focus.ts';
 
 const SCAN_INTERVAL_MS = 30_000;
+/**
+ * O micro scalp roda em outro relógio — e tinha de rodar.
+ *
+ * Trinta segundos é metade da vida de um candle de 1 minuto: um sinal nascido
+ * logo depois de uma varredura só seria visto quando já tivesse metade da
+ * idade máxima. Dez segundos é barato porque o universo de scalp é curto e os
+ * candles já estão em memória, vindos do WebSocket — esta volta não faz uma
+ * única chamada de rede.
+ */
+const MICRO_SCAN_INTERVAL_MS = 10_000;
 const LIVE_STATUSES: TradeSetup['status'][] = ['WATCHING', 'ACTIVE', 'TRIGGERED'];
 /** Por quanto tempo a fingerprint de um setup morto continua sendo lembrada. */
 const RETIRED_MEMORY_MS = 24 * 60 * 60 * 1000;
@@ -46,8 +60,20 @@ export class ScannerService {
   /** fingerprint -> instante em que a tese morreu; sobrevive ao reinício */
   private retired = new Map<string, number>();
   private autoTrader: AutoTrader | null = null;
+  private scalpUniverse: ScalpUniverseService | null = null;
   private context: MarketContext | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private microTimer: NodeJS.Timeout | null = null;
+  private microScanning = false;
+  /**
+   * Por que cada par do universo de scalp NÃO gerou tese agora.
+   *
+   * Guardar o motivo é metade do módulo. Um scanner que simplesmente não
+   * mostra nada é indistinguível de um scanner quebrado — e a diferença entre
+   * "não há faixa" e "a faixa não paga o custo" é justamente o que o usuário
+   * precisa saber para decidir se vale mexer nos limites.
+   */
+  private microBlocks = new Map<string, MicroBlock>();
   /** fim da última varredura; a idade disto entra na saúde do sistema */
   private lastScanAt: number | null = null;
   private scanning = false;
@@ -115,6 +141,15 @@ export class ScannerService {
     }
   }
 
+  /** O universo de scalp é montado depois; sem ele o micro scalp não roda. */
+  setScalpUniverse(universe: ScalpUniverseService): void {
+    this.scalpUniverse = universe;
+  }
+
+  getMicroBlocks(): MicroBlock[] {
+    return [...this.microBlocks.values()];
+  }
+
   /** O robô só entra em cena depois de montado — e só nas contas de teste. */
   setAutoTrader(autoTrader: AutoTrader): void {
     this.autoTrader = autoTrader;
@@ -122,12 +157,39 @@ export class ScannerService {
 
   async start(): Promise<void> {
     const stored = await this.repository.listSetups();
+    const settingsNaCarga = this.settings.get();
+    /*
+     * Os tempos gráficos que estão LIGADOS agora.
+     *
+     * O 1m entra na lista quando o micro scalp está ligado — ele não vive em
+     * `triggerTimeframes`, mas as teses dele são tão legítimas quanto as
+     * outras e não podem ser varridas junto.
+     */
+    const ativos = new Set<Timeframe>(settingsNaCarga.scanner.triggerTimeframes);
+    if (settingsNaCarga.scanner.microScalp.enabled) ativos.add(MICRO_TIMEFRAME);
+
     for (const setup of stored) {
       // explosão NUNCA volta ao radar depois de um reinício. Ela é uma tese de
       // entrada imediata: se não preencheu na janela dela, acabou. Medir a
       // idade do registro não resolveria — o TLMUSDT tinha 11 minutos de
       // cadastro e três horas de atraso em relação à barra que o gerou.
       if (setup.setupType === 'MOMENTUM_BURST') {
+        this.rememberRetired(setup);
+        continue;
+      }
+      /*
+       * Tese de um timeframe desligado NÃO volta ao radar.
+       *
+       * `dropTimeframe` limpa no instante em que o interruptor gira, e isso
+       * cobria só metade do problema: quem já estava com 4h desligado antes de
+       * reiniciar via as teses ressuscitarem do banco, intactas. Foi
+       * exatamente o que aconteceu — o painel abriu com 64 teses de tendência
+       * na tela e a configuração dizendo `triggerTimeframes: []`.
+       *
+       * A tela então mostra uma coisa e a configuração diz outra, e a tela
+       * ganha, porque é nela que se clica.
+       */
+      if (!ativos.has(setup.timeframe)) {
         this.rememberRetired(setup);
         continue;
       }
@@ -139,6 +201,20 @@ export class ScannerService {
     }
 
     this.deduplicar();
+
+    const descartadasPorTimeframe = stored.filter(
+      (setup) =>
+        setup.setupType !== 'MOMENTUM_BURST' &&
+        !ativos.has(setup.timeframe) &&
+        LIVE_STATUSES.includes(setup.status) &&
+        !setup.ignoredAt,
+    ).length;
+    if (descartadasPorTimeframe > 0) {
+      logger.info('Teses de timeframe desligado não voltaram ao radar', {
+        quantidade: descartadasPorTimeframe,
+        ligados: [...ativos].join(',') || '(nenhum)',
+      });
+    }
 
     this.market.on('price', ({ symbol, price }: { symbol: string; price: number }) => {
       this.bus.queuePrice(symbol, price);
@@ -162,12 +238,16 @@ export class ScannerService {
 
     this.timer = setInterval(() => void this.scan(), SCAN_INTERVAL_MS);
     this.timer.unref?.();
+    this.microTimer = setInterval(() => void this.scanMicro(), MICRO_SCAN_INTERVAL_MS);
+    this.microTimer.unref?.();
     await this.scan();
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.microTimer) clearInterval(this.microTimer);
+    this.microTimer = null;
   }
 
   /** A decisão do robô para este setup, sem executar nada. */
@@ -228,6 +308,46 @@ export class ScannerService {
       removidos += 1;
     }
     if (removidos > 0) logger.info('Modalidade barrada: teses retiradas do radar', { market, removidos });
+    return removidos;
+  }
+
+  /**
+   * Tira do radar as teses de um timeframe que acabou de ser desligado.
+   *
+   * O mesmo problema que `dropMarket` resolve, por outro eixo. Um setup de 4h
+   * vive 12 horas; desligar o gatilho apenas impede que NOVOS nasçam, e os que
+   * já estavam ficariam na tela metade de um dia — clicáveis, com entrada e
+   * alvo, de uma estratégia que o usuário acabou de desligar. Quem desliga um
+   * timeframe está dizendo "não quero operar isto"; deixar os cards antigos é
+   * deixar a armadilha de pé.
+   *
+   * Posição já comprada não é tese de radar: quem manda nela é o
+   * acompanhamento da operação, e mexer aqui deixaria dinheiro aberto sem
+   * plano de saída.
+   */
+  async dropTimeframe(timeframe: Timeframe): Promise<number> {
+    let removidos = 0;
+    const agora = new Date().toISOString();
+    for (const setup of [...this.setups.values()]) {
+      if (setup.timeframe !== timeframe) continue;
+      if (setup.status === 'BOUGHT') continue;
+      const motivo = `o gatilho de ${timeframe} foi desligado nas Configurações`;
+      const invalidado: TradeSetup = {
+        ...setup,
+        status: 'INVALIDATED',
+        invalidationNote: motivo,
+        updatedAt: agora,
+      };
+      this.setups.delete(setup.id);
+      this.rememberRetired(invalidado);
+      await this.repository.saveSetup(invalidado);
+      this.bus.broadcast({ type: 'setupRemoved', payload: { id: setup.id } });
+      await this.paper.cancelPending(setup.id, motivo);
+      removidos += 1;
+    }
+    if (removidos > 0) {
+      logger.info('Timeframe desligado: teses retiradas do radar', { timeframe, removidos });
+    }
     return removidos;
   }
 
@@ -451,6 +571,113 @@ export class ScannerService {
     } finally {
       this.scanning = false;
       this.lastScanAt = Date.now();
+    }
+  }
+
+  /**
+   * A varredura do micro scalp — curta, frequente e sem rede.
+   *
+   * Percorre só o universo de scalp (uma dezena de pares, no máximo), lendo
+   * candles de 1m que o WebSocket já entregou. É por isso que ela pode rodar a
+   * cada dez segundos sem pesar: a parte cara — medir book e liquidez — mora
+   * no ScalpUniverseService e acontece a cada poucos minutos.
+   */
+  async scanMicro(): Promise<void> {
+    if (this.microScanning) return;
+    this.microScanning = true;
+    try {
+      const settings = this.settings.get();
+      const micro = settings.scanner.microScalp;
+
+      /*
+       * Desligar o módulo RETIRA as teses de 1m do radar.
+       *
+       * Deixá-las de pé seria pior que inútil: são teses de três minutos de
+       * validade que ficariam na tela mostrando entrada, alvo e stop de um
+       * mercado que já passou, sem nada mais atualizando-as. Quem desliga o
+       * micro scalp está dizendo "não quero operar isto" — e um card clicável
+       * é um convite a operar.
+       */
+      if (!micro.enabled) {
+        if (this.microBlocks.size > 0) this.microBlocks.clear();
+        await this.retirarMicroSetups('o micro scalp foi desligado nas Configurações');
+        return;
+      }
+
+      const universe = this.scalpUniverse;
+      if (!universe) return;
+
+      const symbols = universe.getActiveSymbols();
+      const now = new Date();
+      const markets = this.settings.activeMarkets();
+      const vistos = new Set<string>();
+
+      for (const symbol of symbols) {
+        const analysis = this.market.getAnalysis(symbol);
+        const scalpability = universe.getReport(symbol);
+        if (!analysis || !scalpability) continue;
+        vistos.add(symbol);
+
+        const gerados: TradeSetup[] = [];
+        let bloqueio: MicroBlock | null = null;
+
+        for (const market of markets) {
+          const resultado = generateMicroSetups({
+            analysis,
+            scalpability,
+            settings: this.settings.viewFor(market),
+            now,
+            makeId: () => randomUUID(),
+          });
+          gerados.push(...resultado.setups);
+          if (resultado.blocked) bloqueio = resultado.blocked;
+        }
+
+        if (bloqueio && gerados.length === 0) {
+          this.microBlocks.set(symbol, bloqueio);
+        } else {
+          this.microBlocks.delete(symbol);
+        }
+
+        if (gerados.length > 0) await this.reconcile(symbol, gerados, analysis);
+      }
+
+      // par que saiu do universo não deixa motivo velho para trás
+      for (const symbol of [...this.microBlocks.keys()]) {
+        if (!vistos.has(symbol)) this.microBlocks.delete(symbol);
+      }
+
+      await this.sweepExpired(now);
+      this.bus.broadcast({
+        type: 'microScalp',
+        payload: { active: symbols, blocks: this.getMicroBlocks() },
+      });
+    } catch (error) {
+      logger.error('Falha na varredura de micro scalp', { error: (error as Error).message });
+    } finally {
+      this.microScanning = false;
+    }
+  }
+
+  /** Tira do radar toda tese de 1m — usado ao desligar o módulo. */
+  private async retirarMicroSetups(motivo: string): Promise<void> {
+    for (const setup of [...this.setups.values()]) {
+      if (setup.setupType !== 'RANGE_FADE') continue;
+      // uma posição já comprada não é mais uma tese de radar: quem manda
+      // nela é o acompanhamento da operação, e desligar o scanner não pode
+      // deixar dinheiro aberto sem plano de saída
+      if (setup.status === 'BOUGHT') continue;
+      const invalidado: TradeSetup = {
+        ...setup,
+        status: 'INVALIDATED',
+        invalidationNote: motivo,
+        updatedAt: new Date().toISOString(),
+      };
+      this.setups.delete(setup.id);
+      this.rememberRetired(invalidado);
+      await this.repository.saveSetup(invalidado);
+      this.bus.broadcast({ type: 'setupRemoved', payload: { id: setup.id } });
+      await this.paper.cancelPending(setup.id, motivo);
     }
   }
 

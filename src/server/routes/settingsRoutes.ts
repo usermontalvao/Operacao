@@ -16,7 +16,12 @@ import {
 } from '../binance/rest.ts';
 import { getFuturesBalances } from '../binance/futures.ts';
 import { logger } from '../logger.ts';
-import { describeSettingsIssue, settingsUpdateSchema } from '../services/settingsService.ts';
+import {
+  describeSettingsIssue,
+  mergeMicroScalp,
+  rejeicaoDeVarreduraVazia,
+  settingsUpdateSchema,
+} from '../services/settingsService.ts';
 import { missingCredentialsMessage } from '../services/executionService.ts';
 import { buildCuratedWatchlist } from '../services/curatedWatchlist.ts';
 import { prioritizedFocus } from '../services/focus.ts';
@@ -168,6 +173,28 @@ export function settingsRoutes(context: ApiContext): Router {
         byMode: context.settings.buckets(),
         byMarket: context.settings.all().byMarket,
         universe: context.universe.getStatus(),
+        // a tela precisa do universo de scalp para explicar por que um par
+        // está ou não sendo acompanhado em 1 minuto
+        scalpUniverse: {
+          ...context.scalpUniverse.getStatus(),
+          /*
+           * Por que cada par APTO ainda não gerou tese agora.
+           *
+           * Faltava exatamente isto. A tela mostrava quem entrou no universo e
+           * quem foi barrado, e no meio ficava um silêncio: catorze pares
+           * aptos, nenhuma tese, nenhuma explicação. "Não há oportunidade" e
+           * "o detector está quebrado" tinham a mesma aparência — que é o
+           * problema que este módulo inteiro se propôs a não ter.
+           */
+          blocks: context.scanner.getMicroBlocks().map((item) => ({
+            symbol: item.symbol,
+            reason: item.reason,
+            verdict: item.regime?.verdict ?? null,
+            amplitudePercent: item.regime?.amplitudePercent ?? null,
+            position: item.regime?.position ?? null,
+            adx: item.regime?.adx ?? null,
+          })),
+        },
         store: config.store,
       });
     }),
@@ -203,6 +230,25 @@ export function settingsRoutes(context: ApiContext): Router {
         return;
       }
 
+      /*
+       * A checagem cruzada roda ANTES de gravar, sobre o estado FINAL.
+       *
+       * O PUT é parcial: apagar os gatilhos e desligar o micro scalp podem
+       * chegar em duas chamadas diferentes. Validar só o que veio no corpo
+       * deixaria a segunda passar — e o radar acabaria vazio por um caminho
+       * que ninguém percorreu de propósito.
+       */
+      const scannerFinal = {
+        ...previous.scanner,
+        ...parsed.data.scanner,
+        microScalp: mergeMicroScalp(previous.scanner.microScalp, parsed.data.scanner?.microScalp),
+      };
+      const varreduraVazia = rejeicaoDeVarreduraVazia(scannerFinal);
+      if (varreduraVazia) {
+        response.status(400).json({ error: varreduraVazia });
+        return;
+      }
+
       const updated = await context.settings.update(parsed.data);
 
       // trocar de ambiente troca o mercado inteiro: recomeça dados e streams
@@ -220,6 +266,35 @@ export function settingsRoutes(context: ApiContext): Router {
       }
       if (parsed.data.scanner?.universe && parsed.data.scanner.universe !== previous.scanner.universe) {
         context.universe.reset();
+      }
+      /*
+       * Girar o interruptor do micro scalp age NA HORA, nos dois sentidos.
+       *
+       * Ligando, a varredura de 1m roda já — esperar até três minutos pela
+       * próxima medição do universo faria o interruptor parecer quebrado.
+       * Desligando, `scanMicro` derruba as teses de 1m do radar e o universo
+       * desmonta os streams no tique seguinte. O que não pode acontecer é o
+       * usuário desligar e continuar vendo cards de 1 minuto na tela.
+       */
+      /*
+       * Timeframe desligado sai do radar na hora.
+       *
+       * Sem isto, "desligar 4h" seria só uma promessa para o futuro: as teses
+       * de 4h já criadas continuariam na tela por até 12 horas, com botão de
+       * comprar, de uma estratégia que a pessoa acabou de desligar.
+       */
+      const antes = previous.scanner.triggerTimeframes;
+      const depois = updated.scanner.triggerTimeframes;
+      for (const timeframe of antes) {
+        if (!depois.includes(timeframe)) await context.scanner.dropTimeframe(timeframe);
+      }
+
+      const microMudou =
+        parsed.data.scanner?.microScalp?.enabled !== undefined &&
+        parsed.data.scanner.microScalp.enabled !== previous.scanner.microScalp.enabled;
+      if (microMudou) {
+        void context.scalpUniverse.refreshNow();
+        void context.scanner.scanMicro();
       }
       /*
        * Liberar futuros muda o RADAR, não o ambiente.

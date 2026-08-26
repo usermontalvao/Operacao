@@ -4,3 +4,5 @@ export { detectSupportReversal, detectResistanceReversal } from './supportRevers
 export { detectMomentumBurst, detectCollapseBurst } from './momentumBurst.ts';
 export { checkExtension } from './extension.ts';
 export { buildTargets, fingerprintOf, normalizeEntryZone } from './shared.ts';
+export { detectRangeFadeLong, detectRangeFadeShort } from './rangeMeanReversion.ts';
+export type { RangeFadeInput } from './rangeMeanReversion.ts';

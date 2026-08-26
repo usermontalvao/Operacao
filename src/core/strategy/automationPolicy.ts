@@ -9,6 +9,14 @@ import type { SetupType } from '../types.ts';
  * seguem no scanner para observação e pesquisa, mas não podem movimentar o
  * robô só porque receberam uma nota alta de um score que não previu retorno.
  */
+/*
+ * RANGE_FADE (micro scalp de 1m) NÃO entra nesta lista, e isso é a decisão
+ * central do módulo: ele nasce gerando sinal e medindo resultado, sem
+ * permissão para movimentar dinheiro sozinho. A pergunta que autoriza um
+ * automatismo — "há expectativa líquida positiva depois dos custos, em treino
+ * e em teste?" — só pode ser respondida pelo backtest separado do micro scalp
+ * (src/lab/microScalp.ts). Enquanto ela não tiver resposta, a entrada é manual.
+ */
 export const VALIDATED_AUTOMATIC_SETUP_TYPES: readonly SetupType[] = ['MOMENTUM_BURST'];
 export const MIN_VALIDATED_AUTOMATIC_SCORE = 90;
 
@@ -120,6 +128,15 @@ export const MAX_SIGNAL_AGE_MS: Record<SetupType, number> = {
   PULLBACK: 12 * 60 * 60_000,
   BREAKOUT_RETEST: 12 * 60 * 60_000,
   SUPPORT_REVERSAL: 12 * 60 * 60_000,
+  /*
+   * Três minutos, e não é conservadorismo: é o tempo em que a tese existe.
+   *
+   * O RANGE_FADE mede uma faixa de 60 barras de 1 minuto e compra a borda
+   * dela. Passados dez minutos, um sexto das barras que definiram a faixa já
+   * saiu da janela — a faixa medida não é mais a faixa atual. Reaproveitar o
+   * sinal seria operar um retrato de um mercado que já mudou.
+   */
+  RANGE_FADE: 3 * 60_000,
 };
 
 export function maxSignalAgeMs(setupType: SetupType): number {

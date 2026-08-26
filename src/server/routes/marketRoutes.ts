@@ -10,7 +10,7 @@ import type {
   TradeSetup,
   TradingMode,
 } from '../../core/types.ts';
-import { CHART_INTERVALS, TIMEFRAMES } from '../../core/types.ts';
+import { CHART_INTERVALS, TIMEFRAMES, MICRO_TIMEFRAME } from '../../core/types.ts';
 import { environmentForMode } from '../config.ts';
 import { getKlines, getUsdtBrlRate, parseKline, searchSymbols } from '../binance/rest.ts';
 import { liveAutoTradeDenial } from '../services/executionService.ts';
@@ -107,9 +107,17 @@ export function marketRoutes(context: ApiContext): Router {
         return;
       }
       const symbol = String(request.params.symbol).toUpperCase();
-      // só os tempos do motor têm stream vivo; 1m, 3m, 5m e 30m existem para
-      // olhar, e vêm do REST na hora em que alguém pede
-      const doMotor = (TIMEFRAMES as readonly string[]).includes(timeframe);
+      /*
+       * Os quatro tempos do motor sempre têm stream vivo. O 1m tem stream
+       * apenas para os pares do universo de scalp — para os outros ele é como
+       * 3m, 5m e 30m: existe para olhar e vem do REST na hora.
+       *
+       * `getCandles` devolve lista vazia quando não há série em memória, então
+       * pedir o cache primeiro é seguro para qualquer par: quem tem, responde
+       * do stream; quem não tem, cai no REST logo abaixo.
+       */
+      const doMotor =
+        (TIMEFRAMES as readonly string[]).includes(timeframe) || timeframe === MICRO_TIMEFRAME;
       const cached = doMotor ? context.market.getCandles(symbol, timeframe as Timeframe) : [];
       if (cached.length > 0) {
         response.json({ symbol, timeframe, candles: cached.slice(-300), source: 'stream' });

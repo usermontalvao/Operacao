@@ -15,6 +15,7 @@ import type {
   Timeframe,
   TradeSetup,
 } from '../types.ts';
+import { timeframeMinutes } from '../types.ts';
 import {
   detectBreakdownRetest,
   detectBreakoutRetest,
@@ -60,6 +61,16 @@ const SHORT_DETECTORS = [
 
 /** O timeframe âncora define o viés; o gatilho define o ponto de entrada. */
 export function anchorFor(trigger: Timeframe, fallback: Timeframe): Timeframe {
+  /*
+   * O micro scalp ancora em 15m, não em 4h.
+   *
+   * A âncora existe para responder "o mercado maior contradiz esta tese?".
+   * Para uma tese que dura minutos, quem responde isso é o gráfico de 15
+   * minutos: o de 4 horas descreve um mundo que vai terminar muito depois de
+   * a operação ter fechado, e usá-lo recusaria toda faixa que aparece durante
+   * uma correção — que é justamente quando faixas aparecem.
+   */
+  if (trigger === '1m') return '15m';
   if (trigger === '15m' || trigger === '1h') return '4h';
   if (trigger === '4h') return '1d';
   return fallback;
@@ -74,6 +85,16 @@ export function generateSetups(input: GenerateSetupsInput): TradeSetup[] {
   const results: TradeSetup[] = [];
 
   for (const triggerTimeframe of settings.scanner.triggerTimeframes) {
+    /*
+     * O 1m nunca entra por aqui, nem se estiver gravado em triggerTimeframes.
+     *
+     * Os detectores deste laço compram tendência; rodá-los em 1 minuto é a
+     * ideia que a medição reprovou. O micro scalp tem motor próprio
+     * (generateMicroSetups) com detector, regime e conta de custo próprios.
+     * Esta linha é a fronteira entre os dois, e ela é intencionalmente
+     * redundante com o schema das Configurações: defesa em profundidade.
+     */
+    if (triggerTimeframe === '1m') continue;
     const trigger = analysis.timeframes[triggerTimeframe];
     if (!trigger) continue;
     const anchorTimeframe = anchorFor(triggerTimeframe, settings.scanner.anchorTimeframe);
@@ -329,9 +350,16 @@ export function applyPriceUpdate(setup: TradeSetup, price: number, now: Date): T
 }
 
 
+/*
+ * Deriva de TIMEFRAME_MINUTES, sem fallback.
+ *
+ * A versão anterior terminava em `return 60` — e esse `return` era uma bomba
+ * de efeito retardado: no dia em que `Timeframe` ganhasse um valor novo, o
+ * novo timeframe herdaria calado a duração de uma hora. Foi exatamente o que
+ * teria acontecido com o 1m: um setup que mede uma faixa de 60 barras de 1
+ * minuto ficaria válido por 60 MINUTOS, sessenta vezes mais do que a tese
+ * existe. Com o Record tipado, esquecer um timeframe vira erro de compilação.
+ */
 function minutesOf(timeframe: Timeframe): number {
-  if (timeframe === '15m') return 15;
-  if (timeframe === '4h') return 240;
-  if (timeframe === '1d') return 1440;
-  return 60;
+  return timeframeMinutes(timeframe);
 }

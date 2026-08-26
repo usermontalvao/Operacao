@@ -8,6 +8,7 @@ import type {
   TradeSetup,
   TradingMode,
 } from '../core/types.ts';
+import type { MicroBlock } from '../core/engines/microScalpEngine.ts';
 
 /** O saldo como a tela o desenha — o mesmo corpo de `GET /account/balance`. */
 export interface BalanceEventPayload {
@@ -29,6 +30,13 @@ export type ServerEvent =
   | { type: 'context'; payload: MarketContext }
   | { type: 'status'; payload: { connection: ConnectionState; binanceAvailable: boolean } }
   | { type: 'balance'; payload: BalanceEventPayload }
+  /**
+   * Estado do micro scalp: quem está no universo e, para quem não gerou tese,
+   * POR QUÊ. O motivo viaja junto porque a alternativa é a tela mostrar um
+   * espaço vazio — e vazio, em um painel de oportunidades, é ambíguo entre
+   * "não há" e "quebrou".
+   */
+  | { type: 'microScalp'; payload: { active: string[]; blocks: MicroBlock[] } }
   | { type: 'settings'; payload: unknown };
 
 /**

@@ -9,6 +9,7 @@ import type { RiskService } from '../services/riskService.ts';
 import type { ScannerService } from '../services/scannerService.ts';
 import type { SettingsService } from '../services/settingsService.ts';
 import type { UniverseService } from '../services/universeService.ts';
+import type { ScalpUniverseService } from '../services/scalpUniverseService.ts';
 import type { NewsService } from '../services/newsService.ts';
 
 export interface ApiContext {
@@ -19,6 +20,7 @@ export interface ApiContext {
   market: MarketDataService;
   scanner: ScannerService;
   universe: UniverseService;
+  scalpUniverse: ScalpUniverseService;
   news: NewsService;
   execution: ExecutionService;
   close: CloseService;

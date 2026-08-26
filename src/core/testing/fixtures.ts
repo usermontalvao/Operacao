@@ -1,3 +1,4 @@
+import { DEFAULT_MICRO_SCALP } from '../scalp/config.ts';
 import type { AppSettings, Candle, Timeframe } from '../types.ts';
 import type { SymbolAnalysis, TimeframeAnalysis } from '../analysis.ts';
 import { computeIndicators } from '../engines/indicatorEngine.ts';
@@ -172,6 +173,7 @@ export function defaultTestSettings(overrides: Partial<AppSettings> = {}): AppSe
       anchorTimeframe: '1d',
       setupTtlMinutes: 240,
       cooldownMinutes: 90,
+      microScalp: DEFAULT_MICRO_SCALP,
       universe: 'WATCHLIST',
       minQuoteVolume24h: 5_000_000,
     },

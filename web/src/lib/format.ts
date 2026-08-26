@@ -49,6 +49,7 @@ export const SETUP_LABEL: Record<SetupType, string> = {
   BREAKOUT_RETEST: 'Rompimento + reteste',
   SUPPORT_REVERSAL: 'Reversão em suporte',
   MOMENTUM_BURST: 'Explosão de força',
+  RANGE_FADE: 'Micro scalp · faixa',
 };
 
 export const CLASSIFICATION_LABEL: Record<SetupClassification, string> = {

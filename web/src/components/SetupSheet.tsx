@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { EntryDecision, TradeSetup } from '../lib/types.ts';
+import type { EntryDecision, MicroScalpDetail, TradeSetup } from '../lib/types.ts';
 import {
   CLASSIFICATION_LABEL,
   MARKET_LABEL,
@@ -101,6 +101,8 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
               livePrice={livePrice}
               height={270}
             />
+
+            {setup.micro ? <MicroScalpPanel micro={setup.micro} /> : null}
 
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-terminal-muted">
@@ -314,6 +316,112 @@ function ScoreRow({
         {points}
         {max > 0 ? <span className="text-terminal-muted">/{max}</span> : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * O painel do micro scalp — a conta inteira, na cara.
+ *
+ * Nos outros setups o custo é ruído perto do alvo e pode ficar implícito. Aqui
+ * ele é o termo dominante: uma tese cujo alvo bruto é 0,6% e cujo custo é
+ * 0,25% entrega menos da metade do que aparenta. Mostrar só "alvo" e "R/R"
+ * numa operação dessas seria mostrar o número que engana.
+ */
+function MicroScalpPanel({ micro }: { micro: MicroScalpDetail }) {
+  const { regime, economics, scalpability } = micro;
+  return (
+    <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded bg-bull/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-bull">
+          MICRO SCALP · 1M
+        </span>
+        <span className="text-xs text-terminal-muted">
+          Regime: <span className="font-semibold text-terminal-text">{regime.verdict}</span>
+        </span>
+        <span className="text-xs text-terminal-muted">
+          Scalp Score:{' '}
+          <span className="font-semibold text-terminal-text">{scalpability.score}/100</span>{' '}
+          {scalpability.grade}
+        </span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-1.5 text-xs sm:grid-cols-4">
+        <Linha label="Spread" valor={`${scalpability.liquidity.spreadPercent.toFixed(3)}%`} />
+        <Linha
+          label="Escorregamento"
+          valor={
+            scalpability.liquidity.slippagePercent === null
+              ? '—'
+              : `${scalpability.liquidity.slippagePercent.toFixed(3)}%`
+          }
+        />
+        <Linha label="Amplitude da faixa" valor={`${regime.amplitudePercent.toFixed(3)}%`} />
+        <Linha
+          label="ADX"
+          valor={regime.adx === null ? '—' : regime.adx.toFixed(0)}
+        />
+        <Linha label="Suporte" valor={regime.support.toPrecision(6)} />
+        <Linha label="Resistência" valor={regime.resistance.toPrecision(6)} />
+        <Linha
+          label="Testes na faixa"
+          valor={`${regime.supportTouches} / ${regime.resistanceTouches}`}
+        />
+        <Linha label="Posição na faixa" valor={`${(regime.position * 100).toFixed(0)}%`} />
+      </dl>
+
+      {/*
+        Sem o veto, esta é a única coisa entre a tese e o clique. Fica antes
+        dos números, em vermelho, dizendo o que o filtro diria se estivesse
+        barrando — porque a diferença entre "não bloquear" e "esconder o
+        problema" é exatamente esta faixa.
+      */}
+      {economics.warning ? (
+        <p className="mt-2 rounded-lg border border-bear/50 bg-bear/10 px-2.5 py-2 text-xs text-bear">
+          <span className="font-bold">Sem margem pelos seus limites:</span> {economics.warning}
+        </p>
+      ) : null}
+
+      <div className="mt-2 space-y-1 rounded-lg border border-terminal-border px-2.5 py-2 text-xs">
+        <div className="flex justify-between">
+          <span className="text-terminal-muted">Lucro bruto estimado</span>
+          <span className="tabular">{economics.grossExpectedProfitPercent.toFixed(3)}%</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-terminal-muted">
+            Custos (taxa {economics.entryFeePercent}% × 2 + spread + escorregamento)
+          </span>
+          <span className="tabular text-bear">−{economics.allInCostPercent.toFixed(3)}%</span>
+        </div>
+        <div className="flex justify-between border-t border-terminal-border pt-1 font-semibold">
+          <span>Lucro líquido estimado</span>
+          <span
+            className={`tabular ${
+              economics.netExpectedProfitPercent > 0 ? 'text-bull' : 'text-bear'
+            }`}
+          >
+            {economics.netExpectedProfitPercent >= 0 ? '+' : ''}
+            {economics.netExpectedProfitPercent.toFixed(3)}%
+          </span>
+        </div>
+        <div className="flex justify-between text-terminal-muted">
+          <span>O alvo paga o custo</span>
+          <span className="tabular">{economics.costMultiple.toFixed(1)}×</span>
+        </div>
+        <div className="flex justify-between text-terminal-muted">
+          <span>Net R/R</span>
+          <span className="tabular">{economics.netRiskReward.toFixed(2)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Linha({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase tracking-wide text-terminal-muted">{label}</dt>
+      <dd className="tabular">{valor}</dd>
     </div>
   );
 }

@@ -151,13 +151,17 @@ function explicar(code: number, mensagem: string, url = ''): string {
  * o resto da leitura de mercado é idêntico, então o único lugar que precisa
  * saber da diferença é esta tabela.
  */
-const PATHS: Record<MarketKind, Record<'ping' | 'time' | 'klines' | 'ticker24h' | 'exchangeInfo', string>> = {
+const PATHS: Record<
+  MarketKind,
+  Record<'ping' | 'time' | 'klines' | 'ticker24h' | 'exchangeInfo' | 'depth', string>
+> = {
   SPOT: {
     ping: '/api/v3/ping',
     time: '/api/v3/time',
     klines: '/api/v3/klines',
     ticker24h: '/api/v3/ticker/24hr',
     exchangeInfo: '/api/v3/exchangeInfo',
+    depth: '/api/v3/depth',
   },
   FUTURES: {
     ping: '/fapi/v1/ping',
@@ -165,6 +169,7 @@ const PATHS: Record<MarketKind, Record<'ping' | 'time' | 'klines' | 'ticker24h' 
     klines: '/fapi/v1/klines',
     ticker24h: '/fapi/v1/ticker/24hr',
     exchangeInfo: '/fapi/v1/exchangeInfo',
+    depth: '/fapi/v1/depth',
   },
 };
 
@@ -294,6 +299,40 @@ export async function getKlines(
   limit = 300,
 ): Promise<RawKline[]> {
   return request<RawKline[]>(publicUrl(endpoint('klines'), { symbol, interval, limit }));
+}
+
+export interface OrderBook {
+  symbol: string;
+  /** [preço, quantidade], do melhor para o pior */
+  bids: Array<[number, number]>;
+  asks: Array<[number, number]>;
+}
+
+interface RawDepth {
+  bids: Array<[string, string]>;
+  asks: Array<[string, string]>;
+}
+
+/**
+ * O livro de ofertas — a única fonte honesta de spread e escorregamento.
+ *
+ * O resto do sistema trabalhava com escorregamento DECLARADO nas
+ * Configurações, e para tese de horas isso basta. O micro scalp não pode:
+ * ali o custo é o termo dominante, e um número igual para todos os pares
+ * erraria nos dois sentidos — o BTC tem spread zero e uma altcoin de book
+ * raso engole 0,3% numa ordem de US$ 50.
+ *
+ * `limit` de 100 níveis pesa 5 na cota da Binance (contra 2 de um klines).
+ * É pouco, mas multiplica por par: por isso só o universo de scalp é medido,
+ * e a cada poucos minutos, nunca a cada varredura.
+ */
+export async function getOrderBook(symbol: string, limit = 100): Promise<OrderBook> {
+  const raw = await request<RawDepth>(publicUrl(endpoint('depth'), { symbol, limit }));
+  return {
+    symbol,
+    bids: raw.bids.map(([price, qty]) => [Number(price), Number(qty)] as [number, number]),
+    asks: raw.asks.map(([price, qty]) => [Number(price), Number(qty)] as [number, number]),
+  };
 }
 
 export interface Ticker24h {

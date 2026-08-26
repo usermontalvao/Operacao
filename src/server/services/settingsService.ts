@@ -2,13 +2,16 @@ import { z } from 'zod';
 import type {
   AppSettings,
   MarketKind,
+  MicroScalpSettings,
   ModeSettings,
   PersistedSettings,
+  ScannerSettings,
   StoredSettings,
   TradingMode,
 } from '../../core/types.ts';
 import { DEFAULT_FUTURES_FEE_PERCENT } from '../../core/risk/costs.ts';
 import { DEFAULT_GUARD } from '../../core/risk/governor.ts';
+import { DEFAULT_MICRO_SCALP } from '../../core/scalp/config.ts';
 import { config } from '../config.ts';
 import type { Repository } from '../store/index.ts';
 
@@ -24,14 +27,98 @@ const riskSchema = z.object({
   minimumScoreToShow: z.number().int().min(0).max(100),
 });
 
+/**
+ * Micro scalp de 1 minuto.
+ *
+ * Cada limite aqui tem teto e piso por um motivo específico, não por
+ * simetria com os outros campos — um módulo que opera dezenas de vezes por
+ * hora amplifica qualquer número mal digitado.
+ */
+const microScalpSchema = z.object({
+  enabled: z.boolean(),
+  enforceFilters: z.boolean(),
+  maxCandidates: z.number().int().min(5).max(200),
+  maxUniverseSize: z.number().int().min(1).max(40),
+  universeRefreshSeconds: z.number().int().min(60).max(3600),
+  probeOrderUsd: z.number().min(5).max(100_000),
+  filters: z.object({
+    minQuoteVolume24h: z.number().min(0).max(1_000_000_000),
+    minRecentQuoteVolume: z.number().min(0).max(1_000_000_000),
+    maxSpreadPercent: z.number().min(0.001).max(2),
+    minBookDepthUsd: z.number().min(0).max(10_000_000),
+    maxSlippagePercent: z.number().min(0.001).max(2),
+    /*
+     * O piso de 0,02% não é preferência: com taxa de 0,05% por lado (futuros,
+     * o mais barato que existe aqui), um ATR de 1m menor que isso não paga a
+     * viagem por mais alto que seja o alvo. Deixar digitar 0 seria deixar
+     * ligar um módulo que perde por construção.
+     */
+    minMicroAtrPercent: z.number().min(0.02).max(5),
+    maxMicroAtrPercent: z.number().min(0.05).max(20),
+    minScore: z.number().int().min(50).max(100),
+  }),
+  weights: z.object({
+    liquidity: z.number().min(0).max(100),
+    recentVolume: z.number().min(0).max(100),
+    usableVolatility: z.number().min(0).max(100),
+    bookDepth: z.number().min(0).max(100),
+    spreadPenalty: z.number().min(0).max(100),
+    slippagePenalty: z.number().min(0).max(100),
+    costPenalty: z.number().min(0).max(100),
+  }),
+  regime: z.object({
+    lookback: z.number().int().min(20).max(240),
+    maxAdx: z.number().min(5).max(50),
+    maxEmaDriftOfRange: z.number().min(0.05).max(1),
+    maxEmaTravelOfRange: z.number().min(0.1).max(1),
+    minTouchesPerSide: z.number().int().min(1).max(20),
+    /*
+     * Piso de 2: a faixa precisa valer pelo menos o dobro do custo. Com 1, a
+     * ida e a volta inteiras pagariam exatamente a corretagem e o alvo — que
+     * é uma fração da faixa — nasceria negativo.
+     */
+    minAmplitudeCostMultiple: z.number().min(2).max(20),
+    maxVolatilityExpansion: z.number().min(1).max(10),
+    entryZonePercent: z.number().min(5).max(45),
+    /*
+     * O guarda de oportunidade tem piso 1,5 e não 1. Em 1,0 o lucro esperado
+     * apenas empata com o custo — e "empatar quando acerta" com um sistema
+     * que erra parte das vezes é perder.
+     */
+    minCostMultiple: z.number().min(1.5).max(20),
+  }),
+  setupTtlMinutes: z.number().int().min(1).max(60),
+  cooldownMinutes: z.number().int().min(1).max(240),
+});
+
 const scannerSchema = z.object({
   watchlist: z.array(z.string().regex(/^[A-Z0-9]{4,20}$/)).min(1).max(40),
-  triggerTimeframes: z.array(z.enum(['15m', '1h', '4h', '1d'])).min(1),
+  /*
+   * '1m' NÃO entra em triggerTimeframes, e a ausência é a regra.
+   *
+   * Esses são os gatilhos dos detectores de tendência. O 1 minuto tem motor
+   * próprio, com detector, regime e conta de custo próprios, e é ligado pelo
+   * bloco microScalp abaixo. Aceitá-lo aqui deixaria rodar pullback e
+   * rompimento em candle de 1m — exatamente a ideia que a medição reprovou.
+   */
+  /*
+   * Pode ficar VAZIO — e isso é o que permite operar só 1 minuto.
+   *
+   * O mínimo de 1 fazia sentido quando o 1m não existia: sem gatilho nenhum, o
+   * scanner não teria o que fazer. Com o micro scalp, "nenhum gatilho de
+   * tendência" passou a ser uma configuração legítima, e não um engano.
+   *
+   * O que continua sendo engano é desligar os dois ao mesmo tempo. Isso não é
+   * validado aqui porque depende de outro campo — a checagem cruzada mora em
+   * `rejeicaoDeVarreduraVazia`, logo abaixo.
+   */
+  triggerTimeframes: z.array(z.enum(['15m', '1h', '4h', '1d'])),
   anchorTimeframe: z.enum(['15m', '1h', '4h', '1d']),
   setupTtlMinutes: z.number().int().min(15).max(10_080),
   cooldownMinutes: z.number().int().min(5).max(1440),
   universe: z.enum(['WATCHLIST', 'ALL_USDT']),
   minQuoteVolume24h: z.number().min(0).max(1_000_000_000),
+  microScalp: microScalpSchema,
 });
 
 const autoTradeSchema = z.object({
@@ -100,7 +187,25 @@ export const settingsUpdateSchema = z.object({
   futuresEnabled: z.boolean().optional(),
   futures: futuresSchema.partial().optional(),
   risk: riskSchema.partial().optional(),
-  scanner: scannerSchema.partial().optional(),
+  /*
+   * `.partial()` só afrouxa o primeiro nível: mandar
+   * `{ microScalp: { enabled: true } }` ainda exigiria filters, weights e
+   * regime inteiros. O toggle da tela manda exatamente isso, então o bloco do
+   * micro scalp é redeclarado em profundidade — e o merge preenche o resto.
+   */
+  scanner: scannerSchema
+    .partial()
+    .extend({
+      microScalp: microScalpSchema
+        .partial()
+        .extend({
+          filters: microScalpSchema.shape.filters.partial().optional(),
+          weights: microScalpSchema.shape.weights.partial().optional(),
+          regime: microScalpSchema.shape.regime.partial().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   autoTrade: autoTradeSchema.partial().optional(),
   guard: guardSchema.partial().optional(),
 });
@@ -147,6 +252,27 @@ const FIELD_LABELS: Record<string, string> = {
   'scanner.setupTtlMinutes': 'Validade do setup (min)',
   'scanner.cooldownMinutes': 'Silêncio antes de recriar (min)',
   'scanner.minQuoteVolume24h': 'Volume mínimo do universo',
+  'scanner.microScalp.maxUniverseSize': 'Pares no universo de scalp',
+  'scanner.microScalp.maxCandidates': 'Pares medidos por volta',
+  'scanner.microScalp.universeRefreshSeconds': 'Remedir liquidez a cada (s)',
+  'scanner.microScalp.probeOrderUsd': 'Ordem de referência para medir o book (USDT)',
+  'scanner.microScalp.setupTtlMinutes': 'Validade do sinal de 1m (min)',
+  'scanner.microScalp.cooldownMinutes': 'Silêncio antes de repetir a tese de 1m (min)',
+  'scanner.microScalp.filters.minQuoteVolume24h': 'Volume mínimo em 24h (scalp)',
+  'scanner.microScalp.filters.minRecentQuoteVolume': 'Volume mínimo nos últimos 15 min',
+  'scanner.microScalp.filters.maxSpreadPercent': 'Spread máximo (%)',
+  'scanner.microScalp.filters.minBookDepthUsd': 'Profundidade mínima do book (USDT)',
+  'scanner.microScalp.filters.maxSlippagePercent': 'Escorregamento máximo (%)',
+  'scanner.microScalp.filters.minMicroAtrPercent': 'Amplitude mínima em 1m (%)',
+  'scanner.microScalp.filters.maxMicroAtrPercent': 'Amplitude máxima em 1m (%)',
+  'scanner.microScalp.filters.minScore': 'Nota mínima de scalpabilidade',
+  'scanner.microScalp.regime.maxAdx': 'ADX máximo para considerar lateral',
+  'scanner.microScalp.regime.maxEmaDriftOfRange': 'Deriva máxima do eixo (fração da faixa)',
+  'scanner.microScalp.regime.maxEmaTravelOfRange': 'Quanto o eixo pode atravessar a faixa',
+  'scanner.microScalp.regime.lookback': 'Barras de 1m que formam a faixa',
+  'scanner.microScalp.regime.minCostMultiple': 'Quantas vezes o alvo paga o custo',
+  'scanner.microScalp.regime.minAmplitudeCostMultiple': 'Amplitude mínima da faixa (x custo)',
+  'scanner.microScalp.regime.entryZonePercent': 'Zona de entrada na borda (%)',
   'futures.leverage': 'Alavancagem',
   'futures.maxLeverage': 'Teto de alavancagem',
   'futures.minLiquidationBufferPercent': 'Folga mínima até a liquidação (%)',
@@ -158,6 +284,10 @@ const FIELD_LABELS: Record<string, string> = {
  * arbitrário que alguém escolheu — e o passo seguinte é querer baixá-lo.
  */
 const FIELD_RATIONALE: Record<string, string> = {
+  'scanner.microScalp.filters.minMicroAtrPercent':
+    'O piso vem da aritmética, não de gosto: com a taxa desta conta, um par que anda menos que isso por barra não gera alvo capaz de pagar a ida e a volta — a operação nasceria no prejuízo mesmo acertando.',
+  'scanner.microScalp.regime.minCostMultiple':
+    'Em 1,0 o lucro esperado apenas empata com o custo. Como o sistema erra parte das vezes, empatar quando acerta significa perder no agregado.',
   'autoTrade.minimumScore':
     'O piso de 90 vem do laboratório: abaixo dele a estratégia automática não manteve expectativa positiva fora da amostra. Para operar sinais de score menor, use a compra manual.',
 };
@@ -185,6 +315,28 @@ export function describeSettingsIssue(error: z.ZodError): string {
   }
 
   return rationale ? `${frase}. ${rationale}` : frase;
+}
+
+/**
+ * A única combinação que não pode existir: nada sendo varrido.
+ *
+ * Cada um dos dois lados pode ser desligado sozinho — só tendência, ou só
+ * micro scalp. Os dois juntos deixam o painel de pé, conectado, com preço
+ * atualizando e sem NENHUM detector rodando: uma tela que parece viva e não
+ * procura mais nada. Quem quer pausar tudo tem o disjuntor e o interruptor do
+ * robô; apagar os dois gatilhos por engano não pode ser um caminho silencioso
+ * para o mesmo lugar.
+ *
+ * Fica fora do schema do Zod porque depende de dois campos ao mesmo tempo, e
+ * um deles pode não vir no PUT — a checagem precisa ver o estado FINAL.
+ */
+export function rejeicaoDeVarreduraVazia(scanner: ScannerSettings): string | null {
+  if (scanner.triggerTimeframes.length > 0) return null;
+  if (scanner.microScalp.enabled) return null;
+  return (
+    'Sem nenhum timeframe ligado o radar para de procurar oportunidades. ' +
+    'Deixe pelo menos um gatilho de tendência (15m, 1h, 4h ou 1d) OU ligue o micro scalp de 1 minuto.'
+  );
 }
 
 const MODES: readonly TradingMode[] = ['PAPER', 'TESTNET', 'LIVE'];
@@ -274,6 +426,8 @@ export function defaultStoredSettings(): StoredSettings {
       // mantido no formato persistido por compatibilidade; a cobertura ALL_USDT
       // não corta mais pares por volume. A trava para operar fica no guard.
       minQuoteVolume24h: 0,
+      // nasce DESLIGADO: nenhuma atualização de versão liga um módulo que opera
+      microScalp: DEFAULT_MICRO_SCALP,
     },
     byMarket: {
       SPOT: defaultBuckets('SPOT'),
@@ -323,9 +477,43 @@ function hasModeBuckets(
  * futuros os números pensados para spot seria dar a uma posição alavancada os
  * limites de uma posição à vista.
  */
+/**
+ * Funde o bloco do micro scalp preservando o que não foi enviado.
+ *
+ * O espalhamento raso (`{...base, ...patch}`) não serve aqui porque
+ * `microScalp` tem três objetos aninhados. Girar o interruptor manda
+ * `{ enabled: true }` — e o espalhamento raso apagaria filters, weights e
+ * regime inteiros, deixando o módulo ligado e sem nenhum limite. É também o
+ * que traz uma configuração gravada antes deste módulo existir para o formato
+ * de hoje, sem precisar de migração de arquivo.
+ */
+export function mergeMicroScalp(
+  base: MicroScalpSettings,
+  patch: DeepPartial<MicroScalpSettings> | undefined,
+): MicroScalpSettings {
+  if (!patch) return base;
+  return {
+    ...base,
+    ...patch,
+    filters: { ...base.filters, ...patch.filters },
+    weights: { ...base.weights, ...patch.weights },
+    regime: { ...base.regime, ...patch.regime },
+  } as MicroScalpSettings;
+}
+
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K];
+};
+
 export function normalizeStoredSettings(value: PersistedSettings): StoredSettings {
   const base = defaultStoredSettings();
-  const scanner = { ...base.scanner, ...value.scanner };
+  const scanner: ScannerSettings = {
+    ...base.scanner,
+    ...value.scanner,
+    // arquivo gravado antes do micro scalp não tem o bloco: recebe o padrão,
+    // que é DESLIGADO — atualizar de versão nunca liga um módulo que opera
+    microScalp: mergeMicroScalp(base.scanner.microScalp, value.scanner?.microScalp),
+  };
   const mode = value.mode ?? base.mode;
   const updatedAt = value.updatedAt ?? base.updatedAt;
   /*
@@ -534,7 +722,14 @@ export class SettingsService {
       mode: displayed,
       market: displayedMarket,
       futuresEnabled,
-      scanner: { ...this.stored.scanner, ...patch.scanner },
+      scanner: {
+        ...this.stored.scanner,
+        ...patch.scanner,
+        microScalp: mergeMicroScalp(
+          this.stored.scanner.microScalp ?? DEFAULT_MICRO_SCALP,
+          patch.scanner?.microScalp,
+        ),
+      },
       byMarket: {
         ...this.stored.byMarket,
         [targetMarket]: { ...this.stored.byMarket[targetMarket], [target]: bucket },

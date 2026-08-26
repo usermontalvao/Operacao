@@ -16,6 +16,7 @@ import type {
   Side,
   Trade,
   TradeSetup,
+  ScalpabilityReport,
 } from './types.ts';
 import { announceSessionLost } from './auth.ts';
 
@@ -53,6 +54,31 @@ export interface SettingsResponse extends AppSettings {
     lastCycleSeconds: number | null;
     lastError: string | null;
     updatedAt: string | null;
+  };
+  /**
+   * O universo de scalp, com os REPROVADOS junto.
+   *
+   * A tela precisa dos dois: mostrar só quem passou responderia "quais pares
+   * estão sendo operados em 1m", mas não "por que o meu par não está" — que é
+   * a pergunta que alguém realmente faz ao olhar esta seção.
+   */
+  scalpUniverse: {
+    enabled: boolean;
+    active: string[];
+    reports: ScalpabilityReport[];
+    candidatesMeasured: number;
+    lastCycleSeconds: number | null;
+    lastError: string | null;
+    updatedAt: string | null;
+    /** por que cada par apto ainda não virou tese neste instante */
+    blocks: Array<{
+      symbol: string;
+      reason: string;
+      verdict: string | null;
+      amplitudePercent: number | null;
+      position: number | null;
+      adx: number | null;
+    }>;
   };
 }
 

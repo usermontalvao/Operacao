@@ -31,6 +31,7 @@ import { RequestLimiter } from './auth/rateLimit.ts';
 import { requireSession, throttle } from './auth/middleware.ts';
 import { prioritizedFocus } from './services/focus.ts';
 import { UniverseService } from './services/universeService.ts';
+import { ScalpUniverseService } from './services/scalpUniverseService.ts';
 import { NewsService } from './services/newsService.ts';
 
 /**
@@ -70,6 +71,23 @@ async function main(): Promise<void> {
   risk.setNewsProvider((symbol) => news.verdict(symbol));
 
   const universe = new UniverseService(settings, scanner);
+
+  /*
+   * O universo de scalp é o que faz o 1 minuto caber em tempo real.
+   *
+   * Ele decide quais pares merecem stream de 1m e avisa o MarketDataService a
+   * cada remedição. Desligado o micro scalp, ele devolve lista vazia — e
+   * `setMicroSymbols([])` derruba todos os streams de 1m. É por esse caminho,
+   * e só por ele, que o candle de 1 minuto entra no sistema.
+   */
+  const scalpUniverse = new ScalpUniverseService(settings);
+  scalpUniverse.setOnChange((symbols) => {
+    void market.setMicroSymbols(symbols).catch((error: Error) => {
+      logger.warn('Falha ao ajustar streams de 1m', { error: error.message });
+    });
+  });
+  scanner.setScalpUniverse(scalpUniverse);
+
   const execution = new ExecutionService(repository, settings, market, paper, audit, bus, risk);
 
   // diário de decisões: toda operação encerrada vira material de análise
@@ -153,6 +171,7 @@ async function main(): Promise<void> {
     market,
     scanner,
     universe,
+    scalpUniverse,
     news,
     execution,
     close,
@@ -329,6 +348,7 @@ async function main(): Promise<void> {
     }
     await scanner.start();
     universe.start();
+    scalpUniverse.start();
     news.start();
     liveMonitor.start();
     // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não
@@ -343,6 +363,7 @@ async function main(): Promise<void> {
     logger.info('Encerrando…');
     scanner.stop();
     universe.stop();
+    scalpUniverse.stop();
     news.stop();
     liveMonitor.stop();
     void accounts.stop();

@@ -102,6 +102,17 @@ export class UniverseService {
     if (this.running) return;
     const settings = this.settings.get();
     if (settings.scanner.universe !== 'ALL_USDT') return;
+    /*
+     * Sem gatilho de tendência não há o que esta varredura procure.
+     *
+     * Ela existe para rodar pullback, reteste, reversão e explosão sobre o
+     * mercado inteiro — todos ligados a `triggerTimeframes`. Com a lista
+     * vazia (o modo "só 1 minuto"), cada volta baixaria centenas de séries de
+     * candles para alimentar zero detector: peso na cota da Binance em troca
+     * de nada. Quem cuida do 1m é o universo de scalp, que tem lista curta e
+     * caminho próprio.
+     */
+    if (settings.scanner.triggerTimeframes.length === 0) return;
 
     this.running = true;
     try {

@@ -61,6 +61,33 @@ export class BinanceStreamClient extends EventEmitter {
     }
   }
 
+  /**
+   * Joga fora um socket antigo sem derrubar o processo.
+   *
+   * `removeAllListeners()` seguido de `terminate()` parece a forma limpa de
+   * abandonar uma conexão, e é uma armadilha: quando o socket ainda está em
+   * CONNECTING, o `terminate()` faz o ws emitir 'error' — e um 'error' sem
+   * ouvinte num EventEmitter não é ignorado, é lançado. O servidor inteiro
+   * caía com "WebSocket was closed before the connection was established".
+   *
+   * A janela é estreita (entre pedir a conexão e ela abrir) e por isso o
+   * problema ficou latente: só aparece quando os streams são trocados
+   * imediatamente depois de subir — que é exatamente o que o universo de
+   * scalp faz ao entregar sua primeira lista de pares.
+   *
+   * O ouvinte vazio é o conserto: o erro deste socket descartado passa a ter
+   * quem o receba, e ele não vira exceção de processo.
+   */
+  private descartar(socket: WebSocket | null): void {
+    if (!socket) return;
+    socket.removeAllListeners();
+    socket.on('error', () => {
+      /* socket abandonado: o erro dele não interessa a ninguém, mas precisa
+         de ouvinte para não derrubar o processo */
+    });
+    socket.terminate();
+  }
+
   /** Watchlist mudou: assina o que falta e derruba o que sobrou. */
   updateStreams(streams: string[]): void {
     const next = [...new Set(streams)];
@@ -86,15 +113,14 @@ export class BinanceStreamClient extends EventEmitter {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.healthTimer = null;
     this.reconnectTimer = null;
-    this.socket?.close();
+    this.descartar(this.socket);
     this.socket = null;
     this.setStatus('OFFLINE');
   }
 
   private connect(): void {
     if (this.stopped || this.streams.length === 0) return;
-    this.socket?.removeAllListeners();
-    this.socket?.terminate();
+    this.descartar(this.socket);
 
     const url = `${getActiveEnvironment().wsBase}/stream?streams=${this.streams.join('/')}`;
     this.setStatus(this.attempt === 0 ? 'RECONNECTING' : 'RECONNECTING');

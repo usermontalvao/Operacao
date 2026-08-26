@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import type {
   AssetView,
   EntryDecision,
+  Timeframe,
   MarketKind,
   RobotState,
   Trade,
   TradeSetup,
 } from '../lib/types.ts';
+import { MICRO_TIMEFRAME } from '../../../src/core/types.ts';
 import { DecisionBadge } from '../components/DecisionPanel.tsx';
 import { PriceLadder } from '../components/PriceLadder.tsx';
 import { SymbolButton } from '../components/SymbolButton.tsx';
@@ -216,6 +219,14 @@ export function Dashboard(props: DashboardProps) {
  * lembrar qual modalidade ele estava comandando, e essa é a lembrança que
  * falha justamente no dia em que o mercado se mexe.
  */
+/**
+ * Do mais curto para o mais longo — a ordem em que se lê um gráfico, não a
+ * ordem em que os setups apareceram na varredura. `MICRO_TIMEFRAME` é
+ * nomeado em vez de escrito para que o dia em que ele mudar não deixe um
+ * '1m' solto aqui.
+ */
+const ORDEM_TIMEFRAME: Timeframe[] = [MICRO_TIMEFRAME, '15m', '1h', '4h', '1d'];
+
 function MarketColumn({
   market,
   setups,
@@ -243,6 +254,34 @@ function MarketColumn({
   const futuros = market === 'FUTURES';
   const vendidas = setups.filter((setup) => setup.side === 'SELL').length;
 
+  /*
+   * Filtro por tempo gráfico.
+   *
+   * As teses da mesa não são comparáveis entre si: uma de 1 minuto dura três
+   * minutos e exige olhar agora; uma de 1 dia pode esperar a semana. Numa
+   * lista única ordenada por nota, a mais urgente aparece no meio das que não
+   * são — e é o tempo gráfico, não o tipo de setup, que separa as duas coisas.
+   *
+   * Seleção MÚLTIPLA, com tudo ligado por padrão: o filtro serve para tirar
+   * ruído da vista, e um seletor único obrigaria a escolher entre 1m e 15m
+   * quando a resposta natural é "esses dois, sem o resto".
+   */
+  const [ocultos, setOcultos] = useState<Set<Timeframe>>(new Set());
+  const contagem = new Map<Timeframe, number>();
+  for (const setup of setups) {
+    contagem.set(setup.timeframe, (contagem.get(setup.timeframe) ?? 0) + 1);
+  }
+  /* na ordem do mais curto para o mais longo, não na ordem em que apareceram */
+  const presentes = ORDEM_TIMEFRAME.filter((tf) => contagem.has(tf));
+  const visiveis = setups.filter((setup) => !ocultos.has(setup.timeframe));
+  const alternar = (tf: Timeframe): void =>
+    setOcultos((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(tf)) proximo.delete(tf);
+      else proximo.add(tf);
+      return proximo;
+    });
+
   return (
     <div className="flex flex-col">
       {/*
@@ -259,10 +298,58 @@ function MarketColumn({
           <span className={sozinha ? 'text-terminal-muted' : futuros ? 'text-info' : 'text-terminal-text'}>
             {sozinha ? 'Setups na mesa' : MARKET_LABEL[market]}
           </span>
-          <span className="text-terminal-text">{setups.length}</span>
+          <span className="text-terminal-text">{visiveis.length}</span>
+          {/* com filtro ativo, o total continua visível: sumir com ele faria a
+              lista encolhida parecer o mercado inteiro */}
+          {visiveis.length !== setups.length ? (
+            <span className="text-[10px] font-normal normal-case text-terminal-muted">
+              de {setups.length}
+            </span>
+          ) : null}
           {vendidas > 0 ? (
             <span className="text-[10px] font-normal normal-case text-bear">
               {vendidas} vendida{vendidas > 1 ? 's' : ''}
+            </span>
+          ) : null}
+
+          {/*
+            Os tempos gráficos ficam ao LADO do título, não numa linha própria:
+            eles são a legenda da contagem que está logo antes deles. Só
+            aparecem com mais de um tempo na mesa — com um só, seriam um
+            controle que não controla nada.
+          */}
+          {presentes.length > 1 ? (
+            <span className="flex flex-wrap items-center gap-1">
+              {presentes.map((tf) => {
+                const oculto = ocultos.has(tf);
+                const micro = tf === MICRO_TIMEFRAME;
+                return (
+                  <button
+                    key={tf}
+                    type="button"
+                    onClick={() => alternar(tf)}
+                    title={oculto ? `Mostrar as teses de ${tf}` : `Ocultar as teses de ${tf}`}
+                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold normal-case tabular ${
+                      oculto
+                        ? 'border-terminal-border text-terminal-muted opacity-50'
+                        : micro
+                          ? 'border-bull/60 bg-bull/10 text-bull'
+                          : 'border-terminal-border bg-terminal-panel-soft text-terminal-text'
+                    }`}
+                  >
+                    {tf} ({contagem.get(tf) ?? 0})
+                  </button>
+                );
+              })}
+              {ocultos.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setOcultos(new Set())}
+                  className="rounded px-1 text-[10px] font-normal normal-case text-terminal-muted underline"
+                >
+                  limpar
+                </button>
+              ) : null}
             </span>
           ) : null}
         </h2>
@@ -274,17 +361,19 @@ function MarketColumn({
         />
       </div>
 
-      {setups.length === 0 ? (
+      {visiveis.length === 0 ? (
         <Empty
           text={
-            futuros
-              ? 'Nenhuma tese em futuros agora. O sistema segue varrendo as duas modalidades.'
-              : 'Nenhum setup válido agora. O sistema segue varrendo o mercado.'
+            ocultos.size > 0
+              ? 'Nenhuma tese nos tempos gráficos que estão à vista. Reative um deles acima.'
+              : futuros
+                ? 'Nenhuma tese em futuros agora. O sistema segue varrendo as duas modalidades.'
+                : 'Nenhum setup válido agora. O sistema segue varrendo o mercado.'
           }
         />
       ) : (
         <div className="overflow-hidden rounded-xl border border-terminal-border">
-          {setups.map((setup, index) => (
+          {visiveis.map((setup, index) => (
             <SetupRow
               key={setup.id}
               setup={setup}

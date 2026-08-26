@@ -3,5 +3,8 @@ export { rsi } from './rsi.ts';
 export { macd } from './macd.ts';
 export { atr, trueRange } from './atr.ts';
 export { bollinger } from './bollinger.ts';
+export { adx } from './adx.ts';
+export type { AdxPoint } from './adx.ts';
+export { rollingVwap } from './vwap.ts';
 export { volumeProfile, sellingVolumeFading, buyingVolumeFading } from './volume.ts';
 export type { VolumeProfile } from './volume.ts';

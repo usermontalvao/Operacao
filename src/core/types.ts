@@ -23,25 +23,61 @@ export type { PolicySnapshot } from './policy/snapshot.ts';
 export type { RiskSizingResult, SizingLimit } from './risk/sizeByRisk.ts';
 export type { FreshnessReport, FreshnessLevel } from './health/freshness.ts';
 
-export type Timeframe = '15m' | '1h' | '4h' | '1d';
-
-export const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+/**
+ * Tempo gráfico que o MOTOR aceita.
+ *
+ * `1m` entrou por último e é diferente dos outros quatro em espécie, não em
+ * grau. De 15m para cima o candle carrega informação suficiente para uma tese
+ * direcional; em 1 minuto ele é majoritariamente ruído, e um alvo do tamanho
+ * do ATR de 1m nem paga a corretagem. Por isso o 1m NÃO é gatilho dos
+ * detectores de tendência: ele existe apenas para o módulo de micro scalp
+ * (src/core/scalp), que opera outra pergunta — lateralidade com amplitude
+ * suficiente para cobrir o custo — e que só roda quando ligado nas
+ * Configurações.
+ *
+ * A separação abaixo é o que garante isso: `TIMEFRAMES` é o conjunto que o
+ * scanner de sempre varre, e o 1m está FORA dele de propósito. Quem quiser o
+ * 1m precisa pedir explicitamente por MICRO_TIMEFRAME.
+ */
+export type Timeframe = '1m' | '15m' | '1h' | '4h' | '1d';
 
 /**
- * Tempo gráfico da VISUALIZAÇÃO — não é o mesmo conjunto do motor.
+ * Os timeframes da varredura padrão. O 1m não está aqui.
  *
- * O robô lê 15m para cima porque abaixo disso o candle é mais ruído que
- * informação: indicador de 1 minuto muda de opinião a cada tique e produziria
- * tese que nasce e morre antes de alguém ler. Mas OLHAR o gráfico de 1 minuto
- * para decidir o momento de clicar é outra coisa — é leitura humana, não
- * entrada de motor. Por isso são dois conjuntos: alargar o `Timeframe` deixaria
- * o scanner varrer 1m sem que ninguém tivesse pedido.
+ * Este array alimenta a assinatura de WebSocket e a carga de histórico de
+ * TODOS os pares. Acrescentar 1m aqui abriria um stream de 1 minuto por par
+ * do universo inteiro sem que ninguém tivesse ligado nada — exatamente o
+ * oposto de opt-in.
+ */
+export const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+
+/** O timeframe do micro scalp, sempre nomeado, nunca inferido. */
+export const MICRO_TIMEFRAME: Timeframe = '1m';
+
+/** Minutos de cada timeframe. Fonte única — ninguém mais deriva isso à mão. */
+export const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
+  '1m': 1,
+  '15m': 15,
+  '1h': 60,
+  '4h': 240,
+  '1d': 1440,
+};
+
+export function timeframeMinutes(timeframe: Timeframe): number {
+  return TIMEFRAME_MINUTES[timeframe];
+}
+
+/**
+ * Tempo gráfico da VISUALIZAÇÃO — mais largo que o do motor.
+ *
+ * Olhar um gráfico de 3m ou 30m é leitura humana e não custa nada; deixar o
+ * motor varrer esses intervalos é outra conversa. Por isso são dois conjuntos.
  *
  * Não existe "2m" na Binance. Os intervalos dela são 1m, 3m, 5m, 15m, 30m,
  * 1h, 2h, 4h… — pedir 2m devolve erro, então a lista abaixo é a que a
  * corretora realmente serve.
  */
-export type ChartInterval = Timeframe | '1m' | '3m' | '5m' | '30m';
+export type ChartInterval = Timeframe | '3m' | '5m' | '30m';
 
 export const CHART_INTERVALS: ChartInterval[] = [
   '1m',
@@ -54,8 +90,14 @@ export const CHART_INTERVALS: ChartInterval[] = [
   '1d',
 ];
 
-/** Peso de cada timeframe na leitura de tendência. 4H e diário mandam. */
+/**
+ * Peso de cada timeframe na leitura de tendência. 4H e diário mandam.
+ *
+ * O 1m entra com peso quase nulo: ele nunca deve puxar a leitura de tendência
+ * de nada. Quem opera 1m no micro scalp lê a tendência dos outros.
+ */
 export const TIMEFRAME_WEIGHT: Record<Timeframe, number> = {
+  '1m': 0.1,
   '15m': 0.5,
   '1h': 1,
   '4h': 2.5,
@@ -204,7 +246,20 @@ export interface MarketContext {
   updatedAt: string;
 }
 
-export type SetupType = 'PULLBACK' | 'BREAKOUT_RETEST' | 'SUPPORT_REVERSAL' | 'MOMENTUM_BURST';
+/**
+ * RANGE_FADE é o único tipo que NÃO é direcional: os outros quatro compram
+ * força ou defesa dentro de uma tendência, ele vende a extremidade de uma
+ * faixa apostando na volta ao meio. É o setup do micro scalp de 1 minuto.
+ *
+ * Tipo novo aqui exige migration no CHECK de trade_setups.setup_type —
+ * sem ela o Postgres recusa a gravação e a falha é silenciosa.
+ */
+export type SetupType =
+  | 'PULLBACK'
+  | 'BREAKOUT_RETEST'
+  | 'SUPPORT_REVERSAL'
+  | 'MOMENTUM_BURST'
+  | 'RANGE_FADE';
 
 export type SetupStatus =
   | 'WATCHING'
@@ -271,6 +326,134 @@ export interface SetupEvidence {
   btcScoreModifier: number;
 }
 
+/* ==========================================================================
+ * MICRO SCALP (1 minuto)
+ * ========================================================================== */
+
+/** Como o par se classifica para operar em 1 minuto. */
+export type ScalpGrade = 'EXCELENTE' | 'BOM' | 'APTO' | 'BLOQUEADO';
+
+/**
+ * Uma parcela do scalpabilityScore. Guardar a conta inteira, e não só o
+ * total, é o que permite responder "por que este par foi bloqueado?" sem
+ * refazer a medição — e é o que a tela mostra quando diz o motivo.
+ */
+export interface ScalpScoreComponent {
+  key: string;
+  label: string;
+  /** positivo soma, negativo desconta */
+  points: number;
+  detail: string;
+}
+
+/** Medição de liquidez de um par, tirada do book e do volume recente. */
+export interface LiquiditySnapshot {
+  symbol: string;
+  /** melhor compra e melhor venda no momento da medição */
+  bid: number;
+  ask: number;
+  /** (ask - bid) / meio, em % */
+  spreadPercent: number;
+  /**
+   * Quanto o preço médio piora ao varrer o book com uma ordem a mercado do
+   * tamanho que ESTA conta usa. É o escorregamento real, não o estimado.
+   * null = o book não tem profundidade nem para essa ordem.
+   */
+  slippagePercent: number | null;
+  /** valor em USDT disponível nos primeiros níveis de cada lado */
+  bidDepthUsd: number;
+  askDepthUsd: number;
+  quoteVolume24h: number;
+  /** volume negociado nos últimos 15 minutos, em USDT */
+  recentQuoteVolume: number;
+  measuredAt: number;
+}
+
+export interface ScalpabilityReport {
+  symbol: string;
+  score: number;
+  grade: ScalpGrade;
+  components: ScalpScoreComponent[];
+  /**
+   * O que há de errado com este par, em frases prontas para a tela.
+   *
+   * A lista existe SEMPRE, mesmo quando os filtros não estão vetando: ela é o
+   * diagnóstico, não a sentença. Quem transforma diagnóstico em veto é
+   * `blocked`, logo abaixo.
+   */
+  blockers: string[];
+  /** o par está de fato barrado? falso quando os filtros só avisam */
+  blocked: boolean;
+  liquidity: LiquiditySnapshot;
+  /** ATR de 1m em % — a amplitude que o par oferece por barra */
+  microAtrPercent: number | null;
+  /** custo de ida e volta com os números reais desta conta, em % */
+  allInCostPercent: number;
+  measuredAt: number;
+}
+
+export type RangeVerdict = 'RANGE' | 'TENDENCIA' | 'EXPANSAO' | 'INDEFINIDO';
+
+/**
+ * O laudo de lateralidade. O micro scalp só opera com verdict === 'RANGE';
+ * os outros três valores existem para a tela poder dizer POR QUE não operou.
+ */
+export interface RangeRegimeReport {
+  verdict: RangeVerdict;
+  /** 0..1 — quão convincente é a faixa */
+  confidence: number;
+  support: number;
+  resistance: number;
+  /** (resistência - suporte) / preço, em % */
+  amplitudePercent: number;
+  /** onde o preço está dentro da faixa: 0 = no suporte, 1 = na resistência */
+  position: number;
+  adx: number | null;
+  /** inclinação da EMA20 em % por barra — perto de zero é faixa */
+  emaSlopePercent: number | null;
+  bollingerWidthPercent: number | null;
+  vwap: number | null;
+  supportTouches: number;
+  resistanceTouches: number;
+  reasons: string[];
+}
+
+/**
+ * A conta de custo de UMA operação, com os números da conta e da modalidade
+ * ativas. Nada aqui é fixo: taxa de spot e de futuros são diferentes, e o
+ * spread e o escorregamento vêm do book medido, não de uma estimativa.
+ */
+export interface MicroEconomics {
+  /** taxa de entrada, em % do valor negociado */
+  entryFeePercent: number;
+  exitFeePercent: number;
+  /** metade do spread, que é o que se paga ao cruzar o book */
+  spreadCostPercent: number;
+  estimatedSlippagePercent: number;
+  /** soma de tudo acima — o que a operação paga só por existir */
+  allInCostPercent: number;
+  /** movimento bruto esperado até o alvo, em % */
+  grossExpectedProfitPercent: number;
+  /** o que sobra depois de allInCost */
+  netExpectedProfitPercent: number;
+  /** grossExpectedProfit / allInCost — quantas vezes o alvo paga o custo */
+  costMultiple: number;
+  /** R/R já líquido, pelo mesmo cálculo do resto do sistema */
+  netRiskReward: number;
+  /**
+   * Por que esta tese não deveria existir, quando os filtros estão apenas
+   * avisando. null = a conta fecha pelos critérios configurados.
+   */
+  warning: string | null;
+}
+
+/** O que o micro scalp anexa ao setup — ausente em todos os outros tipos. */
+export interface MicroScalpDetail {
+  scalpability: ScalpabilityReport;
+  regime: RangeRegimeReport;
+  economics: MicroEconomics;
+}
+
 export interface TradeSetup {
   id: string;
   symbol: string;
@@ -306,6 +489,12 @@ export interface TradeSetup {
   /** assinatura estável usada para não recriar o mesmo setup a cada varredura */
   fingerprint: string;
   invalidationNote: string | null;
+  /**
+   * Só o RANGE_FADE preenche. Fica opcional porque toda tese gravada antes do
+   * micro scalp existir não tem este campo — e ler `undefined` aqui é o
+   * comportamento correto para elas, não um defeito a consertar na carga.
+   */
+  micro?: MicroScalpDetail;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
@@ -328,6 +517,8 @@ export interface SetupCandidate {
   reasons: string[];
   /** referência do nível que sustenta a tese — entra na fingerprint */
   levelPrice: number;
+  /** laudo de lateralidade; só o detector de micro scalp preenche */
+  regime?: RangeRegimeReport;
   qualityHints: {
     levelQuality: number;
     volumeConfirmation: boolean;
@@ -424,6 +615,112 @@ export interface ScannerSettings {
   setupTtlMinutes: number;
   /** minutos de silêncio antes de recriar o mesmo setup */
   cooldownMinutes: number;
+  /**
+   * Micro scalp de 1 minuto. Desligado, absolutamente nada muda: nenhum
+   * stream de 1m é assinado, nenhum par é medido e nenhum detector roda.
+   */
+  microScalp: MicroScalpSettings;
+}
+
+/**
+ * O que liga, limita e calibra o micro scalp.
+ *
+ * Todo número que decide alguma coisa está aqui — nenhum limiar mora solto
+ * dentro de um detector. É proposital: os pesos do scalpabilityScore e os
+ * cortes de regime são hipóteses a serem medidas, e hipótese que só existe
+ * dentro do código é hipótese que ninguém revisa.
+ */
+export interface MicroScalpSettings {
+  enabled: boolean;
+  /**
+   * Os filtros VETAM ou apenas AVISAM.
+   *
+   * Ligado (padrão), um par reprovado não entra e uma tese sem margem não
+   * nasce. Desligado, tudo é medido e mostrado do mesmo jeito — os motivos
+   * viram avisos em vez de portas fechadas, e quem decide é quem está olhando.
+   *
+   * O que NÃO muda com este interruptor: os números. Lucro bruto, custo e
+   * líquido continuam sendo os reais, e um líquido negativo aparece em
+   * vermelho na tese. Deixar de bloquear é devolver a decisão ao operador,
+   * não maquiar a conta que sustenta a decisão. E o robô continua sem operar
+   * este tipo em nenhum dos dois modos.
+   */
+  enforceFilters: boolean;
+  /** quantos pares são medidos no book a cada volta */
+  maxCandidates: number;
+  /** teto de pares que o universo de scalp acompanha em tempo real */
+  maxUniverseSize: number;
+  /** de quantos em quantos segundos o universo é remedido */
+  universeRefreshSeconds: number;
+  /** tamanho de ordem usado para medir escorregamento no book, em USDT */
+  probeOrderUsd: number;
+  filters: ScalpLiquidityFilters;
+  weights: ScalpScoreWeights;
+  regime: RangeRegimeSettings;
+  /** minutos até um setup de 1m não acionado expirar */
+  setupTtlMinutes: number;
+  /** minutos de silêncio antes de recriar a mesma tese de 1m */
+  cooldownMinutes: number;
+}
+
+/** Cortes eliminatórios: reprovado em qualquer um, o par nem é pontuado. */
+export interface ScalpLiquidityFilters {
+  minQuoteVolume24h: number;
+  /** volume em USDT nos últimos 15 minutos */
+  minRecentQuoteVolume: number;
+  maxSpreadPercent: number;
+  /** profundidade mínima em USDT de cada lado do book */
+  minBookDepthUsd: number;
+  maxSlippagePercent: number;
+  /** ATR de 1m mínimo, em % — abaixo disso não há o que capturar */
+  minMicroAtrPercent: number;
+  /** ATR de 1m máximo: acima disso não é oscilação, é notícia */
+  maxMicroAtrPercent: number;
+  /** nota mínima para o par entrar no scanner de 1m */
+  minScore: number;
+}
+
+/** Pesos do scalpabilityScore. Somam o teto de 100 quando tudo é perfeito. */
+export interface ScalpScoreWeights {
+  liquidity: number;
+  recentVolume: number;
+  usableVolatility: number;
+  bookDepth: number;
+  /** descontos — declarados positivos e subtraídos no cálculo */
+  spreadPenalty: number;
+  slippagePenalty: number;
+  costPenalty: number;
+}
+
+/** O que faz um mercado ser considerado lateral. */
+export interface RangeRegimeSettings {
+  /** quantas barras de 1m formam a faixa analisada */
+  lookback: number;
+  /** ADX acima disto é tendência, e o micro scalp não opera tendência */
+  maxAdx: number;
+  /**
+   * Quanto o eixo da faixa (EMA20) pode andar em 10 barras, como FRAÇÃO da
+   * amplitude. Relativo e não absoluto porque um mesmo número em % não
+   * significa a mesma coisa num par que anda 2% e noutro que anda 0,1%.
+   */
+  maxEmaDriftOfRange: number;
+  /**
+   * Quanto o eixo pode ter percorrido da amplitude entre a PRIMEIRA e a
+   * ÚLTIMA barra da janela. É o que separa faixa de canal: num canal lento a
+   * amplitude medida incha junto com o movimento e a deriva de curto prazo
+   * fica pequena, mas o eixo atravessa a faixa de ponta a ponta.
+   */
+  maxEmaTravelOfRange: number;
+  /** quantos toques cada extremidade precisa ter para a faixa valer */
+  minTouchesPerSide: number;
+  /** amplitude mínima da faixa em múltiplos do custo total da operação */
+  minAmplitudeCostMultiple: number;
+  /** expansão de volatilidade: ATR atual sobre a média, acima disto trava */
+  maxVolatilityExpansion: number;
+  /** o preço precisa estar nos X% inferiores da faixa para comprar */
+  entryZonePercent: number;
+  /** lucro bruto precisa ser este múltiplo do custo total para liberar */
+  minCostMultiple: number;
 }
 
 /**
