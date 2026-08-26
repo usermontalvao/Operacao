@@ -65,8 +65,15 @@ export function environmentFor(market: MarketKind): EnvironmentEndpoints {
 let bannedUntil = 0;
 let lastRequestAt = 0;
 const MIN_INTERVAL_MS = 60;
-/** Diferença entre o relógio local e o da Binance, medida no boot. */
+/** Diferença entre o relógio local e o da Binance, remedida quando erra. */
 let clockOffsetMs = 0;
+/**
+ * Folga do carimbo, em ms.
+ *
+ * Adiantar é recusado (-1021); atrasar cabe no `recvWindow`. Meio segundo
+ * atrás cobre a deriva normal de um relógio de máquina entre duas medições.
+ */
+const MARGEM_DE_RELOGIO_MS = 500;
 
 async function throttle(): Promise<void> {
   const now = Date.now();
@@ -209,17 +216,50 @@ export async function signedRequest<T>(
   if (!credentials) {
     throw new BinanceError('Credenciais da Binance não configuradas no servidor', -2015, 401);
   }
-  const query = buildQuery({
-    ...params,
-    timestamp: Date.now() + clockOffsetMs,
-    recvWindow: 5000,
-  });
-  const signature = signQuery(query, credentials.apiSecret);
-  const url = `${environment.tradeRestBase}${path}?${query}&signature=${signature}`;
-  return request<T>(url, {
-    method,
-    headers: { 'X-MBX-APIKEY': credentials.apiKey },
-  });
+
+  const enviar = async (): Promise<T> => {
+    const query = buildQuery({
+      ...params,
+      /*
+       * O carimbo sai de propósito um pouco ATRASADO.
+       *
+       * As duas direções não são simétricas na Binance: adiantar mais de
+       * 1000 ms é recusado na hora (-1021), enquanto atrasar é aceito até o
+       * `recvWindow` inteiro — cinco segundos. Ficar de propósito meio segundo
+       * atrás troca uma falha por folga, e não custa nada.
+       */
+      timestamp: Date.now() + clockOffsetMs - MARGEM_DE_RELOGIO_MS,
+      recvWindow: 5000,
+    });
+    const signature = signQuery(query, credentials.apiSecret);
+    const url = `${environment.tradeRestBase}${path}?${query}&signature=${signature}`;
+    return request<T>(url, { method, headers: { 'X-MBX-APIKEY': credentials.apiKey } });
+  };
+
+  try {
+    return await enviar();
+  } catch (error) {
+    /*
+     * Relógio fora de hora não pode derrubar a chamada.
+     *
+     * O ajuste era medido UMA VEZ, no boot, e nunca mais: o relógio da
+     * máquina anda sozinho e horas depois o desvio volta. Em 26/08/2026 isso
+     * derrubou `GET /api/equity` — a carteira inteira sumiu da tela porque o
+     * carimbo estava 1 segundo à frente.
+     *
+     * Aqui a recusa vira o gatilho da remedição: pergunta a hora à corretora,
+     * corrige o desvio e tenta de novo, uma vez. Se falhar de novo, aí sim é
+     * problema de verdade e sobe.
+     */
+    if (error instanceof BinanceError && error.code === -1021) {
+      logger.warn('Carimbo recusado pela Binance — remedindo o relógio e repetindo', {
+        desvioAnterior: clockOffsetMs,
+      });
+      await syncClock().catch(() => undefined);
+      return enviar();
+    }
+    throw error;
+  }
 }
 
 export async function ping(): Promise<boolean> {

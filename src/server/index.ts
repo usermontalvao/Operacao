@@ -272,6 +272,22 @@ async function main(): Promise<void> {
   const heartbeat = setInterval(() => bus.heartbeat(), 25_000);
   heartbeat.unref?.();
 
+  /*
+   * O relógio é remedido de tempos em tempos, não só no boot.
+   *
+   * O desvio contra a Binance não é constante: o relógio da máquina anda
+   * sozinho, e o painel fica ligado por horas. Medir uma vez e confiar para
+   * sempre foi o que derrubou a carteira em 26/08/2026 com -1021. A chamada
+   * assinada já se recupera sozinha quando leva a recusa; isto evita chegar
+   * até a recusa.
+   */
+  const relogio = setInterval(() => {
+    void syncClock().catch((error) =>
+      logger.debug('Remedição do relógio falhou', { error: (error as Error).message }),
+    );
+  }, 20 * 60_000);
+  relogio.unref?.();
+
   const available = await ping();
   if (!available) {
     logger.error('Binance inacessível no boot — o painel vai mostrar DADOS INDISPONÍVEIS');
@@ -335,6 +351,7 @@ async function main(): Promise<void> {
     void audit.flush();
     market.stop();
     clearInterval(heartbeat);
+    clearInterval(relogio);
     clearInterval(floodSweeper);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
