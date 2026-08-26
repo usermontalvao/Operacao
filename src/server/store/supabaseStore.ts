@@ -24,6 +24,8 @@ import { DEFAULT_GUARD } from '../../core/risk/governor.ts';
  * de leitura autenticada pelo cliente no futuro.
  */
 export class SupabaseStore implements Repository {
+  /** colunas que o banco não tem; serve para avisar uma vez só de cada */
+  private readonly missingColumns = new Set<string>();
   private client: SupabaseClient | null = null;
   private readonly url: string;
   private readonly serviceRoleKey: string;
@@ -120,10 +122,17 @@ export class SupabaseStore implements Repository {
   }
 
   /**
-   * Grava as configurações, e tenta de novo sem a coluna nova quando ela
-   * ainda não existe no banco. O painel continua funcionando antes da
-   * migration — só não guarda o interruptor entre reinícios, e é isso que o
-   * aviso no log diz.
+   * Grava as configurações, pulando as colunas que o banco ainda não tem.
+   *
+   * A migration chega depois do código — quase sempre. Antes, uma coluna nova
+   * fazia a gravação inteira falhar, e como as configurações são gravadas no
+   * BOOT, o servidor simplesmente não subia: o painel inteiro fora do ar por
+   * uma coluna cujo valor tem padrão.
+   *
+   * Aqui a linha vai completa; se o PostgREST disser que uma coluna não
+   * existe, ela sai e a gravação é refeita. O que estiver nas colunas que
+   * faltam não sobrevive ao reinício — e é exatamente isso que o aviso diz,
+   * uma vez por coluna, em vez de derrubar tudo.
    */
   async saveSettings(settings: StoredSettings): Promise<void> {
     const active = settings.byMarket[settings.market][settings.mode];
@@ -147,23 +156,33 @@ export class SupabaseStore implements Repository {
       updated_at: settings.updatedAt,
     };
 
-    const { error } = await this.db().from('app_settings').upsert(row, { onConflict: 'user_id' });
-    if (!error) return;
-
-    // coluna nova ainda não migrada: grava o resto e avisa, em vez de derrubar
-    // a gravação inteira (que levaria junto watchlist, risco e robô)
-    if (error.message.includes('futures_enabled')) {
-      const { futures_enabled: _semColuna, ...semInterruptor } = row;
-      const retry = await this.db()
+    let payload: Record<string, unknown> = row;
+    // uma volta por coluna faltante; o teto existe para um erro que se repita
+    // sem ser de coluna nunca virar laço infinito
+    for (let tentativa = 0; tentativa < MAX_COLUNAS_FALTANDO; tentativa += 1) {
+      const { error } = await this.db()
         .from('app_settings')
-        .upsert(semInterruptor, { onConflict: 'user_id' });
-      if (retry.error) throw new Error(settingsColumnHint(retry.error.message));
-      logger.warn(
-        'Coluna futures_enabled ainda não existe — o interruptor de futuros não sobrevive ao reinício. Aplique a migration 20260826090000_futuros_usd_m.sql',
-      );
-      return;
+        .upsert(payload, { onConflict: 'user_id' });
+      if (!error) return;
+
+      const faltando = missingColumnOf(error.message);
+      if (faltando === null || !(faltando in payload)) {
+        throw new Error(settingsColumnHint(error.message));
+      }
+      const { [faltando]: _semColuna, ...resto } = payload;
+      payload = resto;
+      this.warnMissingColumn(faltando);
     }
-    throw new Error(settingsColumnHint(error.message));
+    throw new Error('app_settings recusou a gravação depois de remover as colunas ausentes');
+  }
+
+  /** Um aviso por coluna, e não um por gravação: isto roda a cada ajuste. */
+  private warnMissingColumn(column: string): void {
+    if (this.missingColumns.has(column)) return;
+    this.missingColumns.add(column);
+    logger.warn(
+      `Coluna ${column} não existe em app_settings — o que ela guarda NÃO sobrevive ao reinício. Aplique supabase/migrations/20260826090000_futuros_usd_m.sql`,
+    );
   }
 
   async listSetups(): Promise<TradeSetup[]> {
@@ -563,6 +582,21 @@ function rowToTrade(row: Row): Trade {
  * migration. Sem esta dica o painel só mostra "erro interno" e a configuração
  * some sem explicação.
  */
+/** Teto de colunas ausentes toleradas numa gravação. */
+const MAX_COLUNAS_FALTANDO = 6;
+
+/**
+ * O nome da coluna que o PostgREST diz não existir.
+ *
+ * A mensagem é `Could not find the 'x' column of 'y' in the schema cache`.
+ * Null quando o erro é outra coisa — e aí ele sobe, porque erro de gravação
+ * que não é coluna faltando é problema de verdade.
+ */
+function missingColumnOf(message: string): string | null {
+  const match = /Could not find the '([^']+)' column/.exec(message);
+  return match?.[1] ?? null;
+}
+
 function settingsColumnHint(message: string): string {
   if (message.includes('by_mode')) {
     return `${message} — rode "npm run migrar" para criar a coluna by_mode em app_settings`;
