@@ -382,7 +382,37 @@ export class ExecutionService {
       leverage,
     });
 
-    const sizing = toSizingResult(sized, setup, entryPrice, capitalView.capital, policy.risk, side);
+    /*
+     * Os alvos do PREVIEW são os mesmos da ordem.
+     *
+     * A peneira só rodava na execução, então a tela oferecia alvos que a
+     * ordem descartava em silêncio — e o pior deles era um preço NEGATIVO,
+     * que só o lado vendido consegue produzir. Mostrar aqui o que vai ser
+     * enviado é a diferença entre conferir a operação e adivinhar.
+     */
+    const alvos = sanitizeTargets({
+      entryPrice,
+      target1: setup.target1,
+      target2: setup.target2,
+      target3: setup.target3,
+      maxTargetPercent: policy.guard.maxTargetPercent,
+      side,
+    });
+    const setupComAlvosReais: TradeSetup = {
+      ...setup,
+      target1: alvos.target1,
+      target2: alvos.target2,
+      target3: alvos.target3,
+    };
+
+    const sizing = toSizingResult(
+      sized,
+      setupComAlvosReais,
+      entryPrice,
+      capitalView.capital,
+      policy.risk,
+      side,
+    );
 
     /*
      * A segunda saída, a que não é sua.
@@ -444,6 +474,9 @@ export class ExecutionService {
     }
 
     const warnings = [...sizing.warnings, ...gate.warnings];
+    if (alvos.dropped.length > 0) {
+      warnings.push(`Alvo descartado — ${alvos.dropped.join('; ')}. A posição vive do alvo 1 e do stop`);
+    }
     if (futures && liquidation?.liquidationPrice) {
       warnings.push(
         `Posição ${sideLabel(side)} ${leverage}x — margem de ${margin.toFixed(2)} USDT, liquidação estimada em ${liquidation.liquidationPrice.toPrecision(6)}`,
@@ -451,7 +484,9 @@ export class ExecutionService {
     }
     const strategyRejection = automaticStrategyRejectionReason(setup);
     if (strategyRejection !== null) {
-      warnings.push(`Estratégia observacional — compra automática bloqueada: ${strategyRejection}`);
+      // "compra automática" numa tese de VENDA é a frase contradizendo o
+      // próprio aviso; o que está bloqueado é a ENTRADA do robô, dos dois lados
+      warnings.push(`O robô não entra sozinho nesta tese: ${strategyRejection}. A ordem manual segue liberada`);
     }
     if (setup.extended) {
       warnings.push('Setup marcado como ESTICADO — o preço já se afastou do ponto de invalidação');
@@ -461,7 +496,8 @@ export class ExecutionService {
     const expiresAt = canExecute ? Date.now() + CONFIRMATION_TTL_MS : null;
 
     return {
-      setup,
+      // a tese que volta para a tela é a que a ordem vai executar
+      setup: setupComAlvosReais,
       mode,
       market,
       side,

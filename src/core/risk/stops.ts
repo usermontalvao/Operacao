@@ -94,6 +94,13 @@ export function sanitizeTargets(input: {
   const maxMove = entryPrice * (maxTargetPercent / 100);
   const keep = (target: number | null, label: string): number | null => {
     if (target === null) return null;
+    // o chão vem antes do teto: preço negativo não é alvo longe demais, é
+    // alvo que não existe. Só acontece no vendido, onde o ganho por unidade
+    // é limitado pelo próprio preço de entrada
+    if (!Number.isFinite(target) || target <= 0) {
+      dropped.push(`${label} abaixo de zero — preço não existe ali`);
+      return null;
+    }
     const move = gainPerUnit(side, entryPrice, target);
     if (move <= maxMove) return target;
     dropped.push(`${label} a ${((move / entryPrice) * 100).toFixed(0)}% da entrada`);

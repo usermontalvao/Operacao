@@ -228,6 +228,42 @@ export class ScannerService {
   }
 
   /**
+   * Tira do radar a tese que o mercado não aceita mais.
+   *
+   * A peneira de pares só valia na GERAÇÃO: uma tese criada antes de o
+   * contrato entrar em liquidação — ou antes de a modalidade ser barrada —
+   * continuava na tela, sobrevivia ao reinício (ela vem do disco) e só saía
+   * ao expirar. O usuário clicava e recebia a recusa da corretora, horas
+   * depois, no lugar mais caro possível: a tela de confirmação da ordem.
+   */
+  private async retirarForaDeMercado(
+    negociavel: (market: MarketKind, symbol: string) => boolean,
+    markets: MarketKind[],
+    now: Date,
+  ): Promise<void> {
+    const ativas = new Set(markets);
+    for (const setup of [...this.setups.values()]) {
+      const market = setup.market ?? 'SPOT';
+      if (ativas.has(market) && negociavel(market, setup.symbol)) continue;
+      const motivo = ativas.has(market)
+        ? `${setup.symbol} não está mais negociando em ${market === 'FUTURES' ? 'futuros' : 'spot'}`
+        : `a modalidade ${market} foi barrada no painel`;
+      const invalidado: TradeSetup = {
+        ...setup,
+        status: 'INVALIDATED',
+        invalidationNote: motivo,
+        updatedAt: now.toISOString(),
+      };
+      this.setups.delete(setup.id);
+      this.rememberRetired(invalidado);
+      await this.repository.saveSetup(invalidado);
+      this.bus.broadcast({ type: 'setupRemoved', payload: { id: setup.id } });
+      await this.paper.cancelPending(setup.id, motivo);
+      logger.info('Tese retirada do radar', { symbol: setup.symbol, market, motivo });
+    }
+  }
+
+  /**
    * Quais pares existem em cada modalidade.
    *
    * Nem tudo que se compra no spot tem contrato perpétuo: XAUT, pares novos e
@@ -326,6 +362,7 @@ export class ScannerService {
         await this.reconcile(symbol, generated, analysis);
       }
 
+      await this.retirarForaDeMercado(negociavel, markets, now);
       await this.sweepExpired(now);
       this.pruneRetired(now.getTime());
       await this.syncFocus();

@@ -32,10 +32,10 @@ const PERCENT_OPTIONS = [10, 25, 50];
  * margem prendida e o preço em que a corretora liquida a posição. O último é
  * o mais importante da tela: é a saída que não é sua.
  */
-export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
-  const side = setup.side;
+export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps) {
+  const side = clicado.side;
   const verbo = SIDE_VERB[side];
-  const futuros = setup.market === 'FUTURES';
+  const futuros = clicado.market === 'FUTURES';
   const [step, setStep] = useState<'SIZE' | 'CONFIRM'>('SIZE');
   const [amount, setAmount] = useState<number | null>(null);
   const [percentChoice, setPercentChoice] = useState<number | null>(25);
@@ -55,12 +55,22 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
   const [error, setError] = useState<string | null>(null);
   const idempotencyKey = useRef(crypto.randomUUID().replace(/-/g, '').slice(0, 24));
 
+  /*
+    A tese exibida é a que VOLTOU do preview, não a que foi clicada.
+
+    O servidor peneira os alvos antes de responder — descarta o que passa do
+    teto e o que caiu abaixo de zero, que só o lado vendido produz. Mostrar a
+    tese do radar aqui faria a tela oferecer um alvo que a ordem não vai usar,
+    e o usuário confirmaria uma operação diferente da que leu.
+  */
+  const setup = preview?.setup ?? clicado;
+
   const load = useCallback(
     async (body: { quoteAmount?: number; percentOfCapital?: number; leverage?: number }) => {
       setLoading(true);
       setError(null);
       try {
-        const result = await api.preview({ setupId: setup.id, ...body });
+        const result = await api.preview({ setupId: clicado.id, ...body });
         setPreview(result);
         if (body.percentOfCapital !== undefined) setAmount(result.sizing.notional);
         // a primeira resposta traz a alavancagem dos ajustes; é dela que o
@@ -73,7 +83,7 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
         setLoading(false);
       }
     },
-    [setup.id],
+    [clicado.id],
   );
 
   useEffect(() => {
@@ -106,7 +116,7 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
     setError(null);
     try {
       const trade = await api.execute({
-        setupId: setup.id,
+        setupId: clicado.id,
         confirmationToken: preview.confirmationToken,
         idempotencyKey: idempotencyKey.current,
       });

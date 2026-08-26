@@ -501,3 +501,33 @@ test('mercado contra é do LADO: BTC vendedor não barra venda a descoberto', ()
   assert.equal(compra.allowed, false);
   assert.match(compra.blockers.join(' '), /BTC vendedor/);
 });
+
+test('o vendido não recebe alvo abaixo de zero — ali não existe preço', () => {
+  // o caso real: GLMR vendida a 0,007487 com stop a 0,009239. O risco é 23%
+  // da entrada, então 4,5R para baixo atravessa o zero e a tela chegou a
+  // oferecer "alvo 3: −0,000655" como se fosse uma saída
+  const resultado = sanitizeTargets({
+    side: 'SELL',
+    entryPrice: 0.007487,
+    target1: 0.003842,
+    target2: 0.001684,
+    target3: -0.000655,
+    maxTargetPercent: 300,
+  });
+
+  assert.equal(resultado.target1, 0.003842);
+  assert.equal(resultado.target3, null, 'preço negativo não é alvo longe demais: é alvo que não existe');
+  assert.match(resultado.dropped.join(' '), /abaixo de zero/i);
+
+  // e o teto continua valendo por cima do chão
+  const comTeto = sanitizeTargets({
+    side: 'SELL',
+    entryPrice: 0.007487,
+    target1: 0.003842,
+    target2: 0.001684,
+    target3: -0.000655,
+    maxTargetPercent: 40,
+  });
+  assert.equal(comTeto.target2, null, 'alvo 2 a 77% da entrada passa do teto de 40%');
+  assert.equal(comTeto.target3, null);
+});

@@ -50,7 +50,36 @@ export function buildTargets(
     ) ?? entryPrice + direction * risk * 4.5;
 
   const ordered = ensureOrdered([target1, target2, target3Candidate], side);
-  return { target1: ordered[0], target2: ordered[1], target3: ordered[2] };
+
+  /*
+   * O chão do mercado.
+   *
+   * Comprado, o alvo pode subir para sempre — não há teto. Vendido, não: o
+   * ganho máximo por unidade é o próprio preço de entrada, porque abaixo de
+   * zero não existe preço. Com stop largo (num par barato, 23% da entrada é
+   * comum), `entrada − 4,5 × risco` atravessa o zero e o painel oferecia
+   * "alvo 3: −0,000655" como se fosse uma saída. Alvo impossível não é alvo
+   * agressivo: é conta errada na tela de decisão.
+   *
+   * O primeiro alvo abaixo do chão invalida a tese inteira — sem alvo não há
+   * operação. Os outros dois simplesmente deixam de existir, e a posição vive
+   * do alvo 1 e do stop.
+   */
+  const [primeiro, segundo, terceiro] = ordered;
+  if (!alcancavel(primeiro)) return null;
+  return {
+    target1: primeiro,
+    target2: alcancavel(segundo) ? segundo : null,
+    target3: alcancavel(terceiro) ? terceiro : null,
+  };
+}
+
+/**
+ * O preço existe? Abaixo de zero, não — e perto demais de zero também não
+ * serve: um alvo a 1% do zero é uma promessa que nenhum livro entrega.
+ */
+function alcancavel(price: number): boolean {
+  return Number.isFinite(price) && price > 0;
 }
 
 /** Cada alvo tem de estar mais longe que o anterior — no sentido da operação. */

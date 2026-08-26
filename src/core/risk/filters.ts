@@ -56,8 +56,24 @@ export function validateOrder(
   const quantity = roundDownToStep(rawQuantity, filters.stepSize);
   const notional = quantity * price;
 
-  if (!filters.isSpotTradingAllowed || filters.status !== 'TRADING') {
-    errors.push(`Par ${filters.symbol} não está disponível para spot no momento`);
+  /*
+   * "Disponível para spot" era a frase de quando só existia spot.
+   *
+   * Num contrato perpétuo ela não quer dizer nada — e apareceu, palavra por
+   * palavra, recusando uma ordem de FUTUROS. Pior: escondia o que estava
+   * mesmo acontecendo, que era o contrato em `SETTLING` (a corretora
+   * encerrando o par). A recusa continua a mesma; o que muda é dizer de qual
+   * mercado se está falando e por quê.
+   */
+  const negociando = filters.status === 'TRADING';
+  const permitido = filters.market === 'FUTURES' ? negociando : filters.isSpotTradingAllowed;
+  if (!permitido || !negociando) {
+    const onde = filters.market === 'FUTURES' ? 'futuros' : 'spot';
+    errors.push(
+      negociando
+        ? `Par ${filters.symbol} não está liberado para ${onde} no momento`
+        : `Par ${filters.symbol} não está negociando em ${onde} (estado ${filters.status}) — a corretora não aceita ordem nova`,
+    );
   }
   if (quantity <= 0) {
     errors.push('Quantidade zerada depois de aplicar o stepSize');
