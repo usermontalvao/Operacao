@@ -114,19 +114,25 @@ export class ExecutionError extends Error {
  * silenciosamente em intransponível, ou pior, em transponível sem querer.
  *
  * O que NÃO está aqui é intransponível de propósito: mínimo da corretora,
- * par parado, saldo insuficiente, setup inválido, liquidação antes do stop,
- * modalidade barrada, posição já aberta no ativo e o disjuntor — este último
- * tem caminho próprio ("reconhecer"), que registra e expira sozinho.
+ * par parado, saldo insuficiente, setup inválido, liquidação antes do stop e
+ * modalidade barrada. Posição já aberta, disjuntor, contexto de mercado e os
+ * demais tetos são política: na ordem manual aparecem como aviso e ficam
+ * registrados, mas não fingem ser uma recusa da Binance.
  */
 const TRAVAS_NEGOCIAVEIS = [
+  'Disjuntor acionado',
   'R/R líquido',
   'Exposição total',
   'Exposição em altcoins',
   'do patrimônio acima do teto',
   'operações abertas atingido',
   'Limite de',
+  'Já existe posição aberta',
+  'Já existe uma operação aberta',
   'Descanso pós-perda',
   'Volume de',
+  'mercado estiver contra',
+  'Ativo bloqueado por evento de mercado',
 ] as const;
 
 function cedeAConfirmacao(motivo: string): boolean {
@@ -382,6 +388,9 @@ export class ExecutionService {
       (request.percentOfCapital
         ? round((capitalView.available * request.percentOfCapital) / 100, 2)
         : 0);
+    // Na compra manual spot, "quero investir" é o tamanho escolhido — não o
+    // máximo de uma conta que o servidor pode reduzir sem pedir licença.
+    const manualSpotAmount = !automatic && market === 'SPOT' && requested > 0;
 
     // R/R líquido: é ele que decide se a operação vale, não o bruto da tela
     const netRR = netRiskReward({
@@ -407,11 +416,14 @@ export class ExecutionService {
       market,
     });
 
-    // mercado nervoso não bloqueia a compra, encolhe a compra
+    // O robô continua reduzindo tamanho em mercado nervoso. Na ordem manual,
+    // o usuário vê o alerta e confirma o valor que escolheu.
     const quoteAmount =
-      firstGate.sizeFactor < 1 ? round(requested * firstGate.sizeFactor, 2) : requested;
+      !manualSpotAmount && firstGate.sizeFactor < 1
+        ? round(requested * firstGate.sizeFactor, 2)
+        : requested;
     const gate =
-      firstGate.sizeFactor < 1
+      !manualSpotAmount && firstGate.sizeFactor < 1
         ? this.risk.gate({
             snapshot,
             symbol: setup.symbol,
@@ -452,7 +464,10 @@ export class ExecutionService {
       maxNotional: automatic ? policy.autoTrade.maxNotionalPerTrade : Number.POSITIVE_INFINITY,
       costs: policy.guard,
       requestedQuote: automatic ? undefined : quoteAmount > 0 ? quoteAmount : undefined,
-      sizeFactor: gate.sizeFactor,
+      // Compra manual spot usa o valor pedido. O risco continua calculado e
+      // mostrado, mas os tetos internos deixam de alterar a quantidade.
+      enforcePolicyLimits: !manualSpotAmount,
+      sizeFactor: manualSpotAmount ? 1 : gate.sizeFactor,
       stepSize: filters?.stepSize,
       /*
        * O piso da corretora só existe para a ordem MANUAL.
@@ -569,7 +584,9 @@ export class ExecutionService {
         setup,
         mode,
         market,
-        quoteAmount: margin,
+        // Se o usuário pediu mais do que possui, não esconda isso reduzindo a
+        // ordem até o saldo. O bloqueio precisa comparar o pedido original.
+        quoteAmount: manualSpotAmount ? requested : margin,
         available: capitalView.available,
         capital: capitalView.capital,
         sizingBlockers: sizing.blockReasons,
@@ -640,7 +657,16 @@ export class ExecutionService {
      */
     const duros = blockers.filter((motivo) => !cedeAConfirmacao(motivo));
     const negociaveis = blockers.filter((motivo) => cedeAConfirmacao(motivo));
-    const override = request.override === true;
+    /*
+     * Em SPOT manual, política é aviso por padrão.
+     *
+     * A etapa final de confirmação continua obrigatória e o token leva todas
+     * as regras ignoradas para a auditoria. O robô nunca recebe esse atalho;
+     * saldo e regras da Binance continuam em `duros`.
+     */
+    const manualPolicyOverride =
+      !automatic && market === 'SPOT' && negociaveis.length > 0;
+    const override = request.override === true || manualPolicyOverride;
     const impeditivos = override ? duros : blockers;
 
     const canExecute = impeditivos.length === 0 && filterErrors.length === 0 && sizing.quantity > 0;
@@ -653,7 +679,7 @@ export class ExecutionService {
       sizing.quantity > 0;
     if (override && negociaveis.length > 0) {
       warnings.push(
-        `ORDEM FORÇADA — travas ignoradas nesta ordem: ${negociaveis.join('; ')}`,
+        `${manualPolicyOverride ? 'ORDEM MANUAL' : 'ORDEM FORÇADA'} — regras internas mantidas como aviso nesta ordem: ${negociaveis.join('; ')}`,
       );
     }
     const expiresAt = canExecute ? Date.now() + CONFIRMATION_TTL_MS : null;
@@ -1010,6 +1036,8 @@ export class ExecutionService {
      */
     const ignoradas = forcada ? blockers.filter(cedeAConfirmacao) : [];
     if (forcada) {
+      const regrasRegistradas =
+        ignoradas.length > 0 ? ignoradas : payload.overrideReasons ?? [];
       // registro próprio, e não uma nota dentro do ORDER_CONFIRMED: uma ordem
       // que passou por cima das travas precisa ser encontrável sozinha depois
       await this.audit.recordNow({
@@ -1018,7 +1046,7 @@ export class ExecutionService {
         symbol: setup.symbol,
         setupId: setup.id,
         detail: {
-          travasIgnoradas: ignoradas.length > 0 ? ignoradas : payload.overrideReasons ?? [],
+          travasIgnoradas: regrasRegistradas,
           quantity: payload.quantity,
           quoteAmount: payload.quoteAmount,
           entryPrice: payload.entryPrice,
@@ -1027,7 +1055,7 @@ export class ExecutionService {
       logger.warn('Ordem enviada com travas de risco desarmadas pelo usuário', {
         symbol: setup.symbol,
         mode,
-        travas: ignoradas,
+        travas: regrasRegistradas,
       });
     }
 

@@ -185,3 +185,21 @@ test('pedido pequeno manda quando cabe dentro do risco', () => {
   );
   assert.ok(resultado.notional <= 200.01);
 });
+
+test('compra manual usa o valor pedido e apenas calcula o risco excedente', () => {
+  const resultado = sizeByRisk({
+    ...BASE,
+    equity: 24.36,
+    available: 18.31,
+    entryPrice: 0.002334,
+    stopLoss: 0.002249,
+    requestedQuote: 9.15,
+    stepSize: 0.1,
+    minNotional: 5,
+    enforcePolicyLimits: false,
+  });
+
+  assert.equal(resultado.boundBy, 'REQUESTED');
+  assert.ok(resultado.notional > 9.14 && resultado.notional <= 9.15);
+  assert.ok(resultado.riskPercentOfEquity > 1, 'o excesso precisa aparecer, não reduzir a ordem');
+});

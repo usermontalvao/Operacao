@@ -40,6 +40,15 @@ export interface RiskSizingInput {
   costs: CostSettings;
   /** valor que o usuário pediu explicitamente; ausente = o robô decide */
   requestedQuote?: number;
+  /**
+   * Aplica os tetos internos de risco e de tamanho.
+   *
+   * `false` existe somente para a compra manual spot: nesse fluxo o valor
+   * digitado é a decisão do usuário, e risco/tamanho viram avisos na etapa de
+   * confirmação. Saldo, passo do lote e mínimo da corretora continuam sendo
+   * aplicados porque não são política do painel.
+   */
+  enforcePolicyLimits?: boolean;
   /** encolhimento vindo do regime (BTC volátil, evento de mercado) */
   sizeFactor?: number;
   /** passo de lote da corretora, quando conhecido */
@@ -122,6 +131,7 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     costs,
   } = input;
   const sizeFactor = clamp01(input.sizeFactor ?? 1);
+  const enforcePolicyLimits = input.enforcePolicyLimits ?? true;
   const side = input.side ?? 'BUY';
   const leverage = normalizeLeverage(input.leverage);
 
@@ -179,9 +189,13 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     );
   }
   if (equity <= 0) return empty('Sem patrimônio de referência para calcular o risco');
-  if (riskPerTradePercent <= 0) return empty('Risco por operação está zerado nas configurações');
+  if (enforcePolicyLimits && riskPerTradePercent <= 0) {
+    return empty('Risco por operação está zerado nas configurações');
+  }
 
-  const riskBudget = equity * (riskPerTradePercent / 100);
+  const riskBudget = enforcePolicyLimits
+    ? equity * (riskPerTradePercent / 100)
+    : Number.POSITIVE_INFINITY;
 
   // Com alavancagem, os dois limites que falam de SALDO passam a falar de
   // margem: o percentual do capital é quanto do patrimônio fica preso na
@@ -191,10 +205,11 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
   const allowedByLimit: Record<SizingLimit, number> = {
     RISK_BUDGET: riskBudget / perUnitLoss,
     MAX_POSITION_PERCENT:
-      maxPositionPercent > 0
+      enforcePolicyLimits && maxPositionPercent > 0
         ? (equity * (maxPositionPercent / 100) * leverage) / entryPrice
         : Infinity,
-    MAX_NOTIONAL: maxNotional > 0 ? maxNotional / entryPrice : Infinity,
+    MAX_NOTIONAL:
+      enforcePolicyLimits && maxNotional > 0 ? maxNotional / entryPrice : Infinity,
     AVAILABLE_BALANCE: available > 0 ? (available * leverage) / entryPrice : 0,
     REQUESTED:
       input.requestedQuote !== undefined && input.requestedQuote > 0

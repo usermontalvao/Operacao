@@ -324,7 +324,7 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
     );
   }
   if (guard.maxDailyTrades > 0 && tradesToday >= guard.maxDailyTrades) {
-    reasons.push(`${tradesToday} operações abertas hoje (teto ${guard.maxDailyTrades})`);
+    reasons.push(`${tradesToday} operações iniciadas hoje (teto ${guard.maxDailyTrades})`);
   }
 
   const muted =

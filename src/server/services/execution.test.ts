@@ -208,6 +208,45 @@ test('preview em percentual do capital respeita o saldo disponível', async (t) 
   );
 });
 
+test('compra manual spot honra o valor escolhido e transforma política em aviso', async (t) => {
+  const context = await harness(0.002334);
+  t.after(context.cleanup);
+  await context.settings.update({
+    risk: { paperCapital: 24.36, paperCapitalCurrency: 'USDT' },
+    guard: { minNetRiskReward: 1.8, maxAltExposurePercent: 40 },
+  });
+  const setup = makeSetup({
+    symbol: 'CELRUSDT',
+    currentPrice: 0.002334,
+    entryLow: 0.00232,
+    entryHigh: 0.00235,
+    stopLoss: 0.002249,
+    target1: 0.00247,
+    target2: 0.002535,
+    target3: 0.002623,
+  });
+
+  const preview = await context.execution.preview(
+    { setupId: setup.id, percentOfCapital: 50 },
+    setup,
+  );
+
+  assert.ok(preview.sizing.notional > 12.17 && preview.sizing.notional <= 12.18);
+  assert.equal(preview.canExecute, true, preview.blockers.join(' | '));
+  assert.equal(preview.overridden, true);
+  assert.equal(preview.blockers.length, 0);
+  assert.ok(preview.overridableBlockers.some((item) => item.includes('R/R líquido')));
+  assert.ok(preview.overridableBlockers.some((item) => item.includes('Exposição em altcoins')));
+  assert.ok(preview.warnings.some((item) => item.includes('ORDEM MANUAL')));
+
+  const semSaldo = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 30 },
+    setup,
+  );
+  assert.equal(semSaldo.canExecute, false, 'confirmação não cria saldo que não existe');
+  assert.ok(semSaldo.blockers.some((item) => item.includes('Saldo insuficiente')));
+});
+
 test('ordem só é criada com o token da confirmação que o usuário aprovou', async (t) => {
   const context = await harness();
   t.after(context.cleanup);
@@ -502,7 +541,7 @@ test('stop encerra a operação com prejuízo controlado', async (t) => {
   assert.ok(closed.maxAdversePercent < 0);
 });
 
-test('limite de operações abertas bloqueia nova compra', async (t) => {
+test('limite de operações abertas vira aviso na compra manual', async (t) => {
   const context = await harness();
   t.after(context.cleanup);
   await context.settings.update({ risk: { maxOpenTrades: 1 } });
@@ -519,8 +558,9 @@ test('limite de operações abertas bloqueia nova compra', async (t) => {
 
   const second = makeSetup({ id: 'setup-xrp-2', fingerprint: 'XRPUSDT:PULLBACK:1h:1.41' });
   const blocked = await context.execution.preview({ setupId: second.id, quoteAmount: 100 }, second);
-  assert.equal(blocked.canExecute, false);
-  assert.ok(blocked.blockers.some((item) => item.includes('operações abertas')));
+  assert.equal(blocked.canExecute, true, blocked.blockers.join(' | '));
+  assert.equal(blocked.overridden, true);
+  assert.ok(blocked.overridableBlockers.some((item) => item.includes('operações abertas')));
 });
 
 test('setup inválido não pode ser comprado', async (t) => {

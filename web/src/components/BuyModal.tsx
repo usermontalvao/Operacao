@@ -88,6 +88,9 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const idempotencyKey = useRef(crypto.randomUUID().replace(/-/g, '').slice(0, 24));
+  // Digitar 5, depois 10, dispara duas prévias. Se a resposta de 5 chegar por
+  // último, ela não pode voltar a tela para um valor que o usuário já mudou.
+  const latestPreviewRequest = useRef(0);
 
   /*
     A tese exibida é a que VOLTOU do preview, não a que foi clicada.
@@ -98,6 +101,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
     e o usuário confirmaria uma operação diferente da que leu.
   */
   const setup = preview?.setup ?? clicado;
+  const manualComPoliticaEmAviso = !futuros && preview?.overridden === true;
 
   const load = useCallback(
     async (body: {
@@ -106,20 +110,23 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
       leverage?: number;
       override?: boolean;
     }) => {
+      const requestId = ++latestPreviewRequest.current;
       setLoading(true);
       setError(null);
       try {
         const result = await api.preview({ setupId: clicado.id, ...body });
+        if (requestId !== latestPreviewRequest.current) return;
         setPreview(result);
         if (body.percentOfCapital !== undefined) setAmount(result.sizing.notional);
         // a primeira resposta traz a alavancagem dos ajustes; é dela que o
         // seletor parte, em vez de inventar um número que ninguém escolheu
         setLeverage((current) => current ?? result.leverage);
       } catch (failure) {
+        if (requestId !== latestPreviewRequest.current) return;
         setError((failure as Error).message);
         setPreview(null);
       } finally {
-        setLoading(false);
+        if (requestId === latestPreviewRequest.current) setLoading(false);
       }
     },
     [clicado.id],
@@ -453,20 +460,36 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
             ) : null}
 
             {preview?.overridden ? (
-              <div className="mt-3 rounded-lg border border-bear/50 bg-bear/10 p-3">
-                <p className="text-[11px] font-bold text-bear">ORDEM FORÇADA</p>
-                <p className="mt-1 text-[10px] leading-relaxed text-terminal-muted">
-                  Esta ordem vai sair com {preview.overridableBlockers.length} trava(s) de risco
-                  desarmada(s), só desta vez, e fica registrada na auditoria. As regras da corretora
-                  continuam valendo.
-                </p>
-                <button
-                  type="button"
-                  onClick={alternarForcar}
-                  className="mt-2 w-full rounded-lg border border-terminal-border px-3 py-2 text-[11px] font-semibold text-terminal-muted"
+              <div
+                className={`mt-3 rounded-lg border p-3 ${
+                  manualComPoliticaEmAviso
+                    ? 'border-warn/40 bg-warn/5'
+                    : 'border-bear/50 bg-bear/10'
+                }`}
+              >
+                <p
+                  className={`text-[11px] font-bold ${
+                    manualComPoliticaEmAviso ? 'text-warn' : 'text-bear'
+                  }`}
                 >
-                  Voltar a respeitar as travas
-                </button>
+                  {manualComPoliticaEmAviso
+                    ? 'COMPRA MANUAL — REGRAS DE RISCO EM AVISO'
+                    : 'ORDEM FORÇADA'}
+                </p>
+                <p className="mt-1 text-[10px] leading-relaxed text-terminal-muted">
+                  {manualComPoliticaEmAviso
+                    ? `As ${preview.overridableBlockers.length} regra(s) internas abaixo não bloqueiam sua decisão manual. Elas continuam visíveis e esta confirmação fica registrada. Saldo e regras da Binance continuam obrigatórios.`
+                    : `Esta ordem vai sair com ${preview.overridableBlockers.length} trava(s) de risco desarmada(s), só desta vez, e fica registrada na auditoria. As regras da corretora continuam valendo.`}
+                </p>
+                {!manualComPoliticaEmAviso ? (
+                  <button
+                    type="button"
+                    onClick={alternarForcar}
+                    className="mt-2 w-full rounded-lg border border-terminal-border px-3 py-2 text-[11px] font-semibold text-terminal-muted"
+                  >
+                    Voltar a respeitar as travas
+                  </button>
+                ) : null}
               </div>
             ) : null}
 
@@ -490,7 +513,9 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                     ? 'Bloqueada: R/R líquido abaixo do mínimo'
                     : 'Operação bloqueada'
                   : preview?.overridden
-                    ? 'Revisar operação FORÇADA'
+                    ? manualComPoliticaEmAviso
+                      ? 'Revisar compra manual'
+                      : 'Revisar operação FORÇADA'
                     : 'Revisar operação'}
             </button>
           </>
@@ -498,15 +523,23 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
           <>
             <div
               className={`mt-4 space-y-1.5 rounded-xl border p-4 text-sm ${
-                preview?.overridden ? 'border-bear/50 bg-bear/10' : 'border-warn/40 bg-warn/5'
+                preview?.overridden && !manualComPoliticaEmAviso
+                  ? 'border-bear/50 bg-bear/10'
+                  : 'border-warn/40 bg-warn/5'
               }`}
             >
               <p
                 className={`text-xs uppercase tracking-wide ${
-                  preview?.overridden ? 'font-bold text-bear' : 'text-warn'
+                  preview?.overridden && !manualComPoliticaEmAviso
+                    ? 'font-bold text-bear'
+                    : 'text-warn'
                 }`}
               >
-                {preview?.overridden ? 'Confirmar ordem FORÇADA' : 'Confirmar operação'}
+                {manualComPoliticaEmAviso
+                  ? 'Confirmar compra manual'
+                  : preview?.overridden
+                    ? 'Confirmar ordem FORÇADA'
+                    : 'Confirmar operação'}
               </p>
               {/* a segunda etapa repete o que está sendo ignorado: quem forçou
                   há dois cliques precisa reler antes de mandar, e não lembrar */}
@@ -574,13 +607,17 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 onClick={() => void confirm()}
                 disabled={sending || !preview?.canExecute}
                 className={`rounded-lg px-4 py-2.5 text-sm font-bold disabled:opacity-40 ${
-                  preview?.overridden ? 'bg-bear text-white' : sideButton(side)
+                  preview?.overridden && !manualComPoliticaEmAviso
+                    ? 'bg-bear text-white'
+                    : sideButton(side)
                 }`}
               >
                 {sending
                   ? 'Enviando…'
                   : preview?.overridden
-                    ? `FORÇAR ${SIDE_LABEL[side]}`
+                    ? manualComPoliticaEmAviso
+                      ? `CONFIRMAR ${SIDE_LABEL[side]}`
+                      : `FORÇAR ${SIDE_LABEL[side]}`
                     : `CONFIRMAR ${SIDE_LABEL[side]}`}
               </button>
             </div>

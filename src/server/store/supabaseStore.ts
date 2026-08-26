@@ -37,6 +37,16 @@ export class SupabaseStore implements Repository {
     this.userId = userId;
   }
 
+  /**
+   * A tabela `trades` tem a coluna da lista de proteção?
+   *
+   * Ela é recente e pode não ter sido migrada ainda. Gravar numa coluna que
+   * não existe faz o PostgREST recusar o UPSERT INTEIRO — ou seja, nenhuma
+   * operação seria salva, que é bem pior do que perder um campo. Por isso a
+   * pergunta é feita uma vez, no boot, e a gravação se adapta ao que existe.
+   */
+  private temColunaDeProtecao = false;
+
   async init(): Promise<void> {
     const { createClient } = await import('@supabase/supabase-js');
     this.client = createClient(this.url, this.serviceRoleKey, {
@@ -59,6 +69,16 @@ export class SupabaseStore implements Repository {
       .eq('user_id', this.userId)
       .limit(1);
     if (error) throw new Error(`Supabase não respondeu: ${error.message}`);
+
+    // pergunta uma vez se a coluna existe; a resposta guia toda gravação
+    const sonda = await this.client.from('trades').select('protection_list_ids').limit(1);
+    this.temColunaDeProtecao = !sonda.error;
+    if (!this.temColunaDeProtecao) {
+      logger.warn(
+        'Coluna protection_list_ids ausente em `trades` — a lista de proteção NÃO será gravada. ' +
+          'Rode: alter table trades add column protection_list_ids jsonb, add column exit_plan_kind text;',
+      );
+    }
 
     logger.info('Persistência no Supabase ativa');
   }
@@ -215,9 +235,21 @@ export class SupabaseStore implements Repository {
   }
 
   async saveTrade(trade: Trade): Promise<void> {
-    const { error } = await this.db()
-      .from('trades')
-      .upsert({ ...tradeToRow(trade), user_id: this.userId }, { onConflict: 'id' });
+    const row: Record<string, unknown> = { ...tradeToRow(trade), user_id: this.userId };
+    /*
+     * A lista de proteção só entra quando a coluna existe.
+     *
+     * Sem ela, o campo era silenciosamente descartado a cada gravação: a
+     * proteção vivia na memória do processo e o banco guardava `null`. No
+     * reinício seguinte a posição voltava sem saber onde estava o próprio
+     * stop — e "Encerrar" respondia "saldo insuficiente" com a moeda inteira
+     * presa numa ordem que ninguém sabia cancelar.
+     */
+    if (this.temColunaDeProtecao) {
+      row.protection_list_ids = trade.protectionListIds ?? null;
+      row.exit_plan_kind = trade.exitPlanKind ?? null;
+    }
+    const { error } = await this.db().from('trades').upsert(row, { onConflict: 'id' });
     if (error) throw new Error(error.message);
   }
 
@@ -525,6 +557,10 @@ function tradeToRow(trade: Trade): Row {
 
 function rowToTrade(row: Row): Trade {
   return {
+    // ausente quando a coluna ainda não foi migrada; `undefined` é o mesmo
+    // que o código já esperava de uma operação antiga
+    protectionListIds: (row.protection_list_ids as string[] | null) ?? undefined,
+    exitPlanKind: (row.exit_plan_kind as Trade['exitPlanKind']) ?? undefined,
     id: row.id as string,
     setupId: row.setup_id as string,
     symbol: row.symbol as string,

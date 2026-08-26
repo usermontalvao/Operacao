@@ -3,7 +3,8 @@ import { round, roundDownToStep, formatQuantity } from '../../core/risk/index.ts
 import { netPnl } from '../../core/risk/costs.ts';
 import {
   BinanceError,
-  cancelOrderList,
+  cancelAllOpenOrders,
+  invalidateAccountCache,
   getAccountBalances,
   getSymbolFilters,
   newOrder,
@@ -142,16 +143,29 @@ export class CloseService {
   private async closeOnExchange(trade: Trade, reason: string): Promise<Trade> {
     if (trade.market === 'FUTURES') return this.closeFuturesPosition(trade, reason);
 
-    // 1) tira o bracket do livro para liberar a moeda
+    /*
+     * 1) esvazia o livro do par para soltar a moeda.
+     *
+     * Antes só a lista da ENTRADA era cancelada. Só que quem segura a moeda
+     * depois do preenchimento é a proteção — e ela é recriada com ids novos
+     * que nem sempre chegaram ao banco. O resultado, visto em 26/08/2026: a
+     * posição inteira presa numa ordem que o registro não conhecia, e
+     * "Encerrar" respondendo "Saldo insuficiente para vender" com a carteira
+     * cheia. Cancelar tudo o que está aberto no par não tem esse ponto cego,
+     * e encerrar é exatamente o momento em que nada deve sobrar no livro.
+     */
     try {
-      await cancelOrderList(trade.symbol, trade.clientOrderId);
+      await cancelAllOpenOrders(trade.symbol);
     } catch (error) {
-      // lista já resolvida ou inexistente não é impedimento para vender
-      logger.warn('Bracket não pôde ser cancelado ao encerrar', {
+      logger.warn('Livro do par não pôde ser limpo ao encerrar', {
         tradeId: trade.id,
         error: (error as Error).message,
       });
     }
+    // o saldo guardado é de ANTES do cancelamento, quando a moeda ainda
+    // estava presa; ler o cache aqui recriaria o próprio erro que acabou
+    // de ser corrigido
+    invalidateAccountCache();
 
     if (trade.status === 'PENDING' || trade.remainingQuantity <= 0) {
       trade.status = 'CANCELLED';

@@ -805,6 +805,24 @@ export async function cancelOrder(symbol: string, origClientOrderId: string): Pr
   return signedRequest<OrderResponse>('DELETE', '/api/v3/order', { symbol, origClientOrderId });
 }
 
+/**
+ * Cancela TUDO que estiver aberto no par — o único jeito confiável de soltar
+ * a moeda antes de vender.
+ *
+ * Cancelar por lista depende de o servidor lembrar QUAL lista segura a
+ * posição, e essa lembrança falha: a proteção rearmada nasce com ids novos
+ * que nem sempre chegam ao banco, e o usuário pode ter criado ordem pelo app
+ * da Binance. O sintoma é sempre o mesmo — "Saldo insuficiente para vender"
+ * com a moeda inteira presa numa ordem que ninguém cancelou.
+ *
+ * Aqui a pergunta deixa de ser "qual ordem eu criei?" e passa a ser "o que
+ * está aberto neste par?". Encerrar uma posição é justamente o momento em que
+ * nada deve continuar no livro.
+ */
+export async function cancelAllOpenOrders(symbol: string): Promise<void> {
+  await signedRequest('DELETE', '/api/v3/openOrders', { symbol });
+}
+
 export async function cancelOrderList(symbol: string, listClientOrderId: string): Promise<OrderListResponse> {
   return signedRequest<OrderListResponse>('DELETE', '/api/v3/orderList', { symbol, listClientOrderId });
 }
