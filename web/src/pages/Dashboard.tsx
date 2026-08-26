@@ -103,6 +103,12 @@ export function Dashboard(props: DashboardProps) {
     const direction = trade.side === 'SELL' ? -1 : 1;
     return total + (current - entry) * direction * trade.remainingQuantity;
   }, 0);
+  const filledCount = openTrades.filter((trade) => trade.status === 'OPEN').length;
+  const pendingCount = openTrades.filter((trade) => trade.status === 'PENDING').length;
+  const operationLabel =
+    filledCount > 0
+      ? `${filledCount} aberta${filledCount === 1 ? '' : 's'}${pendingCount > 0 ? ` · ${pendingCount} aguardando` : ''}`
+      : `${pendingCount} ordem${pendingCount === 1 ? '' : 's'} aguardando`;
 
   return (
     <div className="space-y-5">
@@ -119,16 +125,20 @@ export function Dashboard(props: DashboardProps) {
           className="flex w-full items-center justify-between rounded-lg border border-terminal-border bg-terminal-panel px-3 py-2 text-left transition hover:border-terminal-muted/60"
         >
           <span className="flex items-center gap-2 text-xs">
-            <span className="h-1.5 w-1.5 rounded-full bg-bull" />
+            <span className={`h-1.5 w-1.5 rounded-full ${filledCount > 0 ? 'bg-bull' : 'bg-warn'}`} />
             <span className="font-medium">
-              {openTrades.length} em operação
+              {operationLabel}
             </span>
             <span className="text-terminal-muted">
               {openTrades.map((trade) => trade.symbol.replace('USDT', '')).join(' · ')}
             </span>
           </span>
-          <span className={`text-xs font-semibold tabular ${openPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
-            {usd(openPnl)}
+          <span
+            className={`text-xs font-semibold tabular ${
+              filledCount === 0 ? 'text-warn' : openPnl >= 0 ? 'text-bull' : 'text-bear'
+            }`}
+          >
+            {filledCount === 0 ? 'sem posição' : usd(openPnl)}
           </span>
         </button>
       ) : null}

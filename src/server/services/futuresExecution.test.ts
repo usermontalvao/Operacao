@@ -346,3 +346,36 @@ test('a alavancagem do modal vale para a ordem, e o teto dos ajustes não é fur
   );
   assert.equal(furada.leverage, 5, 'o modal não é caminho para furar o teto configurado');
 });
+
+test('o R/R do preview é o do preço de AGORA, não o de quando a tese nasceu', async (t) => {
+  // o caso real (ONT): a tese nasceu com entrada em 0,05199 e R/R 1:2,7. O
+  // preço subiu para dentro da zona; nesse preço o alvo está mais perto e o
+  // stop mais longe, e o R/R real é 1,6. A tela mostrava 2,7 e o painel
+  // recusava a ordem falando de um número que não aparecia em lugar nenhum
+  const context = await harness(0.052715);
+  t.after(context.cleanup);
+
+  const setup = makeShortSetup({
+    side: 'BUY',
+    symbol: 'XRPUSDT',
+    currentPrice: 0.052715,
+    entryLow: 0.0515,
+    entryHigh: 0.0535,
+    stopLoss: 0.050257,
+    target1: 0.05667,
+    target2: null,
+    target3: null,
+    riskReward: 2.7,
+  });
+
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+
+  assert.equal(preview.entryPrice, 0.052715);
+  assert.ok(
+    Math.abs(preview.sizing.riskReward - 1.61) < 0.05,
+    `esperava ~1,61 no preço de agora, veio ${preview.sizing.riskReward}`,
+  );
+  assert.notEqual(preview.sizing.riskReward, 2.7, 'o R/R gravado na tese não pode vazar para a ordem');
+  // e o líquido, que é quem decide, fica ABAIXO do bruto: taxa e escorregamento
+  assert.ok(preview.netRiskReward < preview.sizing.riskReward);
+});

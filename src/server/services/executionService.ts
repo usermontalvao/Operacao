@@ -13,6 +13,7 @@ import { gainPerUnit, sideLabel } from '../../core/direction.ts';
 import { checkLiquidation, marginRequired, maxSafeLeverage } from '../../core/risk/futures.ts';
 import { automaticStrategyRejectionReason } from '../../core/strategy/automationPolicy.ts';
 import {
+  computeRiskReward,
   formatPrice,
   formatQuantity,
   round,
@@ -1272,7 +1273,17 @@ function toSizingResult(
     potentialProfitTarget1: profit(setup.target1) ?? 0,
     potentialProfitTarget2: profit(setup.target2),
     potentialProfitTarget3: profit(setup.target3),
-    riskReward: setup.riskReward,
+    /*
+     * O R/R DESTA ordem, no preço em que ela vai entrar.
+     *
+     * Antes vinha `setup.riskReward` — a conta feita quando a tese nasceu. O
+     * preço anda: uma tese que valia 1:2,7 na entrada de 0,05199 vale 1:1,6
+     * depois de o preço subir para 0,052715, porque o alvo ficou mais perto e
+     * o stop mais longe. A tela mostrava 2,7 e o painel recusava a ordem
+     * dizendo "R/R abaixo do mínimo" — dois números com o mesmo nome, e o
+     * usuário sem como reconciliar os dois.
+     */
+    riskReward: computeRiskReward(entryPrice, setup.stopLoss, setup.target1, side),
     warnings,
     blocked: blockReasons.length > 0,
     blockReasons,

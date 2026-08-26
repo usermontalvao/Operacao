@@ -270,7 +270,25 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 {setup.target3 ? (
                   <Row label="Alvo 3" value={`${price(setup.target3)} · ${usd(preview.sizing.potentialProfitTarget3 ?? 0)}`} tone="text-bull" />
                 ) : null}
+                {/*
+                  Dois R/R, e o que decide é o de baixo.
+
+                  O bruto é a razão entre alvo e stop neste preço. O líquido
+                  desconta taxa e escorregamento nas duas pontas — e é ele que
+                  o porteiro compara com o mínimo configurado. Mostrar só o
+                  bruto era a tela dizer "1:2,7" e o painel recusar a ordem
+                  falando de um número que não estava em lugar nenhum.
+                */}
                 <Row label="Risco / retorno" value={`1:${preview.sizing.riskReward.toFixed(1)}`} />
+                <Row
+                  label="R/R líquido — o que decide"
+                  value={`1:${preview.netRiskReward.toFixed(2)}`}
+                  tone={
+                    preview.blockers.some((item) => item.includes('R/R líquido'))
+                      ? 'text-bear'
+                      : 'text-terminal-muted'
+                  }
+                />
                 {preview.leverage > 1 ? (
                   <>
                     <div className="my-1 border-t border-terminal-border" />

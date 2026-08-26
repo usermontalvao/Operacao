@@ -147,10 +147,9 @@ export function History() {
       {equity ? (
         <p className="text-[11px] text-terminal-muted">
           Mostrando apenas a {MODE_LABEL[equity.mode]}. Trocar de conta no topo troca todo o
-          histórico, o desempenho e as métricas junto. As posições ABERTAS e os totais acima
-          somam as duas modalidades — spot e futuros —, cada uma marcada na própria linha, porque
-          dinheiro exposto agora não depende de qual aba está selecionada. Já o histórico
-          encerrado e o desempenho são da modalidade em exibição ({MARKET_LABEL[equity.market]}).
+          histórico, o desempenho e as métricas junto. As posições abertas e as ordens pendentes
+          somam as duas modalidades — spot e futuros —, cada uma marcada na própria linha. Já o
+          histórico encerrado e o desempenho são da modalidade em exibição ({MARKET_LABEL[equity.market]}).
         </p>
       ) : null}
 
@@ -168,7 +167,11 @@ export function History() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <TabButton active={tab === 'ABERTAS'} onClick={() => setTab('ABERTAS')} label={`Abertas (${positions.length})`} />
+        <TabButton
+          active={tab === 'ABERTAS'}
+          onClick={() => setTab('ABERTAS')}
+          label={`Em andamento (${positions.length})`}
+        />
         <TabButton active={tab === 'ENCERRADAS'} onClick={() => setTab('ENCERRADAS')} label={`Encerradas (${closed.length})`} />
         <TabButton active={tab === 'SETUPS'} onClick={() => setTab('SETUPS')} label={`Setups (${setups.length})`} />
         {positions.length > 0 ? (
@@ -185,7 +188,7 @@ export function History() {
 
       {tab === 'ABERTAS' ? (
         positions.length === 0 ? (
-          <Empty text="Nenhuma posição aberta nesta conta." />
+          <Empty text="Nenhuma posição aberta ou ordem aguardando nesta conta." />
         ) : (
           <div className="overflow-hidden rounded-xl border border-terminal-border bg-terminal-panel">
             {positions.map((position) => (
@@ -383,6 +386,7 @@ function PositionCard({
   const pnlTone = (position.totalPnl ?? 0) >= 0 ? 'text-bull' : 'text-bear';
   const pending = position.status === 'PENDING';
   const alavancagem = leverageLabel(position.leverage);
+  const stateNote = pending ? 'ordem aguardando entrada' : 'posição aberta';
 
   return (
     <article className="border-t border-terminal-border px-3 py-2.5 first:border-t-0">
@@ -390,7 +394,7 @@ function PositionCard({
         <SymbolButton
           symbol={position.symbol}
           plan={planOf(position)}
-          note="posição aberta"
+          note={stateNote}
           className="w-14 shrink-0 font-semibold"
         />
 
@@ -429,8 +433,8 @@ function PositionCard({
         </span>
 
         <span className="ml-auto flex items-center gap-3">
-          <span className={`text-sm font-semibold tabular ${pnlTone}`}>
-            {position.totalPnl === null ? '—' : usd(position.totalPnl)}
+          <span className={`text-sm font-semibold tabular ${pending ? 'text-warn' : pnlTone}`}>
+            {pending ? 'sem posição' : position.totalPnl === null ? '—' : usd(position.totalPnl)}
           </span>
           <span className={`w-14 text-right text-[11px] tabular ${pnlTone}`}>
             {position.pnlPercent === null ? '' : percent(position.pnlPercent)}
@@ -448,7 +452,7 @@ function PositionCard({
 
       <button
         type="button"
-        onClick={() => chart.open({ symbol: position.symbol, plan: planOf(position), note: 'posição aberta' })}
+        onClick={() => chart.open({ symbol: position.symbol, plan: planOf(position), note: stateNote })}
         title={`Ver o gráfico de ${position.symbol}`}
         className="mt-2 flex w-full cursor-pointer items-center gap-3"
       >
@@ -467,7 +471,7 @@ function PositionCard({
       </button>
 
       <div className="mt-1 flex flex-wrap gap-x-4 text-[10px] text-terminal-muted tabular">
-        <span>entrada {price(position.entryPrice)}</span>
+        <span>{pending ? 'entrada aguardada' : 'entrada'} {price(position.entryPrice)}</span>
         <span>agora {position.currentPrice === null ? '—' : price(position.currentPrice)}</span>
         {position.distanceToTargetPercent !== null ? (
           <span className="text-bull/80">alvo {percent(position.distanceToTargetPercent)}</span>
