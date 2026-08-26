@@ -348,8 +348,15 @@ export const api = {
       '/trades/close-all',
       { method: 'POST' },
     ),
-  setRobot: (enabled: boolean) =>
-    request<AppSettings>('/robot', { method: 'POST', body: JSON.stringify({ enabled }) }),
+  /**
+   * Liga ou desliga UM robô. Sem modalidade, o da tela; com ela, o da coluna
+   * — o radar tem um interruptor por modalidade e eles são independentes.
+   */
+  setRobot: (enabled: boolean, options: { mode?: AppSettings['mode']; market?: MarketKind } = {}) =>
+    request<AppSettings>('/robot', {
+      method: 'POST',
+      body: JSON.stringify({ enabled, ...options }),
+    }),
   armRobot: (minutes: number) =>
     request<{ settings: AppSettings; denial: string | null }>('/robot/arm', {
       method: 'POST',

@@ -193,3 +193,51 @@ test('quem já operava futuros não é barrado por uma atualização', () => {
   delete (emSpot as { futuresEnabled?: boolean }).futuresEnabled;
   assert.equal(normalizeStoredSettings(emSpot).futuresEnabled, false);
 });
+
+test('cada modalidade tem o SEU robô: ligar um não liga o outro', async () => {
+  const { settings, cleanup } = await servico();
+  try {
+    await settings.update({ futuresEnabled: true });
+    // na demo o robô já nasce ligado nas duas; desligo os dois para partir de
+    // um estado conhecido
+    await settings.update({ autoTrade: { enabled: false } }, { targetMarket: 'SPOT' });
+    await settings.update({ autoTrade: { enabled: false } }, { targetMarket: 'FUTURES' });
+
+    // liga o robô de futuros sem trocar a tela, que segue em spot
+    await settings.update({ autoTrade: { enabled: true } }, { targetMarket: 'FUTURES' });
+
+    assert.equal(settings.get().market, 'SPOT', 'a janela não pode ter se mexido');
+    assert.equal(settings.forMode('PAPER', 'FUTURES').autoTrade.enabled, true);
+    assert.equal(
+      settings.forMode('PAPER', 'SPOT').autoTrade.enabled,
+      false,
+      'o robô de spot não pode ter sido ligado junto',
+    );
+
+    // e desligar o de futuros não devolve o de spot para o ar
+    await settings.update({ autoTrade: { enabled: false } }, { targetMarket: 'FUTURES' });
+    assert.equal(settings.forMode('PAPER', 'FUTURES').autoTrade.enabled, false);
+    assert.equal(settings.forMode('PAPER', 'SPOT').autoTrade.enabled, false);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('o radar varre as duas modalidades — e só uma quando futuros está barrado', async () => {
+  const { settings, cleanup } = await servico();
+  try {
+    assert.deepEqual(settings.activeMarkets(), ['SPOT']);
+
+    await settings.update({ futuresEnabled: true });
+    assert.deepEqual(settings.activeMarkets(), ['SPOT', 'FUTURES']);
+
+    // a visão por modalidade traz o balde certo sem trocar a tela
+    await settings.update({ risk: { riskPerTradePercent: 2 } }, { targetMarket: 'FUTURES' });
+    assert.equal(settings.viewFor('FUTURES').risk.riskPerTradePercent, 2);
+    assert.notEqual(settings.viewFor('SPOT').risk.riskPerTradePercent, 2);
+    assert.equal(settings.viewFor('FUTURES').market, 'FUTURES');
+    assert.equal(settings.get().market, 'SPOT');
+  } finally {
+    await cleanup();
+  }
+});

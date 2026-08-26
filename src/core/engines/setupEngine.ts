@@ -183,6 +183,7 @@ function buildSetup(input: BuildSetupInput): TradeSetup | null {
       candidate.timeframe,
       candidate.levelPrice,
       side,
+      settings.market,
     ),
     invalidationNote: null,
     createdAt,

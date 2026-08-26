@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type {
   DashboardSnapshot,
   EntryDecision,
+  MarketKind,
+  RobotState,
   Timeframe,
   TradeSetup,
   TradingMode,
@@ -10,7 +12,17 @@ import type {
 import { TIMEFRAMES } from '../../core/types.ts';
 import { environmentForMode } from '../config.ts';
 import { getKlines, getUsdtBrlRate, parseKline, searchSymbols } from '../binance/rest.ts';
+import { liveAutoTradeDenial } from '../services/executionService.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
+
+/** O interruptor de uma modalidade, já com o motivo de a conta real recusar. */
+function robotStateOf(context: ApiContext, mode: TradingMode, market: MarketKind): RobotState {
+  const policy = context.settings.forMode(mode, market);
+  return {
+    enabled: policy.autoTrade.enabled,
+    liveDenial: mode === 'LIVE' ? liveAutoTradeDenial(policy) : null,
+  };
+}
 
 export function marketRoutes(context: ApiContext): Router {
   const router = Router();
@@ -20,8 +32,16 @@ export function marketRoutes(context: ApiContext): Router {
     asyncHandler(async (_request, response) => {
       const mode = context.settings.get().mode;
       const setups = context.scanner.getSetups();
+      const markets = context.settings.activeMarkets();
       const snapshot: DashboardSnapshot = {
         mode,
+        markets,
+        // um estado por modalidade: a coluna de futuros liga o robô dela sem
+        // encostar no de spot, e vice-versa
+        robots: {
+          SPOT: robotStateOf(context, mode, 'SPOT'),
+          FUTURES: robotStateOf(context, mode, 'FUTURES'),
+        },
         // a explicação do robô viaja junto com os setups: o card precisa poder
         // dizer POR QUE não houve entrada sem uma segunda chamada, e sobretudo
         // sem reimplementar a regra no navegador

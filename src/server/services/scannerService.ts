@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { SymbolAnalysis } from '../../core/analysis.ts';
 import type {
+  AppSettings,
   AssetView,
   EntryDecision,
   MarketContext,
+  MarketKind,
   TradeSetup,
   TradingMode,
 } from '../../core/types.ts';
 import { evaluateMarketContext } from '../../core/engines/marketContextEngine.ts';
 import { applyPriceUpdate, generateSetups } from '../../core/engines/setupEngine.ts';
 import type { EventBus } from '../events.ts';
+import { listTradableSymbols } from '../binance/rest.ts';
 import { logger } from '../logger.ts';
 import type { Repository } from '../store/index.ts';
 import type { AlertEngine } from './alertEngine.ts';
@@ -140,18 +143,14 @@ export class ScannerService {
   }
 
   /**
-   * O radar da modalidade em exibição.
+   * O radar inteiro — as duas modalidades, cada tese carimbada com a sua.
    *
-   * Setups de spot e de futuros convivem em memória — trocar de modalidade
-   * não apaga o que a outra encontrou —, mas o radar mostra só os da
-   * modalidade aberta: uma tese vendida aparecendo numa tela de spot é uma
-   * tese que ninguém consegue executar dali.
+   * A tela separa em colunas; filtrar aqui pela modalidade em exibição faria
+   * a coluna de futuros nascer vazia. Com o interruptor geral barrado nem
+   * chegam a existir setups de futuros: `activeMarkets()` já não os gera.
    */
   getSetups(): TradeSetup[] {
-    const market = this.settings.get().market;
-    return [...this.setups.values()]
-      .filter((setup) => setup.market === market)
-      .sort((a, b) => b.score - a.score);
+    return [...this.setups.values()].sort((a, b) => b.score - a.score);
   }
 
   getSetup(id: string): TradeSetup | null {
@@ -193,17 +192,52 @@ export class ScannerService {
    * Passa pelo mesmo funil dos ativos da watchlist: gerar, casar e alertar.
    */
   async ingest(analysis: SymbolAnalysis): Promise<void> {
-    const settings = this.settings.get();
-    const generated = generateSetups({
-      analysis,
-      context: this.context,
-      settings,
-      now: new Date(),
-      makeId: () => randomUUID(),
-    });
+    const generated = this.settings.activeMarkets().flatMap((market) =>
+      generateSetups({
+        analysis,
+        context: this.context,
+        settings: this.settings.viewFor(market),
+        now: new Date(),
+        makeId: () => randomUUID(),
+      }),
+    );
     if (generated.length === 0) return;
     await this.reconcile(analysis.symbol, generated, analysis);
     await this.syncFocus();
+  }
+
+  /**
+   * Quais pares existem em cada modalidade.
+   *
+   * Nem tudo que se compra no spot tem contrato perpétuo: XAUT, pares novos e
+   * boa parte das listagens pequenas só existem à vista. Sem esta peneira a
+   * coluna de futuros mostraria teses que a corretora recusa na hora da
+   * ordem — e a recusa chegaria depois do clique, não antes.
+   *
+   * Falha de leitura NÃO barra a modalidade: ficar sem coluna por causa de um
+   * timeout seria pior que uma linha a mais, que ainda assim é bloqueada no
+   * momento da ordem pelos filtros do par.
+   */
+  private async tradableIn(
+    markets: MarketKind[],
+  ): Promise<(market: MarketKind, symbol: string) => boolean> {
+    const porModalidade = new Map<MarketKind, Set<string> | null>();
+    for (const market of markets) {
+      try {
+        const pairs = await listTradableSymbols('USDT', market);
+        porModalidade.set(market, new Set(pairs.map((pair) => pair.symbol)));
+      } catch (error) {
+        logger.debug('Lista de pares da modalidade indisponível', {
+          market,
+          error: (error as Error).message,
+        });
+        porModalidade.set(market, null);
+      }
+    }
+    return (market, symbol) => {
+      const conhecidos = porModalidade.get(market);
+      return conhecidos === null || conhecidos === undefined || conhecidos.has(symbol);
+    };
   }
 
   /**
@@ -240,16 +274,34 @@ export class ScannerService {
       this.context = context;
       if (contextChanged) this.bus.broadcast({ type: 'context', payload: context });
 
+      /*
+       * Uma varredura, duas modalidades.
+       *
+       * O mesmo candle produz a mesma tese comprada em spot e em futuros — e
+       * as duas são executáveis ao mesmo tempo, com tamanhos e robôs
+       * diferentes. Por isso os detectores rodam uma vez por modalidade
+       * ativa, com as configurações DAQUELA modalidade: é o que faz a venda a
+       * descoberto aparecer só na coluna de futuros e o robô de cada coluna
+       * responder ao seu próprio ajuste. Barrado o interruptor geral,
+       * `activeMarkets()` devolve só spot e a segunda coluna nem nasce.
+       */
+      const markets = this.settings.activeMarkets();
+      const negociavel = await this.tradableIn(markets);
+
       for (const symbol of settings.scanner.watchlist) {
         const analysis = this.market.getAnalysis(symbol);
         if (!analysis) continue;
-        const generated = generateSetups({
-          analysis,
-          context,
-          settings,
-          now,
-          makeId: () => randomUUID(),
-        });
+        const generated = markets
+          .filter((market) => negociavel(market, symbol))
+          .flatMap((market) =>
+            generateSetups({
+              analysis,
+              context,
+              settings: this.settings.viewFor(market),
+              now,
+              makeId: () => randomUUID(),
+            }),
+          );
         await this.reconcile(symbol, generated, analysis);
       }
 
@@ -280,6 +332,10 @@ export class ScannerService {
     analysis: SymbolAnalysis,
   ): Promise<void> {
     const settings = this.settings.get();
+    // o alerta é do bolso de quem vai operar: o piso de score é ajuste DA
+    // MODALIDADE, e usar o do spot para avisar de uma tese de futuros faria
+    // uma coluna gritar com a régua da outra
+    const settingsOf = (setup: TradeSetup): AppSettings => this.settings.viewFor(setup.market);
     const existing = [...this.setups.values()].filter((setup) => setup.symbol === symbol);
 
     for (const candidate of generated) {
@@ -300,7 +356,7 @@ export class ScannerService {
         if (scoreMoved || stateMoved) {
           await this.repository.saveSetup(merged);
           this.bus.broadcast({ type: 'setup', payload: merged });
-          if (merged.score > previous.score) await this.alerts.emit(merged, settings);
+          if (merged.score > previous.score) await this.alerts.emit(merged, settingsOf(merged));
         await this.autoTrader?.consider(merged);
         }
         continue;
@@ -324,7 +380,7 @@ export class ScannerService {
           timeframe: candidate.timeframe,
         },
       });
-      await this.alerts.emit(candidate, settings);
+      await this.alerts.emit(candidate, settingsOf(candidate));
       await this.autoTrader?.consider(candidate);
     }
 

@@ -1,9 +1,17 @@
-import type { AssetView, EntryDecision, Trade, TradeSetup } from '../lib/types.ts';
+import type {
+  AssetView,
+  EntryDecision,
+  MarketKind,
+  RobotState,
+  Trade,
+  TradeSetup,
+} from '../lib/types.ts';
 import { DecisionBadge } from '../components/DecisionPanel.tsx';
 import { PriceLadder } from '../components/PriceLadder.tsx';
 import { SymbolButton } from '../components/SymbolButton.tsx';
 import { RadarSkeleton } from '../components/Skeleton.tsx';
 import {
+  MARKET_LABEL,
   SETUP_LABEL,
   SIDE_LABEL,
   STATE_LABEL,
@@ -24,11 +32,20 @@ interface DashboardProps {
   decisions: Record<string, EntryDecision>;
   prices: Record<string, number>;
   openTrades: Trade[];
-  /** ativos com posição em andamento */
-  openSymbols: Set<string>;
+  /** ativos com posição em andamento, POR modalidade — a trava é de cada uma */
+  openSymbols: Record<MarketKind, Set<string>>;
+  /** com posição em qualquer modalidade; a tabela "Acompanhando" não tem coluna */
+  anyOpenSymbols: Set<string>;
   binanceAvailable: boolean;
   /** a primeira leitura ainda não voltou — nada nesta tela foi respondido */
   carregando: boolean;
+  /** modalidades que o painel opera agora — uma coluna para cada */
+  markets: MarketKind[];
+  /** o interruptor de cada robô, por modalidade */
+  robots: Record<MarketKind, RobotState>;
+  /** null enquanto nenhum robô está sendo ligado ou desligado */
+  robotBusy: MarketKind | null;
+  onToggleRobot: (market: MarketKind, enabled: boolean) => void;
   onOpenSetup: (setup: TradeSetup) => void;
   onGoToWallet: () => void;
 }
@@ -58,6 +75,11 @@ export function Dashboard(props: DashboardProps) {
     openSymbols,
     binanceAvailable,
     carregando,
+    anyOpenSymbols,
+    markets,
+    robots,
+    robotBusy,
+    onToggleRobot,
     onOpenSetup,
     onGoToWallet,
   } = props;
@@ -76,7 +98,10 @@ export function Dashboard(props: DashboardProps) {
     if (trade.status !== 'OPEN') return total;
     const current = prices[trade.symbol] ?? trade.averageFillPrice ?? trade.entryPrice;
     const entry = trade.averageFillPrice ?? trade.entryPrice;
-    return total + (current - entry) * trade.remainingQuantity;
+    // o vendido ganha na queda: sem o sinal da direção, a tira do topo
+    // mostraria prejuízo na hora em que a posição está indo bem
+    const direction = trade.side === 'SELL' ? -1 : 1;
+    return total + (current - entry) * direction * trade.remainingQuantity;
   }, 0);
 
   return (
@@ -108,29 +133,33 @@ export function Dashboard(props: DashboardProps) {
         </button>
       ) : null}
 
-      <section>
-        <SectionTitle
-          title="Setups na mesa"
-          count={visible.length}
-          hint="ordenados por score"
-        />
-        {visible.length === 0 ? (
-          <Empty text="Nenhum setup válido agora. O sistema segue varrendo o mercado." />
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-terminal-border">
-            {visible.map((setup, index) => (
-              <SetupRow
-                key={setup.id}
-                setup={setup}
-                current={prices[setup.symbol] ?? setup.currentPrice}
-                inTrade={openSymbols.has(setup.symbol)}
-                decision={decisions[setup.id]}
-                first={index === 0}
-                onOpen={onOpenSetup}
-              />
-            ))}
-          </div>
-        )}
+      {/*
+        Uma coluna por modalidade.
+
+        A mesma tese comprada aparece nas duas quando as duas estão ligadas —
+        e isso não é repetição: em spot ela compra a moeda, em futuros ela
+        prende margem, aceita alavancagem e tem um robô diferente decidindo.
+        Juntar tudo numa lista só obrigaria a ler o carimbo de cada linha para
+        saber onde a ordem cairia. Com futuros barrado sobra uma coluna, que
+        ocupa a largura inteira e volta a ser exatamente a tela de antes.
+      */}
+      <section
+        className={`grid gap-4 ${markets.length > 1 ? 'lg:grid-cols-2' : 'grid-cols-1'}`}
+      >
+        {markets.map((market) => (
+          <MarketColumn
+            key={market}
+            market={market}
+            setups={visible.filter((setup) => setup.market === market)}
+            robot={robots[market]}
+            robotBusy={robotBusy === market}
+            onToggleRobot={onToggleRobot}
+            prices={prices}
+            decisions={decisions}
+            openSymbols={openSymbols[market]}
+            onOpenSetup={onOpenSetup}
+          />
+        ))}
       </section>
 
       <section>
@@ -154,7 +183,7 @@ export function Dashboard(props: DashboardProps) {
                   key={asset.symbol}
                   asset={asset}
                   livePrice={prices[asset.symbol] ?? null}
-                  inTrade={openSymbols.has(asset.symbol)}
+                  inTrade={anyOpenSymbols.has(asset.symbol)}
                 />
               ))}
             </tbody>
@@ -162,6 +191,142 @@ export function Dashboard(props: DashboardProps) {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * A coluna de uma modalidade: cabeçalho com o robô dela e as suas teses.
+ *
+ * O interruptor mora aqui, e não num lugar só da tela, porque são dois robôs
+ * de verdade — baldes de configuração separados, capital separado, e um pode
+ * estar ligado enquanto o outro dorme. Um interruptor central obrigaria a
+ * lembrar qual modalidade ele estava comandando, e essa é a lembrança que
+ * falha justamente no dia em que o mercado se mexe.
+ */
+function MarketColumn({
+  market,
+  setups,
+  robot,
+  robotBusy,
+  onToggleRobot,
+  prices,
+  decisions,
+  openSymbols,
+  onOpenSetup,
+}: {
+  market: MarketKind;
+  setups: TradeSetup[];
+  robot: RobotState;
+  robotBusy: boolean;
+  onToggleRobot: (market: MarketKind, enabled: boolean) => void;
+  prices: Record<string, number>;
+  decisions: Record<string, EntryDecision>;
+  openSymbols: Set<string>;
+  onOpenSetup: (setup: TradeSetup) => void;
+}) {
+  const futuros = market === 'FUTURES';
+  const vendidas = setups.filter((setup) => setup.side === 'SELL').length;
+
+  return (
+    <div className="flex flex-col">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide">
+          <span className={futuros ? 'text-info' : 'text-terminal-text'}>
+            {MARKET_LABEL[market]}
+          </span>
+          <span className="text-terminal-text">{setups.length}</span>
+          {vendidas > 0 ? (
+            <span className="text-[10px] font-normal normal-case text-bear">
+              {vendidas} vendida{vendidas > 1 ? 's' : ''}
+            </span>
+          ) : null}
+        </h2>
+        <RobotSwitch
+          market={market}
+          robot={robot}
+          busy={robotBusy}
+          onToggle={onToggleRobot}
+        />
+      </div>
+
+      {setups.length === 0 ? (
+        <Empty
+          text={
+            futuros
+              ? 'Nenhuma tese em futuros agora. O sistema segue varrendo as duas modalidades.'
+              : 'Nenhum setup válido agora. O sistema segue varrendo o mercado.'
+          }
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-terminal-border">
+          {setups.map((setup, index) => (
+            <SetupRow
+              key={setup.id}
+              setup={setup}
+              current={prices[setup.symbol] ?? setup.currentPrice}
+              inTrade={openSymbols.has(setup.symbol)}
+              decision={decisions[setup.id]}
+              first={index === 0}
+              onOpen={onOpenSetup}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * O sinal do robô daquela coluna.
+ *
+ * Verde pulsando é "ele age sozinho aqui". Apagado é "só entrada manual". Na
+ * conta real existe um terceiro estado que nenhum dos dois cobre: ligado mas
+ * desarmado — e é o mais perigoso de confundir, porque o robô parece de
+ * plantão e não vai entrar. Por isso ele tem cor própria e diz o motivo.
+ */
+function RobotSwitch({
+  market,
+  robot,
+  busy,
+  onToggle,
+}: {
+  market: MarketKind;
+  robot: RobotState;
+  busy: boolean;
+  onToggle: (market: MarketKind, enabled: boolean) => void;
+}) {
+  const travado = robot.enabled && robot.liveDenial !== null;
+  const tom = travado
+    ? 'border-warn/50 bg-warn/10 text-warn'
+    : robot.enabled
+      ? 'border-bull/50 bg-bull/10 text-bull'
+      : 'border-terminal-border text-terminal-muted';
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => onToggle(market, !robot.enabled)}
+      title={
+        robot.liveDenial
+          ? `Robô ligado, mas sem agir na conta real: ${robot.liveDenial}`
+          : robot.enabled
+            ? `O robô opera sozinho em ${MARKET_LABEL[market]}`
+            : `O robô está desligado em ${MARKET_LABEL[market]} — só entrada manual`
+      }
+      className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold tracking-wide transition disabled:opacity-40 ${tom}`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          travado
+            ? 'bg-warn'
+            : robot.enabled
+              ? 'animate-pulse bg-bull shadow-[0_0_8px_rgba(22,199,132,0.8)]'
+              : 'bg-terminal-muted'
+        }`}
+      />
+      {busy ? '···' : travado ? 'ROBÔ DESARMADO' : robot.enabled ? 'ROBÔ LIGADO' : 'ROBÔ DESLIGADO'}
+    </button>
   );
 }
 

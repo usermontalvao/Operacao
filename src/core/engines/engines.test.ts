@@ -266,3 +266,42 @@ test('o radar de futuros com venda desligada volta a ser só de compra', () => {
   });
   assert.equal(setups.filter((item) => item.side === 'SELL').length, 0);
 });
+
+test('a MESMA tese comprada existe nas duas modalidades, e não se funde numa só', () => {
+  // é o que sustenta as duas colunas do radar: o mesmo candle produz a tese em
+  // spot e em futuros, e as duas são executáveis ao mesmo tempo — com tamanho,
+  // margem e robô diferentes
+  const analysis = pullbackAnalysis();
+
+  const spot = generateSetups({
+    analysis,
+    context: null,
+    settings: defaultTestSettings({ market: 'SPOT' }),
+    now: NOW,
+    makeId,
+  });
+  const futuros = generateSetups({
+    analysis,
+    context: null,
+    settings: defaultTestSettings({ market: 'FUTURES' }),
+    now: NOW,
+    makeId,
+  });
+
+  const compradoSpot = spot.find((item) => item.side === 'BUY');
+  const compradoFuturos = futuros.find((item) => item.side === 'BUY');
+  assert.ok(compradoSpot && compradoFuturos, 'a tese comprada existe nas duas');
+  assert.equal(compradoSpot.market, 'SPOT');
+  assert.equal(compradoFuturos.market, 'FUTURES');
+
+  // a assinatura precisa diferir: é por ela que a reconciliação casa as teses
+  // entre varreduras, e uma assinatura só faria a segunda coluna sumir
+  assert.notEqual(
+    compradoSpot.fingerprint,
+    compradoFuturos.fingerprint,
+    'mesma fingerprint faria uma coluna engolir a outra',
+  );
+  // e o resto é a mesma tese: mesmo nível, mesmo stop, mesmo alvo
+  assert.equal(compradoSpot.stopLoss, compradoFuturos.stopLoss);
+  assert.equal(compradoSpot.target1, compradoFuturos.target1);
+});

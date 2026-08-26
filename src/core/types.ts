@@ -751,10 +751,28 @@ export interface AssetView {
   updatedAt: string | null;
 }
 
+/**
+ * O robô de UMA modalidade.
+ *
+ * São dois, não um: o de spot e o de futuros vivem em baldes separados de
+ * configuração e podem estar ligados em estados diferentes ao mesmo tempo. A
+ * tela mostra as duas colunas lado a lado, e cada uma precisa do interruptor
+ * do seu próprio robô — ligar o de futuros não pode mexer no de spot.
+ */
+export interface RobotState {
+  enabled: boolean;
+  /** por que ele não age na conta real; null quando age ou o modo não é LIVE */
+  liveDenial: string | null;
+}
+
 export interface DashboardSnapshot {
   /** decisão do robô por setup, na sessão em exibição; vazio em modo degradado */
   decisions?: Record<string, EntryDecision>;
   mode: TradingMode;
+  /** o interruptor de cada modalidade, na conta em exibição */
+  robots: Record<MarketKind, RobotState>;
+  /** modalidades que o painel opera agora — futuros só com o interruptor geral */
+  markets: MarketKind[];
   connection: ConnectionState;
   marketContext: MarketContext | null;
   assets: AssetView[];

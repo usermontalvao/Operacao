@@ -146,7 +146,7 @@ export class CloseService {
     }
 
     // 2) vende só o que a conta realmente tem — o resto seria ordem recusada
-    const filters = (await getSymbolFilters([trade.symbol])).get(trade.symbol);
+    const filters = (await getSymbolFilters([trade.symbol], trade.market)).get(trade.symbol);
     if (!filters) throw new ExecutionError('Filtros do par indisponíveis — não dá para vender agora', 503);
 
     const balances = await getAccountBalances();
@@ -279,7 +279,7 @@ export class CloseService {
       return trade;
     }
 
-    const filters = (await getSymbolFilters([trade.symbol])).get(trade.symbol);
+    const filters = (await getSymbolFilters([trade.symbol], trade.market)).get(trade.symbol);
     if (!filters) throw new ExecutionError('Filtros do par indisponíveis — não dá para sair agora', 503);
 
     const positions = await getFuturesPositions(trade.symbol);

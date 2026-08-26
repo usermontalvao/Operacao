@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ConnectionState, MarketKind, TradingMode } from '../lib/types.ts';
+import type { ConnectionState, MarketKind, RobotState, TradingMode } from '../lib/types.ts';
 import type { AccountBalanceResponse } from '../lib/api.ts';
 import { brl, quantity, usd } from '../lib/format.ts';
 import { Marca } from './Marca.tsx';
@@ -19,14 +19,20 @@ interface HeaderProps {
   streamConnected: boolean;
   /** a primeira leitura ainda não voltou — o topo não sabe de nada ainda */
   carregando: boolean;
-  autoTradeOn: boolean;
+  /** o interruptor de cada modalidade — são dois robôs, não um */
+  robots: Record<MarketKind, RobotState>;
+  /** modalidades operando agora; com uma só, o distintivo age como sempre agiu */
+  markets: MarketKind[];
   robotBusy: boolean;
-  onToggleRobot: () => void;
+  /** desligar daqui vale para TODOS; ligar é decisão de cada coluna do radar */
+  onStopRobots: () => void;
   halted: boolean;
   /** hora em que o intervalo por perdas seguidas acaba sozinho */
   resumesAt: string | null;
   /** as abas de navegação, renderizadas dentro do cabeçalho no monitor */
   tabs: React.ReactNode;
+  /** volta para a tela inicial ao clicar na marca */
+  onHome: () => void;
   /** quem está logado; null enquanto a sessão não foi lida */
   userLabel: string | null;
   onLogout: () => void;
@@ -44,12 +50,14 @@ export function Header(props: HeaderProps) {
     connection,
     streamConnected,
     carregando,
-    autoTradeOn,
+    robots,
+    markets,
     robotBusy,
-    onToggleRobot,
+    onStopRobots,
     halted,
     resumesAt,
     tabs,
+    onHome,
     userLabel,
     onLogout,
   } = props;
@@ -81,6 +89,20 @@ export function Header(props: HeaderProps) {
         ? 'bg-warn'
         : 'bg-bear';
   const demoSelected = mode !== 'LIVE';
+
+  /*
+    O distintivo do robô com DUAS modalidades no ar.
+
+    Ligar é uma decisão por modalidade — é na coluna do radar que se sabe qual
+    robô se está soltando, e um botão central obrigaria a lembrar qual deles
+    estava comandando. Desligar é o contrário: quem percebe que algo está
+    errado quer parar TUDO, e quer num clique. Por isso o distintivo continua
+    sendo um botão, mas só no sentido que não pode esperar.
+  */
+  const ligados = markets.filter((each) => robots[each]?.enabled).length;
+  const autoTradeOn = ligados > 0;
+  const varios = markets.length > 1;
+  const robotLabel = varios ? `ROBÔS ${ligados}/${markets.length}` : autoTradeOn ? 'ROBÔ ON' : 'ROBÔ OFF';
 
   // o saldo do topo é o patrimônio AGORA, com as posições marcadas a mercado —
   // não o caixa parado, que só se mexe quando uma operação encerra
@@ -118,7 +140,13 @@ export function Header(props: HeaderProps) {
     <header className="app-header sticky top-0 z-30 border-b border-white/[0.07] bg-terminal-bg/90 backdrop-blur-xl">
       <div className="mx-auto max-w-6xl px-4">
         <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 py-2 lg:grid-cols-[1fr_auto_1fr] lg:gap-x-4">
-          <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={onHome}
+            aria-label="Ir para o início"
+            title="Ir para o Radar"
+            className="flex min-w-0 items-center gap-3 rounded-lg text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bull/70"
+          >
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.18)]">
               <Marca tamanho={28} />
             </div>
@@ -130,7 +158,7 @@ export function Header(props: HeaderProps) {
                 Terminal de operações
               </span>
             </div>
-          </div>
+          </button>
 
           <div className="order-3 col-span-2 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-1 shadow-[0_10px_26px_rgba(0,0,0,0.16)] lg:order-none lg:col-span-1 lg:justify-start">
             <div className="flex shrink-0 rounded-lg border border-white/[0.05] bg-black/25 p-0.5">
@@ -206,8 +234,8 @@ export function Header(props: HeaderProps) {
             */}
             <button
               type="button"
-              disabled={robotBusy || carregando}
-              onClick={onToggleRobot}
+              disabled={robotBusy || carregando || !autoTradeOn}
+              onClick={onStopRobots}
               aria-pressed={autoTradeOn}
               title={
                 resumesAt
@@ -216,8 +244,12 @@ export function Header(props: HeaderProps) {
                       minute: '2-digit',
                     })} — depois volta sozinho`
                   : autoTradeOn
-                    ? 'Clique para desligar o robô'
-                    : 'Clique para ligar o robô'
+                    ? varios
+                      ? `Clique para desligar os ${ligados} robôs`
+                      : 'Clique para desligar o robô'
+                    : varios
+                      ? 'Ligue o robô na coluna da modalidade, no Radar'
+                      : 'Ligue o robô na coluna do Radar'
               }
               className={`group flex h-8 items-center gap-2 rounded-lg border px-2.5 text-[9px] font-bold tracking-[0.13em] transition-all duration-200 disabled:opacity-50 sm:px-3 ${
                 carregando
@@ -249,9 +281,7 @@ export function Header(props: HeaderProps) {
                     ? 'ROBÔ EM PAUSA'
                     : halted
                       ? 'ROBÔ PARADO'
-                      : autoTradeOn
-                        ? 'ROBÔ ON'
-                        : 'ROBÔ OFF'}
+                      : robotLabel}
             </button>
             <span
               className={`flex h-8 items-center gap-2 rounded-lg border px-2.5 text-[9px] font-bold tracking-[0.13em] sm:px-3 ${connectionTone}`}

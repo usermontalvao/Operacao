@@ -450,7 +450,7 @@ export class LiveTradeMonitor {
       const matchesPosition = Math.abs(covered - trade.remainingQuantity) <= 1e-10;
       if (hasProtection && matchesPosition) return false;
 
-      const filters = (await getSymbolFilters([trade.symbol])).get(trade.symbol);
+      const filters = (await getSymbolFilters([trade.symbol], trade.market)).get(trade.symbol);
       if (!filters) return false;
       const why = hasProtection
         ? 'proteção de futuros ajustada à quantidade em mãos'
@@ -478,7 +478,7 @@ export class LiveTradeMonitor {
       return false;
     }
 
-    const filters = (await getSymbolFilters([trade.symbol])).get(trade.symbol);
+    const filters = (await getSymbolFilters([trade.symbol], trade.market)).get(trade.symbol);
     if (!filters) return false;
 
     const why = entryIncomplete
@@ -527,7 +527,7 @@ export class LiveTradeMonitor {
     );
     if (moved === null) return false;
 
-    const filters: SymbolFilters | undefined = (await getSymbolFilters([trade.symbol])).get(
+    const filters: SymbolFilters | undefined = (await getSymbolFilters([trade.symbol], trade.market)).get(
       trade.symbol,
     );
     if (!filters) return false;

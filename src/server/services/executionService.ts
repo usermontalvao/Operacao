@@ -52,13 +52,15 @@ const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 
 /** Injetáveis para teste: em produção falam com a Binance de verdade. */
 export interface ExecutionDependencies {
-  loadFilters: (symbol: string) => Promise<SymbolFilters | null>;
+  /** filtros do par NA MODALIDADE pedida — passo e mínimo diferem entre as duas */
+  loadFilters: (symbol: string, market: MarketKind) => Promise<SymbolFilters | null>;
   loadUsdtBalance: (market: MarketKind) => Promise<{ free: number; locked: number }>;
   loadBrlRate: () => Promise<number | null>;
 }
 
 const defaultDependencies: ExecutionDependencies = {
-  loadFilters: async (symbol) => (await getSymbolFilters([symbol])).get(symbol) ?? null,
+  loadFilters: async (symbol, market) =>
+    (await getSymbolFilters([symbol], market)).get(symbol) ?? null,
   loadUsdtBalance: async (market) => {
     if (market === 'FUTURES') {
       // em futuros o que importa é a margem livre, não o saldo bruto: o que
@@ -323,7 +325,7 @@ export class ExecutionService {
     let filters: SymbolFilters | null = null;
     const filterErrors: string[] = [];
     try {
-      filters = await this.dependencies.loadFilters(setup.symbol);
+      filters = await this.dependencies.loadFilters(setup.symbol, market);
     } catch (error) {
       filterErrors.push(`Não foi possível validar os filtros da Binance: ${(error as Error).message}`);
     }
@@ -744,7 +746,7 @@ export class ExecutionService {
     });
     if (blockers.length > 0) throw new ExecutionError(blockers[0] as string);
 
-    const filters = await this.dependencies.loadFilters(setup.symbol);
+    const filters = await this.dependencies.loadFilters(setup.symbol, market);
     if (filters) {
       const validation = validateOrder(filters, payload.quantity, payload.entryPrice);
       if (!validation.valid) throw new ExecutionError(validation.errors[0] as string);

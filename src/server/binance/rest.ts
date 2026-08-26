@@ -40,6 +40,27 @@ export function getActiveEnvironment(): EnvironmentEndpoints {
   return active;
 }
 
+/**
+ * O ambiente irmão: mesma REDE, outra modalidade.
+ *
+ * Spot e futuros são duas corretoras que por acaso têm o mesmo dono: outros
+ * endereços, outras chaves, outra carteira. Enquanto havia um único ambiente
+ * ativo, uma posição de spot aberta com o painel em futuros era reconciliada
+ * contra o endereço errado — caminho `/api/v3` batendo em `fapi`, resposta de
+ * erro, e a operação parada no tempo sem ninguém saber.
+ *
+ * Produção continua produção e testnet continua testnet: o que muda aqui é só
+ * a modalidade. Trocar de rede sem querer seria conferir ordem de dinheiro
+ * real numa conta de brincadeira.
+ */
+export function environmentFor(market: MarketKind): EnvironmentEndpoints {
+  const testnet = active.network === 'testnet';
+  if (market === 'FUTURES') {
+    return testnet ? ENVIRONMENTS['futures-testnet'] : ENVIRONMENTS['futures-production'];
+  }
+  return testnet ? ENVIRONMENTS.testnet : ENVIRONMENTS.production;
+}
+
 let bannedUntil = 0;
 let lastRequestAt = 0;
 const MIN_INTERVAL_MS = 60;
@@ -111,13 +132,35 @@ const PATHS: Record<MarketKind, Record<'ping' | 'time' | 'klines' | 'ticker24h' 
   },
 };
 
-function endpoint(key: keyof (typeof PATHS)['SPOT']): string {
-  return PATHS[active.market][key];
+function endpoint(
+  key: keyof (typeof PATHS)['SPOT'],
+  environment: EnvironmentEndpoints = active,
+): string {
+  return PATHS[environment.market][key];
 }
 
-function publicUrl(path: string, params: Record<string, string | number | undefined> = {}): string {
+function publicUrl(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+  environment: EnvironmentEndpoints = active,
+): string {
   const query = buildQuery(params);
-  return `${active.marketRestBase}${path}${query ? `?${query}` : ''}`;
+  return `${environment.marketRestBase}${path}${query ? `?${query}` : ''}`;
+}
+
+/**
+ * O caminho DIZ a modalidade.
+ *
+ * `/fapi/...` só existe em futuros e `/api/v3/...` só existe em spot — não é
+ * convenção, é o desenho da corretora. Deixar isso a cargo de quem chama era
+ * pedir para esquecer: bastava a tela estar em futuros para a reconciliação
+ * de uma posição de spot sair contra `fapi.binance.com`, receber erro e
+ * congelar a operação no tempo. Inferir aqui torna o engano impossível.
+ *
+ * A REDE não muda: produção continua produção, testnet continua testnet.
+ */
+export function environmentForPath(path: string): EnvironmentEndpoints {
+  return environmentFor(path.startsWith('/fapi') ? 'FUTURES' : 'SPOT');
 }
 
 /**
@@ -131,7 +174,7 @@ export async function signedRequest<T>(
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   params: Record<string, string | number | boolean | undefined> = {},
-  environment: EnvironmentEndpoints = active,
+  environment: EnvironmentEndpoints = environmentForPath(path),
 ): Promise<T> {
   const credentials = readCredentials(environment.name);
   if (!credentials) {
@@ -265,13 +308,25 @@ const pairStateCache = new Map<string, { symbols: SymbolFilters[]; fetchedAt: nu
 /** Estado do par envelhece rápido: uma suspensão de 12h atrás não serve. */
 const PAIR_STATE_TTL_MS = 5 * 60 * 1000;
 
-export async function getSymbolFilters(symbols: string[]): Promise<Map<string, SymbolFilters>> {
+/**
+ * Filtros do par NA MODALIDADE PEDIDA.
+ *
+ * Passo de lote, tique e mínimo de nocional são diferentes em spot e em
+ * futuros para o mesmo símbolo. Ler os de um e enviar ordem no outro produz
+ * recusa da corretora no melhor caso — e quantidade arredondada errada no
+ * pior. O cache é por ambiente, então os dois convivem sem se sobrescrever.
+ */
+export async function getSymbolFilters(
+  symbols: string[],
+  market?: MarketKind,
+): Promise<Map<string, SymbolFilters>> {
+  const environment = market ? environmentFor(market) : active;
   const now = Date.now();
   const result = new Map<string, SymbolFilters>();
   const missing: string[] = [];
 
   for (const symbol of symbols) {
-    const cached = exchangeInfoCache.get(cacheKey(symbol));
+    const cached = exchangeInfoCache.get(cacheKey(symbol, environment));
     if (cached && now - cached.fetchedAt < EXCHANGE_INFO_TTL_MS) result.set(symbol, cached.value);
     else missing.push(symbol);
   }
@@ -281,29 +336,32 @@ export async function getSymbolFilters(symbols: string[]): Promise<Map<string, S
   // `symbols` e devolve o mercado inteiro — o cache logo abaixo é o que
   // impede que isso vire uma chamada pesada por par
   const info = await request<ExchangeInfoResponse>(
-    active.market === 'FUTURES'
-      ? publicUrl(endpoint('exchangeInfo'))
-      : publicUrl(endpoint('exchangeInfo'), { symbols: JSON.stringify(missing) }),
+    environment.market === 'FUTURES'
+      ? publicUrl(endpoint('exchangeInfo', environment), {}, environment)
+      : publicUrl(endpoint('exchangeInfo', environment), { symbols: JSON.stringify(missing) }, environment),
   );
 
   const wanted = new Set(missing);
   for (const entry of info.symbols) {
-    const value = toFilters(entry);
-    exchangeInfoCache.set(cacheKey(entry.symbol), { value, fetchedAt: now });
+    const value = toFilters(entry, environment);
+    exchangeInfoCache.set(cacheKey(entry.symbol, environment), { value, fetchedAt: now });
     if (wanted.has(entry.symbol)) result.set(entry.symbol, value);
   }
   return result;
 }
 
-function cacheKey(symbol: string): string {
-  return `${active.name}:${symbol}`;
+function cacheKey(symbol: string, environment: EnvironmentEndpoints = active): string {
+  return `${environment.name}:${symbol}`;
 }
 
-function toFilters(entry: ExchangeInfoResponse['symbols'][number]): SymbolFilters {
+function toFilters(
+  entry: ExchangeInfoResponse['symbols'][number],
+  environment: EnvironmentEndpoints = active,
+): SymbolFilters {
   const filters = new Map(entry.filters.map((filter) => [filter.filterType as string, filter]));
   const priceFilter = filters.get('PRICE_FILTER');
   const notional = filters.get('NOTIONAL') ?? filters.get('MIN_NOTIONAL');
-  const futures = active.market === 'FUTURES';
+  const futures = environment.market === 'FUTURES';
   // em futuros o lote que vale para ordem a mercado é o MARKET_LOT_SIZE, que
   // costuma ser mais restrito que o LOT_SIZE do livro
   const lotSize = futures
@@ -329,7 +387,7 @@ function toFilters(entry: ExchangeInfoResponse['symbols'][number]): SymbolFilter
     isSpotTradingAllowed: futures ? entry.status === 'TRADING' : entry.isSpotTradingAllowed ?? false,
     // futuros não tem OCO; a proteção é montada com duas ordens reduceOnly
     ocoAllowed: futures ? false : entry.ocoAllowed ?? true,
-    market: active.market,
+    market: environment.market,
   };
 }
 
@@ -337,18 +395,23 @@ function toFilters(entry: ExchangeInfoResponse['symbols'][number]): SymbolFilter
  * exchangeInfo da modalidade ativa. Em spot dá para pedir só a permissão SPOT;
  * em futuros o endpoint não filtra nada e devolve todos os contratos.
  */
-async function fetchExchangeInfo(): Promise<ExchangeInfoResponse> {
+async function fetchExchangeInfo(
+  environment: EnvironmentEndpoints = active,
+): Promise<ExchangeInfoResponse> {
   return request<ExchangeInfoResponse>(
-    active.market === 'FUTURES'
-      ? publicUrl(endpoint('exchangeInfo'))
-      : publicUrl(endpoint('exchangeInfo'), { permissions: 'SPOT' }),
+    environment.market === 'FUTURES'
+      ? publicUrl(endpoint('exchangeInfo', environment), {}, environment)
+      : publicUrl(endpoint('exchangeInfo', environment), { permissions: 'SPOT' }, environment),
   );
 }
 
-/** O par é negociável AGORA na modalidade ativa. */
-function isTradable(entry: ExchangeInfoResponse['symbols'][number]): boolean {
+/** O par é negociável AGORA na modalidade pedida. */
+function isTradable(
+  entry: ExchangeInfoResponse['symbols'][number],
+  environment: EnvironmentEndpoints = active,
+): boolean {
   if (entry.status !== 'TRADING') return false;
-  if (active.market === 'FUTURES') {
+  if (environment.market === 'FUTURES') {
     // só perpétuo: contrato com vencimento tem rolagem, e o motor não sabe rolar
     return entry.contractType === 'PERPETUAL';
   }
@@ -360,19 +423,25 @@ function isTradable(entry: ExchangeInfoResponse['symbols'][number]): boolean {
  * base do modo "universo": uma chamada de exchangeInfo (peso 20) por
  * ambiente, cacheada por 12h, alimenta a varredura de centenas de ativos.
  */
-export async function listTradableSymbols(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
-  const key = `${active.name}:${quoteAsset}`;
+export async function listTradableSymbols(
+  quoteAsset = 'USDT',
+  market?: MarketKind,
+): Promise<SymbolFilters[]> {
+  const environment = market ? environmentFor(market) : active;
+  const key = `${environment.name}:${quoteAsset}`;
   const cached = universeCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < EXCHANGE_INFO_TTL_MS) return cached.symbols;
 
-  const info = await fetchExchangeInfo();
+  const info = await fetchExchangeInfo(environment);
   const symbols = info.symbols
-    .filter((entry) => isTradable(entry) && entry.quoteAsset === quoteAsset)
-    .map(toFilters);
+    .filter((entry) => isTradable(entry, environment) && entry.quoteAsset === quoteAsset)
+    .map((entry) => toFilters(entry, environment));
 
   universeCache.set(key, { symbols, fetchedAt: Date.now() });
   const now = Date.now();
-  for (const value of symbols) exchangeInfoCache.set(cacheKey(value.symbol), { value, fetchedAt: now });
+  for (const value of symbols) {
+    exchangeInfoCache.set(cacheKey(value.symbol, environment), { value, fetchedAt: now });
+  }
   return symbols;
 }
 
@@ -391,7 +460,7 @@ export async function listPairsWithState(quoteAsset = 'USDT'): Promise<SymbolFil
   if (cached && Date.now() - cached.fetchedAt < PAIR_STATE_TTL_MS) return cached.symbols;
 
   const info = await fetchExchangeInfo();
-  const symbols = info.symbols.filter((entry) => entry.quoteAsset === quoteAsset).map(toFilters);
+  const symbols = info.symbols.filter((entry) => entry.quoteAsset === quoteAsset).map((entry) => toFilters(entry));
   pairStateCache.set(key, { symbols, fetchedAt: Date.now() });
   return symbols;
 }
@@ -422,7 +491,9 @@ export interface AccountBalance {
  * atualmente selecionado.
  */
 export async function getAccountBalances(environmentName?: BinanceEnvironment): Promise<AccountBalance[]> {
-  const environment = environmentName ? ENVIRONMENTS[environmentName] : active;
+  // sem ambiente pedido, o spot da rede atual: `/api/v3/account` não existe
+  // em futuros, e cair no ambiente ativo levaria a consulta para o lugar errado
+  const environment = environmentName ? ENVIRONMENTS[environmentName] : environmentFor('SPOT');
   const account = await signedRequest<{
     balances: Array<{ asset: string; free: string; locked: string }>;
     canTrade: boolean;
@@ -601,12 +672,16 @@ export async function getOrderList(listClientOrderId: string): Promise<OrderList
  * apenas pela reconciliação lenta.
  */
 async function keyedRequest<T>(method: 'POST' | 'PUT' | 'DELETE', params: Record<string, string> = {}): Promise<T> {
-  const credentials = readCredentials(active.name);
+  // `/api/v3/userDataStream` é spot; futuros tem endpoint e socket próprios.
+  // O fluxo da conta é o atalho rápido para saber de um preenchimento — em
+  // futuros ele ainda não existe, e quem cobre é a reconciliação por tempo
+  const environment = environmentFor('SPOT');
+  const credentials = readCredentials(environment.name);
   if (!credentials) {
     throw new BinanceError('Credenciais da Binance não configuradas no servidor', -2015, 401);
   }
   const query = buildQuery(params);
-  const url = `${active.tradeRestBase}/api/v3/userDataStream${query ? `?${query}` : ''}`;
+  const url = `${environment.tradeRestBase}/api/v3/userDataStream${query ? `?${query}` : ''}`;
   return request<T>(url, { method, headers: { 'X-MBX-APIKEY': credentials.apiKey } });
 }
 

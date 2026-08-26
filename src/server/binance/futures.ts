@@ -13,7 +13,8 @@
  */
 
 import type { MarginMode, Side } from '../../core/types.ts';
-import { BinanceError, signedRequest } from './rest.ts';
+import { ENVIRONMENTS, type BinanceEnvironment, type EnvironmentEndpoints } from '../config.ts';
+import { BinanceError, environmentFor, signedRequest } from './rest.ts';
 import { logger } from '../logger.ts';
 
 /** Erros que significam "já estava assim" — não são falha, são confirmação. */
@@ -29,7 +30,19 @@ export interface FuturesBalance {
   unrealizedProfit: number;
 }
 
-export async function getFuturesBalances(): Promise<FuturesBalance[]> {
+/**
+ * Saldo da carteira de futuros.
+ *
+ * O ambiente é parâmetro porque a tela de ajustes mostra os quatro de uma vez
+ * — produção e testnet, spot e futuros. Sem ele, esta função respondia sempre
+ * pela rede ativa, e o saldo do TESTNET aparecia rotulado como produção.
+ */
+export async function getFuturesBalances(
+  environmentName?: BinanceEnvironment,
+): Promise<FuturesBalance[]> {
+  const environment: EnvironmentEndpoints = environmentName
+    ? ENVIRONMENTS[environmentName]
+    : environmentFor('FUTURES');
   const balances = await signedRequest<
     Array<{
       asset: string;
@@ -37,7 +50,7 @@ export async function getFuturesBalances(): Promise<FuturesBalance[]> {
       availableBalance: string;
       crossUnPnl: string;
     }>
-  >('GET', '/fapi/v2/balance');
+  >('GET', '/fapi/v2/balance', {}, environment);
   return balances.map((item) => ({
     asset: item.asset,
     walletBalance: Number(item.balance),

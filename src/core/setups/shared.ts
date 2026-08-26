@@ -1,4 +1,4 @@
-import { type Side, directionOf, gainPerUnit } from '../direction.ts';
+import { type MarketKind, type Side, directionOf, gainPerUnit } from '../direction.ts';
 import type { PriceLevel } from '../types.ts';
 
 export interface TargetSet {
@@ -79,7 +79,13 @@ export function fingerprintOf(
   timeframe: string,
   levelPrice: number,
   side: Side = 'BUY',
+  market: MarketKind = 'SPOT',
 ): string {
   const suffix = side === 'SELL' ? ':S' : '';
-  return `${symbol}:${setupType}:${timeframe}:${levelPrice.toPrecision(6)}${suffix}`;
+  // a MESMA tese comprada existe nas duas modalidades ao mesmo tempo, e são
+  // duas linhas diferentes na tela: mesmo nível, mas outro tamanho, outra
+  // margem e outro robô. Sem a modalidade na assinatura, a reconciliação
+  // fundiria as duas em uma e uma das colunas ficaria vazia
+  const venue = market === 'FUTURES' ? ':F' : '';
+  return `${symbol}:${setupType}:${timeframe}:${levelPrice.toPrecision(6)}${suffix}${venue}`;
 }

@@ -24,6 +24,7 @@ export type {
   ModeSettings,
   PerformanceStats,
   RiskSettings,
+  RobotState,
   ScoreBreakdown,
   ScoreComponent,
   SetupClassification,

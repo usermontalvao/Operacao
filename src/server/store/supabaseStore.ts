@@ -69,9 +69,16 @@ export class SupabaseStore implements Repository {
   async loadSettings(): Promise<PersistedSettings | null> {
     const { data, error } = await this.db()
       .from('app_settings')
-      .select(
-        'mode, market, futures_enabled, risk, scanner, auto_trade, guard, by_mode, by_market, updated_at',
-      )
+      /*
+       * `*` e não a lista de colunas.
+       *
+       * Pedir uma coluna por nome faz a LEITURA INTEIRA falhar quando ela
+       * ainda não existe — e a migration costuma chegar depois do código. O
+       * servidor não subia, por uma coluna nova cujo valor tem padrão. Com
+       * `*`, coluna que falta simplesmente vem `undefined` e a normalização
+       * decide o que fazer; é a mesma linha, sem custo a mais.
+       */
+      .select('*')
       .eq('user_id', this.userId)
       .maybeSingle();
     if (error) throw new Error(settingsColumnHint(error.message));
@@ -112,31 +119,51 @@ export class SupabaseStore implements Repository {
     };
   }
 
+  /**
+   * Grava as configurações, e tenta de novo sem a coluna nova quando ela
+   * ainda não existe no banco. O painel continua funcionando antes da
+   * migration — só não guarda o interruptor entre reinícios, e é isso que o
+   * aviso no log diz.
+   */
   async saveSettings(settings: StoredSettings): Promise<void> {
     const active = settings.byMarket[settings.market][settings.mode];
-    const { error } = await this.db().from('app_settings').upsert(
-      {
-        user_id: this.userId,
-        mode: settings.mode,
-        market: settings.market,
-        futures_enabled: settings.futuresEnabled,
-        scanner: settings.scanner,
-        by_market: settings.byMarket,
-        // by_mode continua espelhando o SPOT: uma volta atrás de versão
-        // encontra exatamente o que deixou, sem futuros no meio
-        by_mode: settings.byMarket.SPOT,
-        // as colunas antigas continuam gravadas com o conjunto do modo ATIVO.
-        // Não são lidas quando by_mode existe: ficam para quem abre a tabela
-        // no painel do Supabase e para uma volta atrás de versão não achar a
-        // linha vazia.
-        risk: active.risk,
-        guard: active.guard,
-        auto_trade: active.autoTrade,
-        updated_at: settings.updatedAt,
-      },
-      { onConflict: 'user_id' },
-    );
-    if (error) throw new Error(settingsColumnHint(error.message));
+    const row = {
+      user_id: this.userId,
+      mode: settings.mode,
+      market: settings.market,
+      futures_enabled: settings.futuresEnabled,
+      scanner: settings.scanner,
+      by_market: settings.byMarket,
+      // by_mode continua espelhando o SPOT: uma volta atrás de versão
+      // encontra exatamente o que deixou, sem futuros no meio
+      by_mode: settings.byMarket.SPOT,
+      // as colunas antigas continuam gravadas com o conjunto do modo ATIVO.
+      // Não são lidas quando by_mode existe: ficam para quem abre a tabela
+      // no painel do Supabase e para uma volta atrás de versão não achar a
+      // linha vazia.
+      risk: active.risk,
+      guard: active.guard,
+      auto_trade: active.autoTrade,
+      updated_at: settings.updatedAt,
+    };
+
+    const { error } = await this.db().from('app_settings').upsert(row, { onConflict: 'user_id' });
+    if (!error) return;
+
+    // coluna nova ainda não migrada: grava o resto e avisa, em vez de derrubar
+    // a gravação inteira (que levaria junto watchlist, risco e robô)
+    if (error.message.includes('futures_enabled')) {
+      const { futures_enabled: _semColuna, ...semInterruptor } = row;
+      const retry = await this.db()
+        .from('app_settings')
+        .upsert(semInterruptor, { onConflict: 'user_id' });
+      if (retry.error) throw new Error(settingsColumnHint(retry.error.message));
+      logger.warn(
+        'Coluna futures_enabled ainda não existe — o interruptor de futuros não sobrevive ao reinício. Aplique a migration 20260826090000_futuros_usd_m.sql',
+      );
+      return;
+    }
+    throw new Error(settingsColumnHint(error.message));
   }
 
   async listSetups(): Promise<TradeSetup[]> {

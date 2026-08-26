@@ -17,7 +17,7 @@ import { esquecerTudo } from './lib/resource.ts';
 import { adiantarAba } from './lib/telas.ts';
 import { useLiveState } from './lib/useLiveState.ts';
 import { ChartViewerProvider } from './lib/chartViewer.tsx';
-import type { Trade, TradeSetup, TradingMode } from './lib/types.ts';
+import type { MarketKind, Trade, TradeSetup, TradingMode } from './lib/types.ts';
 
 export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLoggedOut: () => void }) {
   const live = useLiveState();
@@ -27,7 +27,9 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
   const [toast, setToast] = useState<string | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
   const [modeError, setModeError] = useState<string | null>(null);
-  const [robotBusy, setRobotBusy] = useState(false);
+  // qual robô está sendo alternado agora — são dois, e travar os dois botões
+  // por causa de um clique esconderia que eles são independentes
+  const [robotBusy, setRobotBusy] = useState<MarketKind | null>(null);
 
   const mode = live.snapshot?.mode ?? 'PAPER';
   // recalcula a cada preço novo: é o que faz o número do topo andar sozinho
@@ -51,10 +53,41 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
     onLoggedOut();
   }, [onLoggedOut]);
 
-  // ativos com posição em andamento: o radar precisa parar de oferecer compra
-  const openSymbols = useMemo(
-    () => new Set(live.trades.filter((trade) => trade.mode === mode).map((trade) => trade.symbol)),
-    [live.trades, mode],
+  /*
+   * Ativos com posição em andamento — POR MODALIDADE.
+   *
+   * O radar precisa parar de oferecer entrada onde já existe posição, mas a
+   * trava é por modalidade: quem está comprado em XRP no spot pode
+   * perfeitamente abrir uma posição em XRP nos futuros, e é assim que o
+   * servidor decide. Uma lista única marcaria a coluna errada como "em
+   * operação" e esconderia uma entrada legítima.
+   */
+  const openSymbols = useMemo(() => {
+    const porModalidade: Record<MarketKind, Set<string>> = { SPOT: new Set(), FUTURES: new Set() };
+    for (const trade of live.trades) {
+      if (trade.mode !== mode) continue;
+      porModalidade[trade.market ?? 'SPOT'].add(trade.symbol);
+    }
+    return porModalidade;
+  }, [live.trades, mode]);
+
+  /*
+   * Modalidades e robôs vêm do servidor.
+   *
+   * O padrão é só spot com tudo desligado: é o que o painel mostra enquanto a
+   * primeira resposta não chega, e também o que um servidor antigo (sem estes
+   * campos) produz — uma coluna, exatamente como antes.
+   */
+  const markets = live.snapshot?.markets ?? ['SPOT'];
+  const robots = live.snapshot?.robots ?? {
+    SPOT: { enabled: false, liveDenial: null },
+    FUTURES: { enabled: false, liveDenial: null },
+  };
+
+  /** Qualquer modalidade — para a lista "Acompanhando", que não tem coluna. */
+  const anyOpenSymbols = useMemo(
+    () => new Set([...openSymbols.SPOT, ...openSymbols.FUTURES]),
+    [openSymbols],
   );
 
   // trocar de aba tem de começar do começo: manter a rolagem da tela anterior
@@ -114,27 +147,69 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
    * Desligar precisa ser instantâneo e sem cerimônia. Ligar em conta real,
    * não: aí a confirmação é o último degrau antes de dinheiro de verdade.
    */
-  const toggleRobot = useCallback(async (): Promise<void> => {
-    const enabled = live.snapshot?.settings.autoTrade.enabled ?? false;
-    const mode = live.snapshot?.mode ?? 'PAPER';
-    if (!enabled && mode === 'LIVE') {
-      const ok = window.confirm(
-        'Ligar o robô na conta REAL?\n\nEle só compra sozinho se também estiver armado nos Ajustes, e o armamento vence sozinho.',
-      );
-      if (!ok) return;
-    }
-    setRobotBusy(true);
+  /**
+   * Liga ou desliga UM robô — o da modalidade pedida.
+   *
+   * Sem modalidade é o da tela, que é o que o distintivo do topo faz. Com
+   * ela, é o botão da coluna do radar: são dois robôs independentes, e mexer
+   * num não pode mexer no outro.
+   */
+  const toggleRobot = useCallback(
+    async (market?: MarketKind, next?: boolean): Promise<void> => {
+      const alvo = market ?? live.snapshot?.settings.market ?? 'SPOT';
+      const atual =
+        next !== undefined
+          ? !next
+          : live.snapshot?.robots?.[alvo]?.enabled ??
+            live.snapshot?.settings.autoTrade.enabled ??
+            false;
+      const enabled = next ?? !atual;
+      const mode = live.snapshot?.mode ?? 'PAPER';
+      if (enabled && mode === 'LIVE') {
+        const ok = window.confirm(
+          `Ligar o robô de ${alvo === 'FUTURES' ? 'FUTUROS' : 'SPOT'} na conta REAL?\n\nEle só opera sozinho se também estiver armado nos Ajustes, e o armamento vence sozinho.`,
+        );
+        if (!ok) return;
+      }
+      setRobotBusy(alvo);
+      try {
+        await api.setRobot(enabled, { market: alvo });
+        await live.refresh();
+        setToast(
+          `${enabled ? 'Robô ligado' : 'Robô desligado'} em ${alvo === 'FUTURES' ? 'futuros' : 'spot'}`,
+        );
+        setTimeout(() => setToast(null), 3500);
+      } catch (failure) {
+        setModeError((failure as Error).message);
+      } finally {
+        setRobotBusy(null);
+      }
+    },
+    [live],
+  );
+
+  /**
+   * Parar TUDO — o distintivo do topo.
+   *
+   * Ligar é decisão de cada coluna; desligar não pode depender de lembrar
+   * quantos robôs estão soltos. Percorre as modalidades ligadas e desliga
+   * uma a uma.
+   */
+  const stopAllRobots = useCallback(async (): Promise<void> => {
+    const ligados = markets.filter((market) => robots[market]?.enabled);
+    if (ligados.length === 0) return;
+    setRobotBusy(ligados[0] ?? null);
     try {
-      await api.setRobot(!enabled);
+      for (const market of ligados) await api.setRobot(false, { market });
       await live.refresh();
-      setToast(!enabled ? 'Robô ligado' : 'Robô desligado');
+      setToast(ligados.length > 1 ? `${ligados.length} robôs desligados` : 'Robô desligado');
       setTimeout(() => setToast(null), 3500);
     } catch (failure) {
       setModeError((failure as Error).message);
     } finally {
-      setRobotBusy(false);
+      setRobotBusy(null);
     }
-  }, [live]);
+  }, [live, markets, robots]);
 
   const changeAccount = useCallback(
     async (mode: Extract<TradingMode, 'PAPER' | 'LIVE'>): Promise<void> => {
@@ -173,11 +248,16 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
         connection={live.connection}
         streamConnected={live.streamConnected}
         carregando={live.carregando}
-        autoTradeOn={live.snapshot?.settings.autoTrade.enabled ?? false}
-        robotBusy={robotBusy}
-        onToggleRobot={() => void toggleRobot()}
+        robots={robots}
+        markets={markets}
+        robotBusy={robotBusy !== null}
+        onStopRobots={() => void stopAllRobots()}
         halted={live.risk?.halted ?? false}
         resumesAt={live.risk?.resumesAt ?? null}
+        onHome={() => {
+          setTab('RADAR');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
         tabs={
           <NavTabs
             active={tab}
@@ -210,8 +290,13 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
             prices={live.prices}
             openTrades={live.trades}
             openSymbols={openSymbols}
+            anyOpenSymbols={anyOpenSymbols}
             binanceAvailable={live.snapshot?.binanceAvailable ?? false}
             carregando={live.carregando}
+            markets={markets}
+            robots={robots}
+            robotBusy={robotBusy}
+            onToggleRobot={(market, enabled) => void toggleRobot(market, enabled)}
             onOpenSetup={setOpenSetup}
             onGoToWallet={() => setTab('HISTORICO')}
           />
@@ -241,7 +326,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
           onClose={() => setOpenSetup(null)}
           onBuy={setBuying}
           onIgnore={(setup) => void ignore(setup)}
-          inTrade={openSymbols.has(currentSetup.symbol)}
+          inTrade={openSymbols[currentSetup.market ?? 'SPOT'].has(currentSetup.symbol)}
           decision={live.decisions[currentSetup.id]}
         />
       ) : null}

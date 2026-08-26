@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import type { ConnectionState } from '../../core/types.ts';
 import { logger } from '../logger.ts';
-import { closeListenKey, createListenKey, getActiveEnvironment, keepAliveListenKey } from './rest.ts';
+import { closeListenKey, createListenKey, environmentFor, keepAliveListenKey } from './rest.ts';
 import { parseOrderEvent, type OrderExecutionEvent } from './userEvents.ts';
 
 /** A chave expira em 60 min; renovar a cada 30 dá margem para uma falha. */
@@ -96,7 +96,10 @@ export class UserDataStream extends EventEmitter {
     }
     this.listenKey = key;
 
-    const url = `${getActiveEnvironment().userWsBase}/ws/${key}`;
+    // a chave veio do endpoint de SPOT; o socket tem de ser o de spot também.
+    // Com o painel em futuros, `getActiveEnvironment()` devolvia o host de
+    // futuros e o fluxo abria contra um endereço que nunca reconheceria a chave
+    const url = `${environmentFor('SPOT').userWsBase}/ws/${key}`;
     const socket = new WebSocket(url);
     this.socket = socket;
 

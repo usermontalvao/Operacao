@@ -425,6 +425,33 @@ export class SettingsService {
   }
 
   /**
+   * A visão achatada de OUTRA modalidade, sem trocar a que está em exibição.
+   *
+   * O radar varre spot e futuros ao mesmo tempo — são duas colunas na tela, e
+   * cada uma tem o seu robô. Para isso o motor precisa das configurações da
+   * modalidade que está gerando a tese, não da que está selecionada.
+   */
+  viewFor(market: MarketKind, mode: TradingMode = this.stored.mode): AppSettings {
+    return {
+      ...this.view,
+      mode,
+      market,
+      ...this.stored.byMarket[market][mode],
+    };
+  }
+
+  /**
+   * As modalidades que o painel opera AGORA.
+   *
+   * Spot sempre; futuros só com o interruptor geral ligado. É esta lista que
+   * decide quantas colunas o radar produz — e barrar futuros faz a coluna
+   * inteira desaparecer, junto com as teses que só existiam nela.
+   */
+  activeMarkets(): MarketKind[] {
+    return this.stored.futuresEnabled ? ['SPOT', 'FUTURES'] : ['SPOT'];
+  }
+
+  /**
    * Configurações de um modo que não é o ativo — para a tela mostrar as três.
    * Sem modalidade informada vale a que está em exibição: quem pergunta pelo
    * robô do demo quer o robô do demo DA modalidade aberta, não o do spot.

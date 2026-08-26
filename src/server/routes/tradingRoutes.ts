@@ -174,6 +174,9 @@ export function tradingRoutes(context: ApiContext): Router {
           // sem modo, o alvo é a sessão em exibição; com modo, dá para ligar o
           // robô do demo enquanto se olha a conta real
           mode: z.enum(['PAPER', 'TESTNET', 'LIVE']).optional(),
+          // e sem modalidade, a que está na tela: o radar tem uma coluna por
+          // modalidade e cada uma liga o SEU robô, sem encostar no outro
+          market: z.enum(['SPOT', 'FUTURES']).optional(),
         })
         .safeParse(request.body);
       if (!parsed.success) {
@@ -181,15 +184,21 @@ export function tradingRoutes(context: ApiContext): Router {
         return;
       }
       const alvo = parsed.data.mode ?? context.settings.get().mode;
-      // targetMode e não mode: ajusta a sessão pedida SEM trocar a janela
+      const modalidade = parsed.data.market ?? context.settings.get().market;
+      if (modalidade === 'FUTURES' && !context.settings.get().futuresEnabled) {
+        response.status(400).json({ error: 'Futuros está barrado no painel' });
+        return;
+      }
+      // targetMode/targetMarket e não mode/market: ajusta o balde pedido SEM
+      // trocar a janela que o usuário está olhando
       const settings = await context.settings.update(
         { autoTrade: { enabled: parsed.data.enabled } },
-        { targetMode: alvo },
+        { targetMode: alvo, targetMarket: modalidade },
       );
       await context.audit.record({
         action: parsed.data.enabled ? 'ROBOT_ENABLED' : 'ROBOT_DISABLED',
         mode: alvo,
-        detail: { origem: 'painel' },
+        detail: { origem: 'painel', modalidade },
       });
 
       // ligar reavalia o que já está no radar; desligar não precisa de nada

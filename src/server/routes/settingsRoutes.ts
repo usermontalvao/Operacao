@@ -40,7 +40,7 @@ async function readUsdtBalance(environment: BinanceEnvironment): Promise<UsdtBal
     // futuros tem carteira própria: o saldo do spot não abre posição nenhuma
     // ali, e mostrar um pelo outro faria a tela prometer margem que não existe
     if (ENVIRONMENTS[environment].market === 'FUTURES') {
-      const balances = await getFuturesBalances();
+      const balances = await getFuturesBalances(environment);
       const usdt = balances.find((balance) => balance.asset === 'USDT');
       const total = usdt?.walletBalance ?? 0;
       const available = usdt?.availableBalance ?? 0;
