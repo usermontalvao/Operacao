@@ -32,6 +32,31 @@ interface UsdtBalanceSnapshot {
   locked: number | null;
 }
 
+/**
+ * O aviso que evita a ordem recusada.
+ *
+ * Chave só de leitura mostra saldo, mostra ordem, mostra tudo — e recusa a
+ * única coisa que importa, com um -2015 que chega depois de o usuário
+ * atravessar todas as travas e confirmar. Aqui ele aparece em repouso, na
+ * tela onde as chaves são configuradas.
+ */
+async function readKeyWarning(environment: BinanceEnvironment): Promise<string | null> {
+  if (!ENVIRONMENTS[environment].hasCredentials) return null;
+  const powers = await getApiKeyPowers(environment);
+  if (powers === null) return null;
+
+  const futuros = ENVIRONMENTS[environment].market === 'FUTURES';
+  const pode = futuros ? powers.canFutures : powers.canTrade;
+  if (pode) {
+    return powers.ipRestricted
+      ? 'Chave com lista de IPs: se o endereço desta máquina mudar, as ordens passam a ser recusadas'
+      : null;
+  }
+  return futuros
+    ? 'Esta chave NÃO pode operar futuros — ela lê saldo, mas toda ordem será recusada. Habilite "Futuros" na Binance › Gerenciamento de API'
+    : 'Esta chave é SÓ DE LEITURA — ela mostra saldo, mas toda ordem será recusada. Habilite "Trading Spot e de Margem" na Binance › Gerenciamento de API';
+}
+
 async function readUsdtBalance(environment: BinanceEnvironment): Promise<UsdtBalanceSnapshot> {
   if (!ENVIRONMENTS[environment].hasCredentials) {
     return { status: 'NOT_CONFIGURED', total: null, available: null, locked: null };
@@ -82,6 +107,10 @@ export function settingsRoutes(context: ApiContext): Router {
           readUsdtBalance('futures-production'),
           readUsdtBalance('futures-testnet'),
         ]);
+      const [productionKey, futuresKey] = await Promise.all([
+        readKeyWarning('production'),
+        readKeyWarning('futures-production'),
+      ]);
       response.json({
         ...context.settings.get(),
         binance: {
@@ -90,6 +119,7 @@ export function settingsRoutes(context: ApiContext): Router {
           production: {
             credentialsConfigured: ENVIRONMENTS.production.hasCredentials,
             balance: { ...productionBalance, brlRate },
+            keyWarning: productionKey,
           },
           testnet: {
             credentialsConfigured: ENVIRONMENTS.testnet.hasCredentials,
@@ -98,6 +128,7 @@ export function settingsRoutes(context: ApiContext): Router {
           futuresProduction: {
             credentialsConfigured: ENVIRONMENTS['futures-production'].hasCredentials,
             balance: { ...futuresBalance, brlRate },
+            keyWarning: futuresKey,
           },
           futuresTestnet: {
             credentialsConfigured: ENVIRONMENTS['futures-testnet'].hasCredentials,

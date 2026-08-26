@@ -30,9 +30,18 @@ export interface SettingsResponse extends AppSettings {
   byMarket: Record<MarketKind, Record<AppSettings['mode'], ModeSettings>>;
   binance: {
     activeEnvironment: 'production' | 'testnet' | 'futures-production' | 'futures-testnet';
-    production: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
+    production: {
+      credentialsConfigured: boolean;
+      balance: BinanceBalanceSummary;
+      /** a chave lê mas não negocia, ou tem lista de IPs; null quando está tudo certo */
+      keyWarning: string | null;
+    };
     testnet: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
-    futuresProduction: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
+    futuresProduction: {
+      credentialsConfigured: boolean;
+      balance: BinanceBalanceSummary;
+      keyWarning: string | null;
+    };
     futuresTestnet: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
   };
   universe: {

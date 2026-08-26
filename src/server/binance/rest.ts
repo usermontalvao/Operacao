@@ -102,12 +102,34 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const detail = payload as { code?: number; msg?: string } | null;
     throw new BinanceError(
-      detail?.msg ?? `Erro HTTP ${response.status} na Binance`,
+      explicar(detail?.code ?? -1, detail?.msg ?? `Erro HTTP ${response.status} na Binance`),
       detail?.code ?? -1,
       response.status,
     );
   }
   return payload as T;
+}
+
+/**
+ * A frase da Binance mais o que fazer com ela.
+ *
+ * "Invalid API-key, IP, or permissions for action" é literalmente três causas
+ * numa frase só, e nenhuma delas diz onde clicar. O erro chega no pior
+ * momento — depois de o usuário passar por todas as travas do painel e
+ * confirmar a ordem — e a mensagem crua o deixa achando que a chave está
+ * errada quando, na maioria das vezes, ela só não tem permissão de negociar.
+ */
+function explicar(code: number, mensagem: string): string {
+  if (code === -2015) {
+    return `${mensagem} — quase sempre é a permissão de negociação desligada na chave (Binance › Gerenciamento de API › "Habilitar Trading Spot e de Margem"), ou o IP desta máquina fora da lista permitida. Leitura funcionar não quer dizer que negociar funcione: são permissões separadas`;
+  }
+  if (code === -2010) {
+    return `${mensagem} — a corretora recusou a ordem: normalmente saldo insuficiente no momento do envio ou preço fora do que o livro aceita`;
+  }
+  if (code === -1021) {
+    return `${mensagem} — o relógio desta máquina está fora de sincronia com o da Binance`;
+  }
+  return mensagem;
 }
 
 /**
@@ -490,6 +512,63 @@ export interface AccountBalance {
  * Sem argumento, preserva o comportamento operacional: usa a conta do modo
  * atualmente selecionado.
  */
+/** O que a chave PODE fazer, segundo a própria Binance. */
+export interface ApiKeyPowers {
+  /** a chave consegue enviar ordem de spot */
+  canTrade: boolean;
+  /** a chave está limitada a uma lista de IPs */
+  ipRestricted: boolean;
+  canFutures: boolean;
+}
+
+const powersCache = new Map<string, { value: ApiKeyPowers; fetchedAt: number }>();
+const POWERS_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * As permissões da chave, lidas na Binance.
+ *
+ * Existe porque "a chave funciona" e "a chave pode negociar" são coisas
+ * diferentes, e o painel só descobria a diferença no -2015, depois de o
+ * usuário atravessar todas as travas e confirmar uma ordem. Uma chave só de
+ * leitura lê saldo, lê ordens, mostra tudo — e recusa a única coisa que
+ * importa. Melhor dizer isso na tela de ajustes, em repouso.
+ *
+ * Null quando a leitura falha: não saber não é o mesmo que não poder, e
+ * inventar um "não pode" a partir de um timeout seria pior que o silêncio.
+ */
+export async function getApiKeyPowers(
+  environmentName?: BinanceEnvironment,
+): Promise<ApiKeyPowers | null> {
+  const environment = environmentName ? ENVIRONMENTS[environmentName] : environmentFor('SPOT');
+  if (!environment.hasCredentials) return null;
+  // o testnet não expõe o endpoint de restrições; lá a chave é sempre de teste
+  if (environment.network === 'testnet') return null;
+
+  const cached = powersCache.get(environment.name);
+  if (cached && Date.now() - cached.fetchedAt < POWERS_TTL_MS) return cached.value;
+
+  try {
+    const raw = await signedRequest<{
+      enableSpotAndMarginTrading?: boolean;
+      ipRestrict?: boolean;
+      enableFutures?: boolean;
+    }>('GET', '/sapi/v1/account/apiRestrictions', {}, environment);
+    const value: ApiKeyPowers = {
+      canTrade: raw.enableSpotAndMarginTrading === true,
+      ipRestricted: raw.ipRestrict === true,
+      canFutures: raw.enableFutures === true,
+    };
+    powersCache.set(environment.name, { value, fetchedAt: Date.now() });
+    return value;
+  } catch (error) {
+    logger.debug('Não foi possível ler as permissões da chave', {
+      environment: environment.name,
+      error: (error as Error).message,
+    });
+    return null;
+  }
+}
+
 export async function getAccountBalances(environmentName?: BinanceEnvironment): Promise<AccountBalance[]> {
   // sem ambiente pedido, o spot da rede atual: `/api/v3/account` não existe
   // em futuros, e cair no ambiente ativo levaria a consulta para o lugar errado

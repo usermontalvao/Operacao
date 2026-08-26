@@ -56,7 +56,9 @@ const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 export interface ExecutionDependencies {
   /** filtros do par NA MODALIDADE pedida — passo e mínimo diferem entre as duas */
   loadFilters: (symbol: string, market: MarketKind) => Promise<SymbolFilters | null>;
-  loadUsdtBalance: (market: MarketKind) => Promise<{ free: number; locked: number }>;
+  loadUsdtBalance: (
+    market: MarketKind,
+  ) => Promise<{ free: number; locked: number; idle?: Array<{ asset: string; free: number }> }>;
   loadBrlRate: () => Promise<number | null>;
 }
 
@@ -75,7 +77,21 @@ const defaultDependencies: ExecutionDependencies = {
     }
     const balances = await getAccountBalances();
     const usdt = balances.find((item) => item.asset === 'USDT');
-    return { free: usdt?.free ?? 0, locked: usdt?.locked ?? 0 };
+    /*
+     * O que está na conta e NÃO é USDT.
+     *
+     * O painel opera pares USDT e conta só USDT — o que é correto e era
+     * invisível: um depósito em reais cai como BRL, o saldo do painel não se
+     * mexe, e a conclusão natural é "o depósito não chegou". Chegou; está na
+     * moeda errada, e só a corretora pode converter.
+     *
+     * A moeda-base de um par que já foi comprado fica de fora: aquilo é
+     * posição, não dinheiro parado.
+     */
+    const idle = balances
+      .filter((item) => item.asset !== 'USDT' && item.free > 0)
+      .map((item) => ({ asset: item.asset, free: item.free }));
+    return { free: usdt?.free ?? 0, locked: usdt?.locked ?? 0, idle };
   },
   loadBrlRate: getUsdtBrlRate,
 };
@@ -148,6 +164,8 @@ export interface CapitalView {
   source: string;
   currency: 'USDT';
   brlRate: number | null;
+  /** saldos na conta que o painel NÃO usa por não serem USDT */
+  idleAssets?: Array<{ asset: string; free: number }>;
 }
 
 export interface PreviewResult {
@@ -305,6 +323,7 @@ export class ExecutionService {
             : 'BINANCE',
       currency: 'USDT',
       brlRate,
+      idleAssets: usdt.idle,
     };
   }
 
@@ -575,6 +594,20 @@ export class ExecutionService {
     }
     if (setup.extended) {
       warnings.push('Setup marcado como ESTICADO — o preço já se afastou do ponto de invalidação');
+    }
+    /*
+     * Dinheiro na conta que o painel não enxerga.
+     *
+     * Depósito em reais cai como BRL. O painel opera pares USDT e conta só
+     * USDT, então o saldo não se mexe — e a conclusão natural de quem acabou
+     * de depositar é "não caiu". Caiu, está na moeda errada, e só a corretora
+     * converte. O aviso aparece onde a dúvida nasce: ao lado do "capital
+     * disponível".
+     */
+    for (const parado of capitalView.idleAssets ?? []) {
+      warnings.push(
+        `Há ${parado.free.toLocaleString('pt-BR', { maximumFractionDigits: 8 })} ${parado.asset} na conta que o painel NÃO usa — ele opera em USDT. Converta na Binance para que entre no capital`,
+      );
     }
 
     /*

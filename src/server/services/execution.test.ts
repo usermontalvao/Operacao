@@ -115,13 +115,20 @@ async function harness(price = 1.43) {
     getSnapshot: () => ({ quoteVolume24h: 500_000_000 }),
   } as unknown as MarketDataService;
   const risk = new RiskService(repository, settings, market);
+  let saldo: { free: number; locked: number; idle?: Array<{ asset: string; free: number }> } = {
+    free: 1000,
+    locked: 0,
+  };
   const execution = new ExecutionService(repository, settings, market, paper, audit, bus, risk, {
     loadFilters: async () => FILTERS,
-    loadUsdtBalance: async () => ({ free: 1000, locked: 0 }),
+    loadUsdtBalance: async () => saldo,
     loadBrlRate: async () => 5.16,
   });
   return {
     directory,
+    setBalance: (value: typeof saldo) => {
+      saldo = value;
+    },
     repository,
     settings,
     paper,
@@ -571,4 +578,21 @@ test('encerramento manual sai a mercado, com escorregamento e taxa', async (t) =
     `saída a mercado não pode render o preço cheio: ${closed.realizedPnl} vs ${gross.toFixed(2)}`,
   );
   assert.ok(closed.realizedPnl > 0);
+});
+
+test('saldo que não é USDT aparece como aviso — o depósito chegou, na moeda errada', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({ mode: 'TESTNET' });
+  // a conta tem 5 USDT e 100 BRL: o painel conta 5 e precisa DIZER dos 100
+  context.setBalance({ free: 5.08, locked: 0, idle: [{ asset: 'BRL', free: 100 }] });
+
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 5 }, setup);
+
+  assert.equal(preview.available, 5.08, 'o capital continua sendo só o USDT');
+  assert.ok(
+    preview.warnings.some((item) => /100 BRL na conta que o painel NÃO usa/.test(item)),
+    `esperava o aviso do saldo parado, veio: ${preview.warnings.join(' | ')}`,
+  );
 });

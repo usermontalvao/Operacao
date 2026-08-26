@@ -291,6 +291,20 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
             </button>
           ))}
         </div>
+        {/*
+          Chave que lê mas não negocia.
+
+          Ela mostra saldo, mostra ordem, mostra tudo — e recusa a única coisa
+          que importa, com um -2015 que só chega depois de o usuário atravessar
+          todas as travas do painel e confirmar a ordem. O aviso mora aqui, em
+          repouso, onde as chaves são configuradas.
+        */}
+        {(futuros ? settings.binance.futuresProduction : settings.binance.production).keyWarning ? (
+          <p className="mt-3 rounded-lg border border-warn/50 bg-warn/10 p-3 text-[11px] leading-relaxed text-warn">
+            {(futuros ? settings.binance.futuresProduction : settings.binance.production).keyWarning}
+          </p>
+        ) : null}
+
         <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
           <Info label="Ambiente ativo" value={settings.binance.activeEnvironment} />
           <Info
