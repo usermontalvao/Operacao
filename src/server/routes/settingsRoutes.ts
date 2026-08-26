@@ -156,7 +156,26 @@ export function settingsRoutes(context: ApiContext): Router {
       if (parsed.data.scanner?.universe && parsed.data.scanner.universe !== previous.scanner.universe) {
         context.universe.reset();
       }
-      if (parsed.data.scanner || previousEnvironment !== nextEnvironment) void context.scanner.scan();
+      /*
+       * Liberar futuros muda o RADAR, não o ambiente.
+       *
+       * O ambiente continua o mesmo (a tela segue em spot), então a condição
+       * antiga não disparava varredura nenhuma — o interruptor virava e a
+       * coluna nova nascia vazia até o ciclo seguinte, o que dava a impressão
+       * de que nada tinha acontecido. Barrar é o inverso: as teses da
+       * modalidade saem do radar na hora.
+       */
+      const modalidadeMudou = parsed.data.futuresEnabled !== undefined &&
+        parsed.data.futuresEnabled !== previous.futuresEnabled;
+      if (modalidadeMudou && !updated.futuresEnabled) context.scanner.dropMarket('FUTURES');
+
+      if (
+        parsed.data.scanner ||
+        modalidadeMudou ||
+        previousEnvironment !== nextEnvironment
+      ) {
+        void context.scanner.scan();
+      }
 
       if (nextMode && nextMode !== previous.mode) {
         await context.audit.record({

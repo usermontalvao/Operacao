@@ -267,7 +267,9 @@ export function defaultStoredSettings(): StoredSettings {
       setupTtlMinutes: 720,
       cooldownMinutes: 120,
       universe: 'ALL_USDT',
-      minQuoteVolume24h: 3_000_000,
+      // mantido no formato persistido por compatibilidade; a cobertura ALL_USDT
+      // não corta mais pares por volume. A trava para operar fica no guard.
+      minQuoteVolume24h: 0,
     },
     byMarket: {
       SPOT: defaultBuckets('SPOT'),

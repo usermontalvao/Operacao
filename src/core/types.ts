@@ -389,7 +389,7 @@ export interface ScannerSettings {
   watchlist: string[];
   /** WATCHLIST varre só os favoritos; ALL_USDT varre todo o spot USDT da Binance */
   universe: UniverseMode;
-  /** corta pares ilíquidos da varredura do universo (volume 24h em USDT) */
+  /** legado de configurações anteriores; liquidez para operar vive no guard */
   minQuoteVolume24h: number;
   triggerTimeframes: Timeframe[];
   anchorTimeframe: Timeframe;

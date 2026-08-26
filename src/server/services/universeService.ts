@@ -129,7 +129,13 @@ export class UniverseService {
     }
   }
 
-  /** Lista os pares e corta os ilíquidos — ruído não vira oportunidade. */
+  /**
+   * Lista todos os pares Spot/USDT negociáveis.
+   *
+   * Liquidez continua sendo uma trava para EXECUTAR a operação no governador
+   * de risco, mas não para ENXERGAR o mercado. Assim "Todo o spot USDT" não
+   * esconde moedas só porque negociaram pouco nas últimas 24 horas.
+   */
   private async loadUniverse(): Promise<void> {
     const settings = this.settings.get();
     this.symbols = await listTradableSymbols('USDT');
@@ -139,16 +145,16 @@ export class UniverseService {
     for (const ticker of tickers) this.volumes.set(ticker.symbol, Number(ticker.quoteVolume));
 
     const watchlist = new Set(settings.scanner.watchlist);
-    this.liquid = this.symbols
-      .map((item) => item.symbol)
-      .filter((symbol) => !watchlist.has(symbol))
-      .filter((symbol) => (this.volumes.get(symbol) ?? 0) >= settings.scanner.minQuoteVolume24h)
-      .sort((a, b) => (this.volumes.get(b) ?? 0) - (this.volumes.get(a) ?? 0));
+    this.liquid = selectUniverseSymbols(
+      this.symbols.map((item) => item.symbol),
+      watchlist,
+      this.volumes,
+    );
 
     logger.info('Universo carregado', {
       pares: this.symbols.length,
-      liquidos: this.liquid.length,
-      volumeMinimo: settings.scanner.minQuoteVolume24h,
+      varreduraPorLotes: this.liquid.length,
+      tempoReal: watchlist.size,
     });
   }
 
@@ -161,6 +167,21 @@ export class UniverseService {
     required.add('1d');
     return [...required];
   }
+}
+
+/**
+ * A watchlist já é analisada pelo WebSocket; a volta REST recebe todo o resto,
+ * inclusive pares sem volume recente. Volume só ordena a fila para os mais
+ * ativos serem vistos primeiro.
+ */
+export function selectUniverseSymbols(
+  symbols: string[],
+  watchlist: ReadonlySet<string>,
+  volumes: ReadonlyMap<string, number>,
+): string[] {
+  return [...new Set(symbols)]
+    .filter((symbol) => !watchlist.has(symbol))
+    .sort((a, b) => (volumes.get(b) ?? 0) - (volumes.get(a) ?? 0));
 }
 
 export type KlineFetcher = (symbol: string, interval: string, limit: number) => Promise<RawKline[]>;

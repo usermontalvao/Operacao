@@ -157,6 +157,27 @@ export class ScannerService {
     return this.setups.get(id) ?? null;
   }
 
+  /**
+   * Tira do radar tudo de uma modalidade — usado quando ela é barrada.
+   *
+   * Sem isto as teses de futuros ficariam guardadas em memória: a coluna some
+   * da tela junto com a modalidade, mas ao religar o interruptor elas voltam
+   * com o preço de meia hora atrás, como se nada tivesse acontecido. Quem
+   * barra uma modalidade está dizendo "não quero isto aqui" — e a lembrança
+   * de uma tese que ninguém pode executar é só uma armadilha esperando.
+   */
+  dropMarket(market: MarketKind): number {
+    let removidos = 0;
+    for (const setup of [...this.setups.values()]) {
+      if (setup.market !== market) continue;
+      this.setups.delete(setup.id);
+      this.bus.broadcast({ type: 'setupRemoved', payload: { id: setup.id } });
+      removidos += 1;
+    }
+    if (removidos > 0) logger.info('Modalidade barrada: teses retiradas do radar', { market, removidos });
+    return removidos;
+  }
+
   async ignoreSetup(id: string): Promise<TradeSetup | null> {
     const setup = this.setups.get(id);
     if (!setup) return null;
