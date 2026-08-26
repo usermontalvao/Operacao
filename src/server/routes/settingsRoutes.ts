@@ -9,6 +9,7 @@ import {
 import {
   getAccountBalances,
   getActiveEnvironment,
+  getApiKeyPowers,
   getSymbolFilters,
   getUsdtBrlRate,
   setActiveEnvironment,
@@ -85,6 +86,25 @@ async function readUsdtBalance(environment: BinanceEnvironment): Promise<UsdtBal
   }
 }
 
+const INDISPONIVEL: UsdtBalanceSnapshot = {
+  status: 'UNAVAILABLE',
+  total: null,
+  available: null,
+  locked: null,
+};
+
+/** O valor quando dá certo; o combinado quando não dá — nunca uma rejeição. */
+async function quandoDer<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await promise;
+  } catch (error) {
+    logger.warn('Parte da tela de ajustes não pôde ser lida', {
+      error: (error as Error).message,
+    });
+    return fallback;
+  }
+}
+
 export function settingsRoutes(context: ApiContext): Router {
   const router = Router();
   const liveFocus = (watchlist: string[]): string[] =>
@@ -99,17 +119,25 @@ export function settingsRoutes(context: ApiContext): Router {
     asyncHandler(async (_request, response) => {
       // São retratos somente de leitura. Informar o ambiente diretamente evita
       // trocar o feed de mercado do robô só para desenhar os cartões da tela.
+      /*
+       * Nenhuma leitura destas pode derrubar a página.
+       *
+       * Esta rota desenha a tela de ajustes INTEIRA — modo, robô, watchlist,
+       * chaves. Enquanto uma rejeição podia escapar, ela levava junto tudo o
+       * que já tinha respondido e a tela caía inteira com 500. Um cartão sem
+       * número é um cartão sem número; não pode custar a página.
+       */
       const [brlRate, productionBalance, testnetBalance, futuresBalance, futuresTestnetBalance] =
         await Promise.all([
-          getUsdtBrlRate(),
-          readUsdtBalance('production'),
-          readUsdtBalance('testnet'),
-          readUsdtBalance('futures-production'),
-          readUsdtBalance('futures-testnet'),
+          quandoDer(getUsdtBrlRate(), null),
+          quandoDer(readUsdtBalance('production'), INDISPONIVEL),
+          quandoDer(readUsdtBalance('testnet'), INDISPONIVEL),
+          quandoDer(readUsdtBalance('futures-production'), INDISPONIVEL),
+          quandoDer(readUsdtBalance('futures-testnet'), INDISPONIVEL),
         ]);
       const [productionKey, futuresKey] = await Promise.all([
-        readKeyWarning('production'),
-        readKeyWarning('futures-production'),
+        quandoDer(readKeyWarning('production'), null),
+        quandoDer(readKeyWarning('futures-production'), null),
       ]);
       response.json({
         ...context.settings.get(),

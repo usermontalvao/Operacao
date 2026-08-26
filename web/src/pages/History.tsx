@@ -27,6 +27,13 @@ type Position = EquityResponse['positions'][number];
  * isso que a carteira descontou. Somar o nocional mostrava um dinheiro preso
  * que não estava preso, e a conta não fechava com o saldo logo acima.
  */
+/** Quanto o preço ainda tem de andar para a ordem limite acionar. */
+function pendingEntryGap(position: Position, agora: number | null): number | null {
+  if (position.status !== 'PENDING') return null;
+  if (agora === null || agora <= 0) return position.distanceToEntryPercent;
+  return ((position.entryPrice - agora) / agora) * 100;
+}
+
 function capitalPreso(position: Position): number {
   return position.market === 'FUTURES' && position.initialMargin > 0
     ? position.initialMargin
@@ -58,7 +65,16 @@ const MODE_LABEL: Record<TradingMode, string> = {
  * ver o alvo não informa nada, e perceber que precisa sair sem ter como sair
  * é pior ainda.
  */
-export function History() {
+/**
+ * A carteira, com preço vivo.
+ *
+ * As contas do servidor chegam a cada 5 segundos — bom para saldo e para
+ * resultado realizado, ruim para o preço: ao lado, no radar, o número anda a
+ * cada tique do WebSocket, e ver a mesma moeda pulando de 5 em 5 segundos
+ * aqui passa a impressão de painel parado. O preço vivo entra por cima; todo
+ * o resto continua vindo do servidor, que é quem tem a verdade sobre a ordem.
+ */
+export function History({ prices = {} }: { prices?: Record<string, number> }) {
   const [tab, setTab] = useState<'ABERTAS' | 'ENCERRADAS' | 'SETUPS'>('ABERTAS');
   // erro de AÇÃO (encerrar, cancelar) é separado do erro de LEITURA: um
   // encerramento que falhou não pode sumir da tela só porque a próxima
@@ -208,6 +224,7 @@ export function History() {
               <PositionCard
                 key={position.id}
                 position={position}
+                livePrice={prices[position.symbol] ?? null}
                 busy={closing === position.id}
                 disabled={closing !== null}
                 onClose={() => void closePosition(position)}
@@ -386,16 +403,34 @@ function planOf(trade: {
  */
 function PositionCard({
   position,
+  livePrice,
   busy,
   disabled,
   onClose,
 }: {
   position: Position;
+  /** preço do stream; cai no do servidor quando o par não está no fluxo */
+  livePrice: number | null;
   busy: boolean;
   disabled: boolean;
   onClose: () => void;
 }) {
   const chart = useChartViewer();
+  const agora = livePrice ?? position.currentPrice;
+  /*
+    As distâncias andam com o preço vivo.
+
+    Elas vinham calculadas do servidor, e misturar "preço de agora" (tique)
+    com "distância até o alvo" (de 5 segundos atrás) fazia a linha se
+    contradizer: o preço subia e o "alvo +8,35%" ficava parado. A conta é
+    a mesma do servidor, refeita aqui com o número que está na tela.
+  */
+  const ate = (alvo: number | null): number | null =>
+    alvo === null || agora === null || agora <= 0 ? null : ((alvo - agora) / agora) * 100;
+  const ateAlvo = ate(position.target1) ?? position.distanceToTargetPercent;
+  const ateStop = ate(position.stopLoss) ?? position.distanceToStopPercent;
+  const ateEntrada = pendingEntryGap(position, agora);
+  const ateLiquidacao = ate(position.liquidationPrice) ?? position.distanceToLiquidationPercent;
   const pnlTone = (position.totalPnl ?? 0) >= 0 ? 'text-bull' : 'text-bear';
   const pending = position.status === 'PENDING';
   const alavancagem = leverageLabel(position.leverage);
@@ -435,17 +470,17 @@ function PositionCard({
           <span
             className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold text-warn"
             title={
-              position.distanceToEntryPercent === null
+              ateEntrada === null
                 ? 'ordem no livro, esperando o preço'
                 : `a entrada aciona quando o preço ${
-                    position.distanceToEntryPercent < 0 ? 'cair' : 'subir'
-                  } ${Math.abs(position.distanceToEntryPercent).toFixed(2)}%`
+                    ateEntrada < 0 ? 'cair' : 'subir'
+                  } ${Math.abs(ateEntrada).toFixed(2)}%`
             }
           >
             ORDEM LIMITE
-            {position.distanceToEntryPercent !== null
+            {ateEntrada !== null
               ? ` · ${position.side === 'SELL' ? 'vende se subir' : 'compra se cair'} ${Math.abs(
-                  position.distanceToEntryPercent,
+                  ateEntrada,
                 ).toFixed(2)}%`
               : ''}
           </span>
@@ -515,7 +550,7 @@ function PositionCard({
           stop={position.stopLoss}
           entryLow={position.entryPrice}
           target={position.target1}
-          current={position.currentPrice}
+          current={agora}
         />
         <span className="w-16 shrink-0 text-right text-[10px] text-bull tabular">
           {price(position.target1)}
@@ -524,13 +559,11 @@ function PositionCard({
 
       <div className="mt-1 flex flex-wrap gap-x-4 text-[10px] text-terminal-muted tabular">
         <span>{pending ? 'entrada aguardada' : 'entrada'} {price(position.entryPrice)}</span>
-        <span>agora {position.currentPrice === null ? '—' : price(position.currentPrice)}</span>
-        {position.distanceToTargetPercent !== null ? (
-          <span className="text-bull/80">alvo {percent(position.distanceToTargetPercent)}</span>
+        <span>agora {agora === null ? '—' : price(agora)}</span>
+        {ateAlvo !== null ? (
+          <span className="text-bull/80">alvo {percent(ateAlvo)}</span>
         ) : null}
-        {position.distanceToStopPercent !== null ? (
-          <span className="text-bear/80">stop {percent(position.distanceToStopPercent)}</span>
-        ) : null}
+        {ateStop !== null ? <span className="text-bear/80">stop {percent(ateStop)}</span> : null}
         {/* a linha da corretora, quando existe: é a saída que não é sua, e
             a distância até ela é o que decide se dá para respirar */}
         {position.liquidationPrice !== null ? (
@@ -539,9 +572,7 @@ function PositionCard({
             title={`a corretora liquida a posição em ${price(position.liquidationPrice)}`}
           >
             liquidação {price(position.liquidationPrice)}
-            {position.distanceToLiquidationPercent !== null
-              ? ` (${percent(position.distanceToLiquidationPercent)})`
-              : ''}
+            {ateLiquidacao !== null ? ` (${percent(ateLiquidacao)})` : ''}
           </span>
         ) : null}
         {position.market === 'FUTURES' && position.initialMargin > 0 ? (

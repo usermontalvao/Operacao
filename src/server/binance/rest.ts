@@ -7,6 +7,7 @@ import {
 } from '../config.ts';
 import { logger } from '../logger.ts';
 import { buildQuery, signQuery } from './signer.ts';
+import { wsApiCall } from './wsApi.ts';
 
 export class BinanceError extends Error {
   code: number;
@@ -102,7 +103,7 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const detail = payload as { code?: number; msg?: string } | null;
     throw new BinanceError(
-      explicar(detail?.code ?? -1, detail?.msg ?? `Erro HTTP ${response.status} na Binance`),
+      explicar(detail?.code ?? -1, detail?.msg ?? `Erro HTTP ${response.status} na Binance`, url),
       detail?.code ?? -1,
       response.status,
     );
@@ -119,9 +120,15 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
  * confirmar a ordem — e a mensagem crua o deixa achando que a chave está
  * errada quando, na maioria das vezes, ela só não tem permissão de negociar.
  */
-function explicar(code: number, mensagem: string): string {
+function explicar(code: number, mensagem: string, url = ''): string {
   if (code === -2015) {
-    return `${mensagem} — quase sempre é a permissão de negociação desligada na chave (Binance › Gerenciamento de API › "Habilitar Trading Spot e de Margem"), ou o IP desta máquina fora da lista permitida. Leitura funcionar não quer dizer que negociar funcione: são permissões separadas`;
+    // a permissão que falta é a DA MODALIDADE que foi chamada: mandar alguém
+    // ligar "Trading Spot" para destravar futuros é enviá-lo ao lugar errado
+    const futuros = url.includes('/fapi/') || url.includes('fapi.binance');
+    const onde = futuros
+      ? 'Binance › Gerenciamento de API › "Habilitar Futuros"'
+      : 'Binance › Gerenciamento de API › "Habilitar Trading Spot e de Margem"';
+    return `${mensagem} — quase sempre é a permissão ${futuros ? 'de FUTUROS' : 'de negociação'} desligada na chave (${onde}), ou o IP desta máquina fora da lista permitida. Leitura funcionar não quer dizer que negociar funcione: são permissões separadas`;
   }
   if (code === -2010) {
     return `${mensagem} — a corretora recusou a ordem: normalmente saldo insuficiente no momento do envio ou preço fora do que o livro aceita`;
@@ -547,12 +554,26 @@ export async function getApiKeyPowers(
   const cached = powersCache.get(environment.name);
   if (cached && Date.now() - cached.fetchedAt < POWERS_TTL_MS) return cached.value;
 
+  /*
+   * A pergunta é feita no host de SPOT, sempre.
+   *
+   * `/sapi/v1/account/apiRestrictions` não existe em `fapi.binance.com`: pedir
+   * as permissões no ambiente de futuros dava erro, o erro virava `null`, e
+   * `null` significa "não sei" — então o aviso "esta chave NÃO pode operar
+   * futuros" nunca aparecia justamente na chave que não pode. A resposta é a
+   * mesma para as duas modalidades (ela traz `enableFutures`); o que muda é só
+   * onde se pergunta.
+   */
+  // a rede já está garantida como produção pela saída acima
+  const consulta = environment.market === 'FUTURES' ? ENVIRONMENTS.production : environment;
+  if (!consulta.hasCredentials) return null;
+
   try {
     const raw = await signedRequest<{
       enableSpotAndMarginTrading?: boolean;
       ipRestrict?: boolean;
       enableFutures?: boolean;
-    }>('GET', '/sapi/v1/account/apiRestrictions', {}, environment);
+    }>('GET', '/sapi/v1/account/apiRestrictions', {}, consulta);
     const value: ApiKeyPowers = {
       canTrade: raw.enableSpotAndMarginTrading === true,
       ipRestricted: raw.ipRestrict === true,
@@ -750,31 +771,90 @@ export async function getOrderList(listClientOrderId: string): Promise<OrderList
  * renovação — sem ela o socket fecha sozinho e as execuções passam a chegar
  * apenas pela reconciliação lenta.
  */
-async function keyedRequest<T>(method: 'POST' | 'PUT' | 'DELETE', params: Record<string, string> = {}): Promise<T> {
-  // `/api/v3/userDataStream` é spot; futuros tem endpoint e socket próprios.
-  // O fluxo da conta é o atalho rápido para saber de um preenchimento — em
-  // futuros ele ainda não existe, e quem cobre é a reconciliação por tempo
-  const environment = environmentFor('SPOT');
+/**
+ * O endereço da chave, por modalidade. Separado da chamada de propósito: é a
+ * escolha que estava errada, e é a única parte disto que dá para provar sem
+ * abrir socket nem gastar peso de requisição na corretora.
+ */
+export function listenKeyPath(market: MarketKind): string {
+  return market === 'FUTURES' ? '/fapi/v1/listenKey' : '/api/v3/userDataStream';
+}
+
+async function keyedRequest<T>(
+  method: 'POST' | 'PUT' | 'DELETE',
+  params: Record<string, string> = {},
+  market: MarketKind = 'SPOT',
+): Promise<T> {
+  /*
+   * Cada modalidade tem o SEU fluxo de conta.
+   *
+   * `/api/v3/userDataStream` é spot e `/fapi/v1/listenKey` é futuros — chaves
+   * diferentes, sockets diferentes, contas diferentes. Enquanto isto pedia
+   * sempre a chave do spot, o fluxo de futuros simplesmente não existia: a
+   * posição preenchia na corretora e o painel só descobria na volta seguinte
+   * da reconciliação, com a ordem parada em AGUARDANDO no meio tempo.
+   *
+   * Em futuros a chave é da CONTA, não da ordem: renovar e encerrar não levam
+   * o listenKey na query, e mandá-lo ali é ignorado.
+   */
+  const environment = environmentFor(market);
   const credentials = readCredentials(environment.name);
   if (!credentials) {
     throw new BinanceError('Credenciais da Binance não configuradas no servidor', -2015, 401);
   }
-  const query = buildQuery(params);
-  const url = `${environment.tradeRestBase}/api/v3/userDataStream${query ? `?${query}` : ''}`;
+  const path = listenKeyPath(market);
+  const query = market === 'FUTURES' ? '' : buildQuery(params);
+  const url = `${environment.tradeRestBase}${path}${query ? `?${query}` : ''}`;
   return request<T>(url, { method, headers: { 'X-MBX-APIKEY': credentials.apiKey } });
 }
 
-export async function createListenKey(): Promise<string> {
-  const result = await keyedRequest<{ listenKey: string }>('POST');
+/*
+ * SPOT pede a chave pela WebSocket API; FUTUROS continua no REST.
+ *
+ * `POST /api/v3/userDataStream` foi REMOVIDO pela Binance: responde `410 Gone`
+ * numa página HTML do nginx. Como não é JSON, nem código de erro havia — a
+ * abertura do fluxo falhava calada, o painel ficava sem aviso de execução em
+ * tempo real, e a ordem preenchida na corretora só aparecia na volta seguinte
+ * da reconciliação. O substituto é `userDataStream.start` na WebSocket API; o
+ * socket da conta continua em `stream.binance.com`, com a mesma chave.
+ *
+ * `/fapi/v1/listenKey` segue de pé, e é por ele que futuros continua.
+ */
+export function listenKeySource(market: MarketKind, wsApiBase: string): 'WS_API' | 'REST' {
+  return market === 'SPOT' && wsApiBase !== '' ? 'WS_API' : 'REST';
+}
+
+function usaWebSocketApi(market: MarketKind): boolean {
+  return listenKeySource(market, environmentFor('SPOT').wsApiBase) === 'WS_API';
+}
+
+export async function createListenKey(market: MarketKind = 'SPOT'): Promise<string> {
+  if (usaWebSocketApi(market)) {
+    const result = await wsApiCall<{ listenKey: string }>(
+      'userDataStream.start',
+      {},
+      environmentFor('SPOT'),
+    );
+    return result.listenKey;
+  }
+  const result = await keyedRequest<{ listenKey: string }>('POST', {}, market);
   return result.listenKey;
 }
 
-export async function keepAliveListenKey(listenKey: string): Promise<void> {
-  await keyedRequest('PUT', { listenKey });
+export async function keepAliveListenKey(listenKey: string, market: MarketKind = 'SPOT'): Promise<void> {
+  if (usaWebSocketApi(market)) {
+    await wsApiCall('userDataStream.ping', { listenKey }, environmentFor('SPOT'));
+    return;
+  }
+  await keyedRequest('PUT', { listenKey }, market);
 }
 
-export async function closeListenKey(listenKey: string): Promise<void> {
-  await keyedRequest('DELETE', { listenKey });
+export async function closeListenKey(listenKey: string, market: MarketKind = 'SPOT'): Promise<void> {
+  if (usaWebSocketApi(market)) {
+    await wsApiCall('userDataStream.stop', { listenKey }, environmentFor('SPOT'));
+    return;
+  }
+  await keyedRequest('DELETE', { listenKey }, market);
 }
 
 export function parseKline(raw: RawKline, closed: boolean) {

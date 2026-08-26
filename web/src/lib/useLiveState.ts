@@ -12,6 +12,26 @@ import type {
 
 const REFRESH_MS = 15_000;
 
+/**
+ * O que, numa operação, mexe no dinheiro.
+ *
+ * O evento de operação sai a cada tique que renova o topo do preço — várias
+ * vezes por segundo no DEMO. Recarregar a carteira em todos eles seria repetir
+ * a rota mais cara do painel (ela precisa de preço para toda posição aberta)
+ * dezenas de vezes por minuto. Enquanto estes campos não mudam, a carteira
+ * que está na tela continua certa. A mesma regra existe no servidor, para o
+ * saldo: as duas respondem à mesma pergunta.
+ */
+function assinaturaFinanceira(trade: Trade): string {
+  return [
+    trade.status,
+    trade.filledQuantity,
+    trade.remainingQuantity,
+    trade.realizedPnl,
+    trade.notional,
+  ].join('|');
+}
+
 export interface LiveState {
   snapshot: DashboardSnapshot | null;
   /**
@@ -64,6 +84,8 @@ export function useLiveState(): LiveState {
   const [error, setError] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const sourceRef = useRef<EventSource | null>(null);
+  const equityTimerRef = useRef<number | null>(null);
+  const assinaturasRef = useRef<Map<string, string>>(new Map());
 
   const refresh = useCallback(async () => {
     try {
@@ -105,6 +127,25 @@ export function useLiveState(): LiveState {
     return () => clearInterval(timer);
   }, [refresh]);
 
+  /**
+   * Recarrega só a carteira, e no máximo uma vez por rajada.
+   *
+   * Um preenchimento em partes produz vários avisos de operação em poucos
+   * milissegundos. Sem a janela, cada um deles viraria uma consulta à
+   * carteira — que é a mais cara das rotas, porque precisa de preço para toda
+   * posição aberta.
+   */
+  const agendarCarteira = useCallback(() => {
+    if (equityTimerRef.current !== null) return;
+    equityTimerRef.current = window.setTimeout(() => {
+      equityTimerRef.current = null;
+      void api
+        .equity()
+        .then((value) => setEquity(value))
+        .catch(() => undefined);
+    }, 600);
+  }, []);
+
   useEffect(() => {
     const source = new EventSource('/api/stream');
     sourceRef.current = source;
@@ -141,6 +182,29 @@ export function useLiveState(): LiveState {
         const open = trade.status === 'PENDING' || trade.status === 'OPEN';
         return open ? [trade, ...rest] : rest;
       });
+      // a carteira é do servidor: exposição e capital preso mudaram junto com
+      // a operação, e esperar o próximo relógio deixaria a lista de posições
+      // discordando da linha que acabou de chegar
+      const assinatura = assinaturaFinanceira(trade);
+      if (assinaturasRef.current.get(trade.id) !== assinatura) {
+        if (trade.status === 'CLOSED' || trade.status === 'CANCELLED') {
+          assinaturasRef.current.delete(trade.id);
+        } else {
+          assinaturasRef.current.set(trade.id, assinatura);
+        }
+        agendarCarteira();
+      }
+    });
+    /*
+     * Saldo empurrado pelo servidor.
+     *
+     * Antes o número do topo só se mexia na volta de 15 segundos: a ordem
+     * executava, o dinheiro saía da conta na Binance, e a tela continuava
+     * mostrando o saldo de antes por tempo suficiente para alguém concluir
+     * que a ordem não tinha saído.
+     */
+    source.addEventListener('balance', (event) => {
+      setBalance(JSON.parse((event as MessageEvent).data) as AccountBalanceResponse);
     });
     source.addEventListener('context', (event) => {
       setContext(JSON.parse((event as MessageEvent).data) as MarketContext);
@@ -154,8 +218,10 @@ export function useLiveState(): LiveState {
     return () => {
       source.close();
       sourceRef.current = null;
+      if (equityTimerRef.current !== null) window.clearTimeout(equityTimerRef.current);
+      equityTimerRef.current = null;
     };
-  }, [refresh]);
+  }, [refresh, agendarCarteira]);
 
   const dismissAlert = useCallback((id: string) => {
     setAlerts((current) => current.filter((alert) => alert.id !== id));

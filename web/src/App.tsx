@@ -302,7 +302,9 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
           />
         ) : null}
         {tab === 'DIAGNOSTICO' ? <Diagnostico /> : null}
-        {tab === 'HISTORICO' ? <History /> : null}
+        {/* os preços vivos entram: sem eles a carteira só se mexia a cada
+            5 segundos, enquanto o radar ao lado andava a cada tique */}
+        {tab === 'HISTORICO' ? <History prices={live.prices} /> : null}
         {tab === 'DESEMPENHO' ? <Performance /> : null}
         {tab === 'AJUSTES' ? (
           <Settings onChanged={() => void live.refresh()} onLoggedOut={onLoggedOut} />

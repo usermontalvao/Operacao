@@ -86,7 +86,27 @@ export function tradingRoutes(context: ApiContext): Router {
         response.status(404).json({ error: 'Setup não encontrado ou já encerrado' });
         return;
       }
-      response.json(await context.execution.preview(parsed.data, setup));
+      /*
+       * A recusa tem de chegar com o nome dela.
+       *
+       * Sem este try, TODA falha do preview virava 500 "Erro interno —
+       * verifique os logs do servidor": a trava de risco que recusou, a chave
+       * sem permissão de futuros, o saldo que a corretora não devolveu. O
+       * usuário clicava em comprar e recebia uma frase que não diz nada e não
+       * sugere nada, com o motivo verdadeiro visível só para quem tem o
+       * terminal do servidor aberto ao lado.
+       */
+      try {
+        response.json(await context.execution.preview(parsed.data, setup));
+      } catch (error) {
+        if (error instanceof ExecutionError) {
+          response.status(error.status).json({ error: error.message });
+          return;
+        }
+        response.status(503).json({
+          error: `Não foi possível montar a ordem: ${(error as Error).message}`,
+        });
+      }
     }),
   );
 

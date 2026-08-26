@@ -5,7 +5,7 @@ import { feeFor, netPnl } from '../../core/risk/costs.ts';
 import { nextProtectiveStop } from '../../core/risk/stops.ts';
 import { getOrderById, getOrderList, getSymbolFilters } from '../binance/rest.ts';
 import { getFuturesOrderById } from '../binance/futures.ts';
-import type { UserDataStream } from '../binance/userStream.ts';
+import type { AccountStreams, MarketExecutionEvent } from '../binance/accountStreams.ts';
 import { averageFillPrice, type OrderExecutionEvent } from '../binance/userEvents.ts';
 import type { EventBus } from '../events.ts';
 import { logger } from '../logger.ts';
@@ -50,7 +50,7 @@ export class LiveTradeMonitor {
   private readonly market: MarketDataService;
   private readonly onClosed: (trade: Trade) => Promise<unknown>;
   private readonly protection: LiveProtection;
-  private readonly stream: UserDataStream | null;
+  private readonly streams: AccountStreams | null;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private stopped = true;
@@ -75,7 +75,7 @@ export class LiveTradeMonitor {
     market: MarketDataService,
     protection: LiveProtection,
     onClosed: (trade: Trade) => Promise<unknown>,
-    stream: UserDataStream | null = null,
+    streams: AccountStreams | null = null,
   ) {
     this.repository = repository;
     this.paper = paper;
@@ -85,13 +85,13 @@ export class LiveTradeMonitor {
     this.market = market;
     this.protection = protection;
     this.onClosed = onClosed;
-    this.stream = stream;
+    this.streams = streams;
   }
 
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    this.stream?.on('execution', (event: OrderExecutionEvent) => void this.onExecution(event));
+    this.streams?.on('execution', ({ event }: MarketExecutionEvent) => void this.onExecution(event));
     this.scheduleNextTick();
   }
 
@@ -101,10 +101,25 @@ export class LiveTradeMonitor {
     this.timer = null;
   }
 
-  /** O intervalo acompanha a saúde do fluxo: sem fluxo, a consulta acelera. */
+  /**
+   * O intervalo acompanha a saúde do fluxo: sem fluxo, a consulta acelera.
+   *
+   * A pergunta é por MODALIDADE, e essa distinção não é detalhe. Havia um
+   * fluxo só, de spot; com ele de pé o monitor relaxava para um minuto — e a
+   * posição de futuros, cujo fluxo nem existia, passava esse minuto inteiro
+   * parada em AGUARDANDO depois de a corretora já ter preenchido a ordem.
+   */
+  private coberto(): boolean {
+    const streams = this.streams;
+    if (!streams) return false;
+    const emAndamento = this.paper.getOpenTrades().filter((trade) => trade.mode !== 'PAPER');
+    if (emAndamento.length === 0) return true;
+    return emAndamento.every((trade) => streams.isLive(trade.market ?? 'SPOT'));
+  }
+
   private scheduleNextTick(): void {
     if (this.stopped) return;
-    const delay = this.stream?.isLive() ? POLL_WITH_STREAM_MS : POLL_WITHOUT_STREAM_MS;
+    const delay = this.coberto() ? POLL_WITH_STREAM_MS : POLL_WITHOUT_STREAM_MS;
     this.timer = setTimeout(() => {
       void this.tick().finally(() => this.scheduleNextTick());
     }, delay);
@@ -176,7 +191,17 @@ export class LiveTradeMonitor {
     if (trade.market === 'FUTURES') return this.syncFuturesTrade(trade);
     try {
       const lists = [...new Set([trade.clientOrderId, ...(trade.protectionListIds ?? [])])];
-      const orderIds = new Set<string>();
+      /*
+       * Os ids que já estão em mãos entram ANTES de perguntar pela lista.
+       *
+       * A lista era a única fonte de ids, então bastava um `getOrderList`
+       * falhar — lista expirada, -2013, um 429 momentâneo — para a volta
+       * inteira não olhar ordem nenhuma. A operação ficava em AGUARDANDO para
+       * sempre, com a ordem preenchida na corretora, e nada no log além de um
+       * debug. O id da entrada foi gravado no envio: ele não depende de a
+       * lista responder.
+       */
+      const orderIds = new Set<string>(trade.exchangeOrderIds);
       for (const listId of lists) {
         try {
           const list = await getOrderList(listId);

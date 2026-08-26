@@ -13,7 +13,8 @@ import { AutoTrader } from './services/autoTrader.ts';
 import { DecisionJournal } from './services/decisionJournal.ts';
 import { LiveTradeMonitor } from './services/liveTradeMonitor.ts';
 import { LiveProtection } from './services/liveProtection.ts';
-import { UserDataStream } from './binance/userStream.ts';
+import { AccountStreams, marketsWithAccount } from './binance/accountStreams.ts';
+import { BalanceFeed } from './services/balanceFeed.ts';
 import { buildCuratedWatchlist } from './services/curatedWatchlist.ts';
 import { AuditService } from './services/auditService.ts';
 import { ExecutionService } from './services/executionService.ts';
@@ -31,6 +32,19 @@ import { requireSession, throttle } from './auth/middleware.ts';
 import { prioritizedFocus } from './services/focus.ts';
 import { UniverseService } from './services/universeService.ts';
 import { NewsService } from './services/newsService.ts';
+
+/**
+ * Nenhuma mensagem de erro sai daqui carregando credencial.
+ *
+ * Hoje as frases da corretora não trazem a URL assinada — mas a distância
+ * entre "não traz" e "não pode trazer" é justamente o que faz uma chave
+ * vazar num dia em que alguém mudou o formato do erro lá fora.
+ */
+function semSegredo(mensagem: string): string {
+  return mensagem
+    .replace(/signature=[A-Fa-f0-9]+/g, 'signature=<oculto>')
+    .replace(/apiKey=[\w-]+/gi, 'apiKey=<oculto>');
+}
 
 async function main(): Promise<void> {
   const store = await createRepository();
@@ -75,7 +89,7 @@ async function main(): Promise<void> {
   );
 
   // fluxo da conta: a corretora avisa a execução em vez de sermos nós a perguntar
-  const userStream = new UserDataStream();
+  const accounts = new AccountStreams();
   const protection = new LiveProtection(audit, settings);
   const liveMonitor = new LiveTradeMonitor(
     repository,
@@ -86,8 +100,40 @@ async function main(): Promise<void> {
     market,
     protection,
     (trade: Trade) => journal.record(trade),
-    userStream,
+    accounts,
   );
+
+  const balanceFeed = new BalanceFeed(execution, settings, bus);
+  const alinharContas = (): void => {
+    if (store.degraded) return;
+    const { mode, market: modalidade } = settings.get();
+    accounts.sync(mode, marketsWithAccount(modalidade, paper.getOpenTrades()));
+  };
+
+  /*
+   * O saldo do topo deixa de esperar o relógio de 15 segundos da tela.
+   *
+   * Dinheiro muda em dois momentos: quando a corretora avisa (execução ou
+   * mudança de saldo) e quando uma operação muda de estado aqui dentro
+   * (ordem enviada prende, preenchimento gasta, encerramento devolve). O
+   * `trade` cobre o motor de papel, a execução, o monitor e o encerramento de
+   * uma vez só, porque todos passam pelo mesmo barramento.
+   */
+  accounts.on('balance', () => balanceFeed.schedule());
+  accounts.on('execution', () => balanceFeed.schedule());
+  bus.observe((event) => {
+    if (event.type === 'trade' && balanceFeed.mexeuNoDinheiro(event.payload)) {
+      balanceFeed.schedule();
+      // posição nova em outra modalidade pede o fluxo daquela modalidade
+      alinharContas();
+    }
+    // trocar de conta ou de modalidade refaz os fluxos: a chave pertence à
+    // rede em que nasceu, e o fluxo aberto na anterior falaria da conta errada
+    if (event.type === 'settings') {
+      alinharContas();
+      balanceFeed.schedule();
+    }
+  });
 
   // o ambiente segue o modo: PAPER e LIVE usam produção, TESTNET usa o testnet
   setActiveEnvironment(environmentForMode(settings.get().mode, settings.get().market).name);
@@ -181,9 +227,22 @@ async function main(): Promise<void> {
     });
   }
 
-  app.use((error: Error, _request: Request, response: Response, _next: NextFunction) => {
-    logger.error('Erro não tratado na API', { error: error.message });
-    response.status(500).json({ error: 'Erro interno — verifique os logs do servidor' });
+  /*
+   * O erro chega com nome, caminho e pilha.
+   *
+   * "Erro interno — verifique os logs do servidor" é uma frase que só serve a
+   * quem está com o servidor aberto na frente. Quem opera vê a tela, e a tela
+   * dizia o equivalente a "deu erro". Este painel é de uma pessoa só e atrás
+   * de login: a mensagem verdadeira pode aparecer nela — e a pilha, que é o
+   * que localiza a linha, vai para o log.
+   */
+  app.use((error: Error, request: Request, response: Response, _next: NextFunction) => {
+    logger.error('Erro não tratado na API', {
+      rota: `${request.method} ${request.path}`,
+      error: error.message,
+      stack: error.stack,
+    });
+    response.status(500).json({ error: `Erro no servidor: ${semSegredo(error.message)}` });
   });
 
   const server = app.listen(config.port, config.host, () => {
@@ -247,14 +306,12 @@ async function main(): Promise<void> {
     universe.start();
     news.start();
     liveMonitor.start();
-    // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não há
-    // ordem na corretora para acompanhar
-    if (
-      settings.get().mode !== 'PAPER' &&
-      environmentForMode(settings.get().mode, settings.get().market).hasCredentials
-    ) {
-      userStream.start();
-    }
+    // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não
+    // há ordem na corretora para acompanhar. Quem decide é `alinharContas`, e
+    // ele volta a ser chamado a cada troca de modo, modalidade ou operação —
+    // antes isto acontecia uma vez só, no boot, e quem começava em DEMO e
+    // passava para a conta real ficava o resto da sessão sem fluxo nenhum
+    alinharContas();
   }
 
   const shutdown = (): void => {
@@ -263,7 +320,7 @@ async function main(): Promise<void> {
     universe.stop();
     news.stop();
     liveMonitor.stop();
-    void userStream.stop();
+    void accounts.stop();
     market.stop();
     clearInterval(heartbeat);
     clearInterval(floodSweeper);

@@ -84,6 +84,13 @@ export interface EnvironmentEndpoints {
    * só serve dados públicos, e um listenKey apontado para lá nunca recebe nada.
    */
   userWsBase: string;
+  /**
+   * WebSocket API — hoje o ÚNICO caminho para a chave do fluxo de conta em
+   * spot. A Binance removeu `POST /api/v3/userDataStream`: o endereço
+   * responde 410 Gone, em HTML, sem código de erro nenhum. Futuros continua
+   * com o endpoint REST próprio e não usa isto.
+   */
+  wsApiBase: string;
   hasCredentials: boolean;
 }
 
@@ -96,6 +103,7 @@ export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
     tradeRestBase: 'https://api.binance.com',
     wsBase: 'wss://data-stream.binance.vision',
     userWsBase: 'wss://stream.binance.com:9443',
+    wsApiBase: 'wss://ws-api.binance.com:443/ws-api/v3',
     hasCredentials: !!parsed.BINANCE_API_KEY && !!parsed.BINANCE_API_SECRET,
   },
   testnet: {
@@ -106,6 +114,7 @@ export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
     tradeRestBase: 'https://testnet.binance.vision',
     wsBase: 'wss://stream.testnet.binance.vision',
     userWsBase: 'wss://stream.testnet.binance.vision',
+    wsApiBase: 'wss://ws-api.testnet.binance.vision/ws-api/v3',
     hasCredentials: !!parsed.BINANCE_TESTNET_API_KEY && !!parsed.BINANCE_TESTNET_API_SECRET,
   },
   'futures-production': {
@@ -118,6 +127,8 @@ export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
     tradeRestBase: 'https://fapi.binance.com',
     wsBase: 'wss://fstream.binance.com',
     userWsBase: 'wss://fstream.binance.com',
+    // futuros mantém a chave no REST (`/fapi/v1/listenKey`), que segue de pé
+    wsApiBase: '',
     hasCredentials:
       (!!parsed.BINANCE_FUTURES_API_KEY && !!parsed.BINANCE_FUTURES_API_SECRET) ||
       (!!parsed.BINANCE_API_KEY && !!parsed.BINANCE_API_SECRET),
@@ -130,6 +141,7 @@ export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
     tradeRestBase: 'https://testnet.binancefuture.com',
     wsBase: 'wss://fstream.binancefuture.com',
     userWsBase: 'wss://fstream.binancefuture.com',
+    wsApiBase: '',
     hasCredentials:
       !!parsed.BINANCE_FUTURES_TESTNET_API_KEY && !!parsed.BINANCE_FUTURES_TESTNET_API_SECRET,
   },

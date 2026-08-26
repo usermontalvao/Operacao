@@ -27,6 +27,15 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Profundidade contida no topo: separa o cockpit do conteúdo sem criar uma
+ * faixa brilhante ou competir com os números do produto. */
+.app-header {
+  background-image:
+    radial-gradient(circle at 50% -120%, rgba(22, 199, 132, 0.075), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 60%);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }

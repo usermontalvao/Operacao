@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
-import type { ConnectionState } from '../../core/types.ts';
+import type { ConnectionState, MarketKind } from '../../core/types.ts';
 import { logger } from '../logger.ts';
 import { closeListenKey, createListenKey, environmentFor, keepAliveListenKey } from './rest.ts';
 import { parseOrderEvent, type OrderExecutionEvent } from './userEvents.ts';
@@ -20,6 +20,11 @@ const MAX_BACKOFF_MS = 60_000;
  * tempo em que o stop de proteção não sobe e a posição fica sem dono. Aqui a
  * corretora avisa no instante do negócio; a consulta continua existindo, mas
  * como reconciliação, não como fonte principal.
+ *
+ * Um fluxo por MODALIDADE. Spot e futuros são duas contas com dois endereços
+ * e duas chaves: um fluxo só, apontado para spot, deixava toda execução de
+ * futuros invisível — e pior, deixava o monitor achar que estava bem servido
+ * de notícia e relaxar o ritmo da conferência.
  */
 export class UserDataStream extends EventEmitter {
   private socket: WebSocket | null = null;
@@ -31,6 +36,16 @@ export class UserDataStream extends EventEmitter {
   private healthTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private stopped = true;
+  private readonly market: MarketKind;
+
+  constructor(market: MarketKind = 'SPOT') {
+    super();
+    this.market = market;
+  }
+
+  getMarket(): MarketKind {
+    return this.market;
+  }
 
   getStatus(): ConnectionState {
     return this.status;
@@ -72,9 +87,12 @@ export class UserDataStream extends EventEmitter {
     this.listenKey = null;
     if (key) {
       try {
-        await closeListenKey(key);
+        await closeListenKey(key, this.market);
       } catch (error) {
-        logger.debug('Falha ao encerrar listenKey', { error: (error as Error).message });
+        logger.debug('Falha ao encerrar listenKey', {
+          modalidade: this.market,
+          error: (error as Error).message,
+        });
       }
     }
     this.setStatus('OFFLINE');
@@ -88,18 +106,21 @@ export class UserDataStream extends EventEmitter {
     try {
       // chave nova a cada conexão: reaproveitar chave de sessão morta é a
       // forma mais silenciosa de ficar com um socket que nunca recebe nada
-      key = await createListenKey();
+      key = await createListenKey(this.market);
     } catch (error) {
-      logger.warn('Não foi possível abrir o fluxo da conta', { error: (error as Error).message });
+      logger.warn('Não foi possível abrir o fluxo da conta', {
+        modalidade: this.market,
+        error: (error as Error).message,
+      });
       this.scheduleReconnect();
       return;
     }
     this.listenKey = key;
 
-    // a chave veio do endpoint de SPOT; o socket tem de ser o de spot também.
-    // Com o painel em futuros, `getActiveEnvironment()` devolvia o host de
-    // futuros e o fluxo abria contra um endereço que nunca reconheceria a chave
-    const url = `${environmentFor('SPOT').userWsBase}/ws/${key}`;
+    // a chave e o socket têm de ser da MESMA modalidade: uma chave de spot
+    // aberta contra o host de futuros (ou o contrário) conecta, fica muda e
+    // nunca entrega uma execução — falha que não dá erro, só silêncio
+    const url = `${environmentFor(this.market).userWsBase}/ws/${key}`;
     const socket = new WebSocket(url);
     this.socket = socket;
 
@@ -107,7 +128,7 @@ export class UserDataStream extends EventEmitter {
       this.attempt = 0;
       this.lastSignalAt = Date.now();
       this.setStatus('LIVE');
-      logger.info('Fluxo da conta conectado');
+      logger.info('Fluxo da conta conectado', { modalidade: this.market });
     });
     socket.on('ping', () => {
       this.lastSignalAt = Date.now();
@@ -117,7 +138,7 @@ export class UserDataStream extends EventEmitter {
       this.handle(data);
     });
     socket.on('error', (error: Error) => {
-      logger.warn('Erro no fluxo da conta', { error: error.message });
+      logger.warn('Erro no fluxo da conta', { modalidade: this.market, error: error.message });
     });
     socket.on('close', () => {
       if (this.socket === socket) this.socket = null;
@@ -148,9 +169,10 @@ export class UserDataStream extends EventEmitter {
     const key = this.listenKey;
     if (!key || this.stopped) return;
     try {
-      await keepAliveListenKey(key);
+      await keepAliveListenKey(key, this.market);
     } catch (error) {
       logger.warn('Renovação do listenKey falhou — reconectando', {
+        modalidade: this.market,
         error: (error as Error).message,
       });
       this.socket?.close();
@@ -160,7 +182,9 @@ export class UserDataStream extends EventEmitter {
   private checkHealth(): void {
     if (this.stopped || !this.socket) return;
     if (Date.now() - this.lastSignalAt <= SILENCE_LIMIT_MS) return;
-    logger.warn('Fluxo da conta silencioso — derrubando para reconectar');
+    logger.warn('Fluxo da conta silencioso — derrubando para reconectar', {
+      modalidade: this.market,
+    });
     this.socket.close();
   }
 

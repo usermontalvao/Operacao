@@ -3,9 +3,22 @@ import type {
   AlertRecord,
   ConnectionState,
   MarketContext,
+  MarketKind,
   Trade,
   TradeSetup,
+  TradingMode,
 } from '../core/types.ts';
+
+/** O saldo como a tela o desenha — o mesmo corpo de `GET /account/balance`. */
+export interface BalanceEventPayload {
+  capital: number;
+  available: number;
+  source: string;
+  currency: 'USDT';
+  brlRate: number | null;
+  mode: TradingMode;
+  market: MarketKind;
+}
 
 export type ServerEvent =
   | { type: 'prices'; payload: Record<string, number> }
@@ -15,6 +28,7 @@ export type ServerEvent =
   | { type: 'trade'; payload: Trade }
   | { type: 'context'; payload: MarketContext }
   | { type: 'status'; payload: { connection: ConnectionState; binanceAvailable: boolean } }
+  | { type: 'balance'; payload: BalanceEventPayload }
   | { type: 'settings'; payload: unknown };
 
 /**
@@ -25,6 +39,21 @@ export class EventBus {
   private clients = new Set<Response>();
   private pendingPrices = new Map<string, number>();
   private priceTimer: NodeJS.Timeout | null = null;
+  private observers = new Set<(event: ServerEvent) => void>();
+
+  /**
+   * Quem quiser reagir a um evento sem ser o navegador.
+   *
+   * Serve a uma regra só, mas ela vale a existência disto: TODA mudança de
+   * operação mexe no dinheiro. Ordem enviada prende saldo, preenchimento
+   * gasta, encerramento devolve. Como o barramento é o funil por onde passam
+   * o motor de papel, a execução, o monitor e o encerramento, escutar aqui
+   * cobre os quatro de uma vez — em vez de lembrar de pedir o saldo de novo
+   * em cada um deles, e esquecer em um.
+   */
+  observe(listener: (event: ServerEvent) => void): void {
+    this.observers.add(listener);
+  }
 
   subscribe(response: Response): void {
     response.writeHead(200, {
@@ -47,6 +76,7 @@ export class EventBus {
     for (const client of this.clients) {
       client.write(payload);
     }
+    for (const observer of this.observers) observer(event);
   }
 
   /** Preços são agrupados em uma janela de 1s para não inundar o navegador. */
