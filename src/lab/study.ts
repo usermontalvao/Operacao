@@ -1,5 +1,6 @@
 import { formatTable, groupBy, scoreBucket, summarize, type Stats } from '../core/backtest/metrics.ts';
 import type { Outcome, Signal } from '../core/backtest/types.ts';
+import type { Timeframe } from '../core/types.ts';
 import { automaticStrategyRejectionReason } from '../core/strategy/automationPolicy.ts';
 import { BASE_POLICY, buildBtcContexts, collectSignals, labSettings, loadDataset, simulateAll, type Dataset } from './engine.ts';
 import { topUsdtSymbols } from './klineCache.ts';
@@ -14,6 +15,7 @@ export interface Study {
   signals: Signal[];
   settings: ReturnType<typeof labSettings>;
   splitAt: number;
+  trigger: Timeframe;
 }
 
 /** Carrega dados, reproduz a varredura e devolve tudo pronto para as análises. */
@@ -21,23 +23,24 @@ export async function prepare(): Promise<Study> {
   const count = Number(arg('symbols', '40'));
   const days = Number(arg('days', '540'));
   const trainFraction = Number(arg('train', '0.65'));
+  const trigger = arg('tf', '1h') as Timeframe;
 
   const universe = await topUsdtSymbols(count, 3_000_000);
   const dataset = await loadDataset(universe.map((item) => item.symbol), days);
   const contextAt = await buildBtcContexts(days);
   const settings = labSettings();
-  const signals = collectSignals(dataset, { trigger: '1h', settings, contextAt });
+  const signals = collectSignals(dataset, { trigger, settings, contextAt });
 
   const first = signals[0]?.openTime ?? 0;
   const last = signals[signals.length - 1]?.openTime ?? 0;
   const splitAt = first + (last - first) * trainFraction;
 
   console.log(
-    `${dataset.length} pares | ${signals.length} sinais | ` +
+    `${dataset.length} pares | gatilho ${trigger} | ${signals.length} sinais | ` +
       `treino até ${new Date(splitAt).toISOString().slice(0, 10)} | ` +
       `teste de ${new Date(splitAt).toISOString().slice(0, 10)} a ${new Date(last).toISOString().slice(0, 10)}`,
   );
-  return { dataset, signals, settings, splitAt };
+  return { dataset, signals, settings, splitAt, trigger };
 }
 
 export function robotFilter(outcomes: Outcome[], minScore = 90, minRR = 2.5): Outcome[] {
@@ -69,12 +72,12 @@ export function breakdown(label: string, outcomes: Outcome[]): Stats[] {
 
 async function main(): Promise<void> {
   const study = await prepare();
-  const { dataset, signals, settings, splitAt } = study;
+  const { dataset, signals, settings, splitAt, trigger } = study;
 
   console.log('\n########## 1. QUANTO A CONVENÇÃO DE INTRABARRA MUDA O RESULTADO ##########');
   console.log('Se a conclusão inverte entre as duas linhas, não há conclusão — só ruído.\n');
-  const pessimistic = simulateAll(signals, dataset, '1h', BASE_POLICY, settings, undefined, 'STOP_FIRST');
-  const optimistic = simulateAll(signals, dataset, '1h', BASE_POLICY, settings, undefined, 'TARGET_FIRST');
+  const pessimistic = simulateAll(signals, dataset, trigger, BASE_POLICY, settings, undefined, 'STOP_FIRST');
+  const optimistic = simulateAll(signals, dataset, trigger, BASE_POLICY, settings, undefined, 'TARGET_FIRST');
   console.log(
     formatTable([
       summarize('stop primeiro', pessimistic),

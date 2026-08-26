@@ -10,7 +10,16 @@ import type { ScannerService } from './scannerService.ts';
 import type { SettingsService } from './settingsService.ts';
 
 const TICK_MS = 8_000;
-const BATCH_SIZE = 20;
+/**
+ * Quarenta pares por lote mantêm a pressão previsível na API sem deixar o
+ * sinal vencer na fila. Cada par pede três séries no cenário atual e cada
+ * chamada de klines pesa 2: são 240 de peso por lote, espaçados em 8 s.
+ *
+ * O ganho importante vem de buscar os PARES em paralelo. Os timeframes de
+ * cada par continuam em sequência, então a Binance recebe no máximo quarenta
+ * chamadas de klines de uma vez, não cento e vinte.
+ */
+const BATCH_SIZE = 40;
 const KLINE_LIMIT = 300;
 /** Mínimo de candles para os indicadores fazerem sentido. */
 const MIN_CANDLES = 60;
@@ -54,6 +63,8 @@ export class UniverseService {
 
   start(): void {
     if (this.timer) return;
+    // Não desperdiça os primeiros oito segundos depois de subir/reiniciar.
+    void this.tick();
     this.timer = setInterval(() => void this.tick(), TICK_MS);
     this.timer.unref?.();
   }
@@ -101,8 +112,8 @@ export class UniverseService {
       const batch = this.liquid.slice(this.cursor, this.cursor + BATCH_SIZE);
       const timeframes = this.requiredTimeframes();
 
-      for (const symbol of batch) {
-        const analysis = await analyzeSymbol(symbol, timeframes);
+      const analyses = await analyzeSymbols(batch, timeframes);
+      for (const analysis of analyses) {
         if (analysis) await this.scanner.ingest(analysis);
         this.scannedThisCycle += 1;
       }
@@ -185,6 +196,23 @@ export function selectUniverseSymbols(
 }
 
 export type KlineFetcher = (symbol: string, interval: string, limit: number) => Promise<RawKline[]>;
+
+/**
+ * Faz o trabalho de rede do lote em paralelo e deixa a ingestão fora daqui.
+ * A ingestão continua sequencial no serviço para não criar corridas no mapa
+ * de setups nem uma rajada de gravações no Supabase.
+ */
+export async function analyzeSymbols(
+  symbols: string[],
+  timeframes: Timeframe[],
+  fetchKlines: KlineFetcher = getKlines,
+): Promise<Array<SymbolAnalysis | null>> {
+  return Promise.all(
+    symbols.map((symbol) =>
+      analyzeSymbol(symbol, timeframes, fetchKlines).catch(() => null),
+    ),
+  );
+}
 
 /**
  * Analisa um par pelo REST. O buscador de candles entra por parâmetro para que

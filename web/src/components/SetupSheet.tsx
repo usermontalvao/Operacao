@@ -48,12 +48,12 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
       onClick={onClose}
     >
       <div
-        className="max-h-[95vh] w-full max-w-5xl overflow-y-auto rounded-t-2xl border border-terminal-border bg-terminal-panel p-5 sm:rounded-2xl sm:p-6"
+        className="max-h-[92vh] w-full max-w-6xl overflow-y-auto overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start justify-between gap-4">
+        <header className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
+            <h2 className="flex flex-wrap items-center gap-1.5 text-lg font-semibold">
               <span>
                 {setup.symbol.replace('USDT', '')}
                 <span className="text-terminal-muted">/USDT</span>
@@ -83,7 +83,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           </button>
         </header>
 
-        <div className="mt-4">
+        <div className="mt-3">
           <DecisionPanel
             decision={decision}
             entryLow={setup.entryLow}
@@ -92,13 +92,14 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           />
         </div>
 
-        <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-          <section className="order-2 space-y-5 lg:order-1">
+        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <section className="order-2 space-y-3 lg:order-1">
             <PriceChart
               symbol={setup.symbol}
               timeframe={setup.timeframe}
               plan={setup}
               livePrice={livePrice}
+              height={270}
             />
 
             <div>
@@ -125,7 +126,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
                 <span>{showBreakdown ? '−' : '+'}</span>
               </button>
               {showBreakdown ? (
-                <div className="mt-2 space-y-1.5 rounded-xl border border-terminal-border bg-terminal-panel-soft p-3">
+                <div className="mt-1.5 space-y-1 rounded-lg border border-terminal-border bg-terminal-panel-soft px-2.5 py-2">
                   {setup.scoreBreakdown.components.map((component) => (
                     <ScoreRow
                       key={component.key}
@@ -153,11 +154,11 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
             </div>
           </section>
 
-          <aside className="order-1 space-y-4 lg:order-2">
-            <div className="flex items-center justify-between rounded-xl border border-terminal-border bg-terminal-panel-soft p-4">
+          <aside className="order-1 space-y-2.5 lg:order-2">
+            <div className="flex items-center justify-between rounded-lg border border-terminal-border bg-terminal-panel-soft p-2.5">
               <div>
                 <div className="text-[10px] uppercase tracking-wide text-terminal-muted">Preço agora</div>
-                <div className="text-3xl font-semibold tabular">{price(current)}</div>
+                <div className="text-2xl font-semibold tabular">{price(current)}</div>
                 <div className="mt-0.5 text-xs text-terminal-muted tabular">
                   {distance === 0 ? 'dentro da zona de entrada' : `${percent(distance)} da zona`}
                 </div>
@@ -198,7 +199,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
             </dl>
 
             {setup.extended ? (
-              <div className="rounded-xl border border-warn/40 bg-warn/10 p-3 text-xs text-warn">
+              <div className="rounded-lg border border-warn/40 bg-warn/10 px-2.5 py-2 text-[11px] text-warn">
                 <strong>Esticado — aguardar pullback.</strong>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   {setup.extensionReasons.map((reason) => (
@@ -209,7 +210,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
             ) : null}
 
             {setup.invalidationNote ? (
-              <p className="rounded-xl border border-bear/40 bg-bear/10 p-3 text-xs text-bear">
+              <p className="rounded-lg border border-bear/40 bg-bear/10 px-2.5 py-2 text-[11px] text-bear">
                 {setup.invalidationNote}
               </p>
             ) : null}
@@ -228,7 +229,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
                 type="button"
                 onClick={() => onBuy(setup)}
                 disabled={dead || inTrade}
-                className={`w-full rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
+                className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold disabled:opacity-40 ${sideButton(
                   setup.side,
                 )}`}
               >
@@ -280,7 +281,7 @@ function Field({
 }) {
   return (
     <div
-      className={`rounded-xl border border-terminal-border bg-terminal-panel-soft p-3 ${
+      className={`rounded-lg border border-terminal-border bg-terminal-panel-soft px-2.5 py-2 ${
         wide ? 'col-span-2' : ''
       }`}
     >

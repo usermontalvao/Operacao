@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type {
+  ChartInterval,
   DashboardSnapshot,
   EntryDecision,
   MarketKind,
@@ -9,7 +10,7 @@ import type {
   TradeSetup,
   TradingMode,
 } from '../../core/types.ts';
-import { TIMEFRAMES } from '../../core/types.ts';
+import { CHART_INTERVALS, TIMEFRAMES } from '../../core/types.ts';
 import { environmentForMode } from '../config.ts';
 import { getKlines, getUsdtBrlRate, parseKline, searchSymbols } from '../binance/rest.ts';
 import { liveAutoTradeDenial } from '../services/executionService.ts';
@@ -100,13 +101,16 @@ export function marketRoutes(context: ApiContext): Router {
   router.get(
     '/candles/:symbol/:timeframe',
     asyncHandler(async (request, response) => {
-      const timeframe = request.params.timeframe as Timeframe;
-      if (!TIMEFRAMES.includes(timeframe)) {
-        response.status(400).json({ error: 'Timeframe inválido' });
+      const timeframe = request.params.timeframe as ChartInterval;
+      if (!CHART_INTERVALS.includes(timeframe)) {
+        response.status(400).json({ error: 'Tempo gráfico inválido' });
         return;
       }
       const symbol = String(request.params.symbol).toUpperCase();
-      const cached = context.market.getCandles(symbol, timeframe);
+      // só os tempos do motor têm stream vivo; 1m, 3m, 5m e 30m existem para
+      // olhar, e vêm do REST na hora em que alguém pede
+      const doMotor = (TIMEFRAMES as readonly string[]).includes(timeframe);
+      const cached = doMotor ? context.market.getCandles(symbol, timeframe as Timeframe) : [];
       if (cached.length > 0) {
         response.json({ symbol, timeframe, candles: cached.slice(-300), source: 'stream' });
         return;

@@ -99,7 +99,7 @@ export class PaperTradingEngine {
       trade.closedAt = new Date().toISOString();
       trade.updatedAt = trade.closedAt;
       await this.persist(trade);
-      await this.audit.record({
+      this.audit.record({
         action: 'PAPER_TRADE_CANCELLED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -141,7 +141,7 @@ export class PaperTradingEngine {
       trade.closeReason = reason;
       trade.closedAt = new Date().toISOString();
       await this.persist(trade);
-      await this.audit.record({
+      this.audit.record({
         action: 'PAPER_TRADE_CANCELLED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -162,7 +162,7 @@ export class PaperTradingEngine {
     trade.remainingQuantity = 0;
     trade.closedAt = new Date().toISOString();
     await this.persist(trade);
-    await this.audit.record({
+    this.audit.record({
       action: 'PAPER_TRADE_CLOSED_MANUALLY',
       mode: trade.mode,
       symbol: trade.symbol,
@@ -187,7 +187,7 @@ export class PaperTradingEngine {
       const fillPrice = trade.entryPrice;
       this.applyEntryFill(trade, fillPrice, trade.requestedQuantity);
       changed = true;
-      await this.audit.record({
+      this.audit.record({
         action: 'PAPER_TRADE_FILLED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -239,7 +239,7 @@ export class PaperTradingEngine {
       trade.status = 'CLOSED';
       trade.remainingQuantity = 0;
       trade.closedAt = new Date().toISOString();
-      await this.audit.record({
+      this.audit.record({
         action: 'PAPER_TRADE_LIQUIDATED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -328,7 +328,7 @@ export class PaperTradingEngine {
       trade.status = 'CLOSED';
       trade.closedAt = new Date().toISOString();
       trade.remainingQuantity = 0;
-      await this.audit.record({
+      this.audit.record({
         action: 'PAPER_TRADE_CLOSED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -393,7 +393,7 @@ export class PaperTradingEngine {
     const previousEntry = trade.entryPrice;
     this.applyEntryFill(trade, price, quantity);
     trade.riskAmount = round(newPerUnitRisk * quantity, 2);
-    await this.audit.record({
+    this.audit.record({
       action: 'PAPER_MANUAL_FILLED_AT_MARKET',
       mode: trade.mode,
       symbol: trade.symbol,
@@ -470,7 +470,7 @@ export class PaperTradingEngine {
     const from = trade.stopLoss;
     trade.stopLoss = round(moved, 8);
     trade.protectiveStop = trade.stopLoss;
-    await this.audit.record({
+    this.audit.record({
       action: 'PROTECTIVE_STOP_MOVED',
       mode: trade.mode,
       symbol: trade.symbol,

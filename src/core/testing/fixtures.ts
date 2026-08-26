@@ -185,6 +185,7 @@ export function defaultTestSettings(overrides: Partial<AppSettings> = {}): AppSe
       requireInsideEntryZone: true,
       allowLive: false,
       liveArmedUntil: null,
+      liveArmedIndefinitely: false,
       maxNotionalPerTrade: 50,
     },
     guard: { ...DEFAULT_GUARD },

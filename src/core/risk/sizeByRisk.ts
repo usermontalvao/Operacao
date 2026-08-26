@@ -23,7 +23,8 @@ export type SizingLimit =
   | 'MAX_NOTIONAL'
   | 'AVAILABLE_BALANCE'
   | 'REQUESTED'
-  | 'EXCHANGE_STEP';
+  | 'EXCHANGE_STEP'
+  | 'EXCHANGE_MINIMUM';
 
 export interface RiskSizingInput {
   entryPrice: number;
@@ -43,6 +44,21 @@ export interface RiskSizingInput {
   sizeFactor?: number;
   /** passo de lote da corretora, quando conhecido */
   stepSize?: number;
+  /**
+   * Valor mínimo por ordem na corretora — PISO, não teto.
+   *
+   * Existe para um beco sem saída que só aparece em conta pequena: o
+   * orçamento de risco encolhe a posição para um valor abaixo do mínimo que a
+   * Binance aceita, e a ordem fica impossível. O painel dizia "bloqueada" sem
+   * caminho — o teto de risco é regra NOSSA e negociável, mas quem aparecia
+   * na tela era o mínimo da corretora, que é intransponível.
+   *
+   * Com o piso, a ordem sobe até o mínimo negociável e o risco extra vira o
+   * que ele sempre foi: uma trava de política, visível em número e liberável
+   * por confirmação. Só é informado em ordem MANUAL — o robô não tem
+   * autorização para estourar o próprio orçamento.
+   */
+  minNotional?: number;
   /** lado da posição; ausente = comprado */
   side?: Side;
   /**
@@ -144,6 +160,7 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
       MAX_POSITION_PERCENT: 0,
       MAX_NOTIONAL: 0,
       AVAILABLE_BALANCE: 0,
+      EXCHANGE_MINIMUM: 0,
       REQUESTED: 0,
       EXCHANGE_STEP: 0,
     },
@@ -184,6 +201,7 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
         ? input.requestedQuote / entryPrice
         : Infinity,
     EXCHANGE_STEP: Infinity,
+    EXCHANGE_MINIMUM: 0,
   };
 
   let boundBy: SizingLimit = 'RISK_BUDGET';
@@ -211,6 +229,30 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     const stepped = roundDownToStep(quantity, input.stepSize);
     quantity = stepped;
     allowedByLimit.EXCHANGE_STEP = stepped;
+  }
+
+  /*
+   * O piso da corretora entra DEPOIS de tudo, e para cima.
+   *
+   * É a única subida de tamanho neste cálculo, e ela é deliberada: abaixo
+   * deste valor não existe ordem, então a alternativa não é "arriscar menos",
+   * é "não operar". Subir arredonda para CIMA no passo de lote — para baixo
+   * cairia de novo abaixo do mínimo, que é o erro que o piso existe para
+   * evitar.
+   *
+   * O saldo continua mandando: se nem o mínimo cabe no que há disponível, a
+   * quantidade fica como estava e a ordem segue impossível — corretamente.
+   */
+  const piso = input.minNotional ?? 0;
+  if (piso > 0 && quantity * entryPrice < piso && available * leverage >= piso) {
+    const passo = input.stepSize !== undefined && input.stepSize > 0 ? input.stepSize : 0;
+    const bruto = piso / entryPrice;
+    const subido = passo > 0 ? Math.ceil(bruto / passo) * passo : bruto;
+    if (subido * entryPrice <= available * leverage) {
+      quantity = subido;
+      boundBy = 'EXCHANGE_MINIMUM';
+      allowedByLimit.EXCHANGE_MINIMUM = subido;
+    }
   }
 
   if (!(quantity > 0)) {

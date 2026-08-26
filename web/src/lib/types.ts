@@ -31,6 +31,7 @@ export type {
   SetupType,
   SetupVisualState,
   Timeframe,
+  ChartInterval,
   ScannerSettings,
   SetupEvidence,
   Side,

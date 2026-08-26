@@ -590,19 +590,43 @@ export async function getApiKeyPowers(
   }
 }
 
+/**
+ * Memória curtíssima do saldo.
+ *
+ * O caminho de uma ordem pergunta o saldo duas vezes: uma na prévia, para
+ * montar a conta que o usuário aprova, e outra na execução, para conferir que
+ * a conta ainda vale. São ~300 ms cada, separados por segundos — e o segundo
+ * pedido quase sempre recebe exatamente o mesmo número.
+ *
+ * Dois segundos é o prazo porque este cache NÃO pode atrasar a notícia que
+ * importa: o saldo depois de um preenchimento. Quem empurra o saldo para a
+ * tela chama `invalidateAccountCache()` antes de ler, então o número que o
+ * usuário vê continua vindo fresco da corretora.
+ */
+const ACCOUNT_CACHE_TTL_MS = 2_000;
+const accountCache = new Map<BinanceEnvironment, { at: number; value: AccountBalance[] }>();
+
+export function invalidateAccountCache(): void {
+  accountCache.clear();
+}
+
 export async function getAccountBalances(environmentName?: BinanceEnvironment): Promise<AccountBalance[]> {
   // sem ambiente pedido, o spot da rede atual: `/api/v3/account` não existe
   // em futuros, e cair no ambiente ativo levaria a consulta para o lugar errado
   const environment = environmentName ? ENVIRONMENTS[environmentName] : environmentFor('SPOT');
+  const cached = accountCache.get(environment.name);
+  if (cached && Date.now() - cached.at < ACCOUNT_CACHE_TTL_MS) return cached.value;
   const account = await signedRequest<{
     balances: Array<{ asset: string; free: string; locked: string }>;
     canTrade: boolean;
   }>('GET', '/api/v3/account', { omitZeroBalances: true }, environment);
-  return account.balances.map((balance) => ({
+  const balances = account.balances.map((balance) => ({
     asset: balance.asset,
     free: Number(balance.free),
     locked: Number(balance.locked),
   }));
+  accountCache.set(environment.name, { at: Date.now(), value: balances });
+  return balances;
 }
 
 export interface OrderResponse {
@@ -741,6 +765,32 @@ export async function marketSell(symbol: string, quantity: string, clientOrderId
 
 export async function getOrder(symbol: string, origClientOrderId: string): Promise<OrderResponse> {
   return signedRequest<OrderResponse>('GET', '/api/v3/order', { symbol, origClientOrderId });
+}
+
+export interface MyTrade {
+  id: number;
+  orderId: number;
+  price: string;
+  qty: string;
+  quoteQty: string;
+  commission: string;
+  commissionAsset: string;
+  time: number;
+  isBuyer: boolean;
+}
+
+/**
+ * Os negócios REALMENTE executados no par — a verdade da corretora.
+ *
+ * A reconciliação por ordem só enxerga ordem que este servidor lembra. Basta
+ * a proteção nascer e o id dela não ser gravado (ou alguém vender pelo app da
+ * Binance) para a posição sumir da conta sem o painel notar: ele segue
+ * mostrando aberta uma posição que já foi encerrada, e soma o valor dela ao
+ * patrimônio. Aqui a pergunta muda de "o que aconteceu com as ordens que eu
+ * conheço?" para "o que aconteceu neste par?".
+ */
+export async function getMyTrades(symbol: string, limit = 50): Promise<MyTrade[]> {
+  return signedRequest<MyTrade[]>('GET', '/api/v3/myTrades', { symbol, limit });
 }
 
 export async function getOrderById(symbol: string, orderId: string): Promise<OrderResponse> {

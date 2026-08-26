@@ -17,6 +17,7 @@ const AUTO: AutoTradeSettings = {
   requireInsideEntryZone: true,
   allowLive: false,
   liveArmedUntil: null,
+  liveArmedIndefinitely: false,
   maxNotionalPerTrade: 50,
 };
 

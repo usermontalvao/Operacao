@@ -4,10 +4,11 @@ import { useResource } from '../lib/resource.ts';
 import { buscarDesempenho, chaveDesempenho } from '../lib/telas.ts';
 import { PageSkeleton } from '../components/Skeleton.tsx';
 import type { PerformanceStats } from '../lib/types.ts';
-import { percent, price, usd, usdWithBrl } from '../lib/format.ts';
+import { percent, price, quantity, usd, usdWithBrl } from '../lib/format.ts';
 import { SymbolButton } from '../components/SymbolButton.tsx';
 import { EquityChart } from '../components/EquityChart.tsx';
 import { PeriodFilter, buildPeriod, periodQuery, type PeriodId } from '../components/PeriodFilter.tsx';
+import { growthInWindow } from '../../../src/core/analytics.ts';
 
 const REFRESH_MS = 5_000;
 
@@ -37,10 +38,23 @@ export function Performance() {
   if (error && !stats) return <p className="text-sm text-bear">{error}</p>;
   if (!stats || !equity) return <PageSkeleton blocos={2} />;
 
-  const growth =
-    equity.startingCapital > 0
-      ? ((equity.currentEquity - equity.startingCapital) / equity.startingCapital) * 100
-      : 0;
+  /*
+   * O número grande obedece ao filtro.
+   *
+   * Antes ele era sempre "desde o início": trocar para Ontem recortava o
+   * gráfico e deixava o percentual parado no mesmo valor. Um número que não
+   * responde ao controle ao lado dele é pior que nenhum número — parece
+   * resposta e não é.
+   */
+  const janela = growthInWindow({
+    points: equity.points,
+    startingCapital: equity.startingCapital,
+    currentEquity: equity.currentEquity,
+    from: period.from ? period.from.getTime() : null,
+    to: period.to ? period.to.getTime() : null,
+  });
+  const growth = janela.percent;
+  const rotuloDaJanela = periodId === 'TUDO' ? 'desde o início' : period.label.toLowerCase();
   const livePnl = equity.realizedPnl + equity.unrealizedPnl;
   const openPositions = equity.positions.filter((position) => position.status === 'OPEN');
   const pendingOrders = equity.positions.filter((position) => position.status === 'PENDING');
@@ -67,8 +81,21 @@ export function Performance() {
             <p className="mt-1 text-3xl font-semibold tabular">
               {usdWithBrl(equity.currentEquity, equity.brlRate)}
             </p>
-            <p className={`text-xs tabular ${growth >= 0 ? 'text-bull' : 'text-bear'}`}>
-              {percent(growth)} desde o início
+            <p
+              className={`text-xs tabular ${
+                !janela.hasData && periodId !== 'TUDO'
+                  ? 'text-terminal-muted'
+                  : growth >= 0
+                    ? 'text-bull'
+                    : 'text-bear'
+              }`}
+            >
+              {/* período sem operação encerrada não é 0% de resultado: é
+                  ausência de resultado, e dizer "0,00%" ali seria afirmar
+                  que se operou e empatou */}
+              {!janela.hasData && periodId !== 'TUDO'
+                ? `sem operação ${rotuloDaJanela}`
+                : `${percent(growth)} ${rotuloDaJanela}`}
             </p>
           </div>
           <PeriodFilter value={periodId} onChange={setPeriodId} />
@@ -103,6 +130,51 @@ export function Performance() {
         </div>
       </section>
 
+      {equity.holdings.length > 0 ? (
+        <section>
+          <SectionTitle title="Saldos Spot na Binance" />
+          <div className="overflow-x-auto rounded-xl border border-terminal-border">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead className="bg-terminal-panel-soft text-[10px] uppercase tracking-wide text-terminal-muted">
+                <tr>
+                  <Th>Ativo</Th>
+                  <ThRight>Quantidade</ThRight>
+                  <ThRight>Cotação</ThRight>
+                  <ThRight>Valor</ThRight>
+                </tr>
+              </thead>
+              <tbody>
+                {equity.holdings.map((holding) => (
+                  <tr key={holding.asset} className="border-t border-terminal-border">
+                    <Td>
+                      <span className="font-medium">{holding.asset}</span>
+                      {holding.locked > 0 ? (
+                        <span className="ml-1.5 text-[10px] text-warn">parte bloqueada</span>
+                      ) : null}
+                    </Td>
+                    <Td className="text-right tabular">{quantity(holding.quantity)}</Td>
+                    <Td className="text-right tabular">
+                      {holding.price === null ? 'sem par USDT' : price(holding.price)}
+                    </Td>
+                    <Td className="text-right tabular">
+                      {holding.value === null
+                        ? '—'
+                        : holding.value > 0 && holding.value < 0.01
+                          ? '< US$ 0,01'
+                          : usd(holding.value)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[11px] text-terminal-muted">
+            Inclui moedas e resíduos mantidos na carteira Spot. Ativos sem par direto em USDT são
+            exibidos sem estimativa de valor.
+          </p>
+        </section>
+      ) : null}
+
       <section>
         <SectionTitle title={`Desempenho · ${period.label.toLowerCase()}`} />
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -113,8 +185,18 @@ export function Performance() {
           <Metric label="Acerto" value={stats.closedTrades > 0 ? `${stats.winRate.toFixed(1)}%` : '—'} />
           <Metric
             label="Fator de lucro"
-            value={stats.profitFactor > 0 ? stats.profitFactor.toFixed(2) : '—'}
-            hint="quanto ganha para cada 1 que perde"
+            value={
+              stats.losses === 0 && stats.wins > 0
+                ? '∞'
+                : stats.profitFactor > 0
+                  ? stats.profitFactor.toFixed(2)
+                  : '—'
+            }
+            hint={
+              stats.losses === 0 && stats.wins > 0
+                ? 'ainda não houve operação perdedora'
+                : 'quanto ganha para cada 1 que perde'
+            }
           />
           <Metric
             label="Expectativa"

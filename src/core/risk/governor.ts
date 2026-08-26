@@ -40,6 +40,15 @@ export interface GuardSettings extends CostSettings {
   highVolatilitySizeFactor: number;
   /** silêncio obrigatório depois de uma perda, em minutos */
   lossCooldownMinutes: number;
+  /**
+   * Quantas perdas SEGUIDAS o descanso exige para armar.
+   *
+   * Com 1, toda perda isolada paralisa a operação por uma hora — e perder uma
+   * vez é o resultado esperado da maioria das entradas num sistema que acerta
+   * ~35%. O descanso existe para interromper uma MARÉ ruim, não para punir o
+   * funcionamento normal. Com 2 ou 3 ele volta a significar o que o nome diz.
+   */
+  minLossesForCooldown: number;
   /** R/R mínimo já descontadas taxa e escorregamento */
   minNetRiskReward: number;
   /** volume mínimo em 24h para o ativo ser operável */
@@ -89,6 +98,7 @@ export const DEFAULT_GUARD: GuardSettings = {
   blockWhenBtcBearish: true,
   highVolatilitySizeFactor: 0.5,
   lossCooldownMinutes: 60,
+  minLossesForCooldown: 2,
   minNetRiskReward: 1.8,
   minQuoteVolume24h: 5_000_000,
   breakevenAfterTarget1: true,
@@ -443,12 +453,28 @@ export function evaluateEntryGate(input: EntryGateInput): EntryGateResult {
     }
   }
 
-  if (guard.lossCooldownMinutes > 0 && snapshot.lastLossAt !== null) {
+  /*
+   * O descanso só arma depois de uma SEQUÊNCIA de perdas.
+   *
+   * Antes bastava uma. Num sistema que acerta ~35% das vezes, perder uma vez
+   * não é sinal de nada — é o caso mais comum —, e parar uma hora a cada
+   * perda isolada significa passar o dia parado por estar funcionando como
+   * previsto. O que merece pausa é a maré: duas, três seguidas.
+   */
+  const minimoParaDescanso = Math.max(guard.minLossesForCooldown ?? 1, 1);
+  if (
+    guard.lossCooldownMinutes > 0 &&
+    snapshot.lastLossAt !== null &&
+    snapshot.consecutiveLosses >= minimoParaDescanso
+  ) {
     const elapsed = now.getTime() - new Date(snapshot.lastLossAt).getTime();
     const window = guard.lossCooldownMinutes * 60_000;
     if (elapsed >= 0 && elapsed < window) {
       const left = Math.ceil((window - elapsed) / 60_000);
-      blockers.push(`Descanso pós-perda: faltam ${left} min`);
+      const desde = new Date(snapshot.lastLossAt).toISOString().slice(11, 16);
+      blockers.push(
+        `Descanso pós-perda: faltam ${left} min (${snapshot.consecutiveLosses} perdas seguidas, última às ${desde} UTC)`,
+      );
     }
   }
 

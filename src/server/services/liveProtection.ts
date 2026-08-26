@@ -167,7 +167,7 @@ export class LiveProtection {
       return { armed: false, kind: 'NONE', listIds, notes };
     }
 
-    await this.audit.record({
+    this.audit.record({
       action: 'LIVE_PROTECTION_ARMED',
       mode: trade.mode,
       symbol: trade.symbol,
@@ -275,7 +275,7 @@ export class LiveProtection {
       return { armed: false, kind: 'NONE', listIds: ids, notes };
     }
 
-    await this.audit.record({
+    this.audit.record({
       action: 'LIVE_PROTECTION_ARMED',
       mode: trade.mode,
       symbol: trade.symbol,
@@ -332,7 +332,7 @@ export class LiveProtection {
       } else {
         await marketSell(trade.symbol, formatQuantity(quantity, filters), this.listIdFor(trade, 99));
       }
-      await this.audit.record({
+      this.audit.record({
         action: 'LIVE_PANIC_SELL',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -395,7 +395,7 @@ export class LiveProtection {
   }
 
   private async alarm(trade: Trade, why: string, notes: string[]): Promise<void> {
-    await this.audit.record({
+    this.audit.record({
       action: 'PROTECTIVE_STOP_FAILED',
       mode: trade.mode,
       symbol: trade.symbol,

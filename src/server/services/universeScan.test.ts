@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RawKline } from '../binance/rest.ts';
-import { analyzeSymbol } from './universeService.ts';
+import { analyzeSymbol, analyzeSymbols } from './universeService.ts';
 
 /** Uma linha de candle no formato cru da Binance. */
 function row(openTime: number, close: number): RawKline {
@@ -74,4 +74,27 @@ test('candle em formação não entra nos indicadores', async () => {
   assert.ok(trigger);
   assert.equal(trigger.candles.length, 200, 'só os candles fechados são analisados');
   assert.ok(trigger.candles.every((candle) => candle.closed));
+});
+
+test('um lote começa a buscar vários pares sem esperar o anterior terminar', async () => {
+  let started = 0;
+  let release!: () => void;
+  let bothStarted!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const ready = new Promise<void>((resolve) => { bothStarted = resolve; });
+
+  const pending = analyzeSymbols(['AAAUSDT', 'BBBUSDT'], ['1h'], async () => {
+    started += 1;
+    if (started === 2) bothStarted();
+    await gate;
+    return series(100, 101.5);
+  });
+
+  await ready;
+  assert.equal(started, 2, 'o segundo par começou antes de o primeiro terminar');
+  release();
+
+  const analyses = await pending;
+  assert.equal(analyses.length, 2);
+  assert.ok(analyses.every(Boolean));
 });

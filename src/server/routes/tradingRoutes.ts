@@ -6,8 +6,9 @@ import { analyzeFactors, buildEquityCurve } from '../../core/analytics.ts';
 import { gainPerUnit } from '../../core/direction.ts';
 import { round } from '../../core/risk/index.ts';
 import { PANIC_CLOSE_REASON } from '../../core/risk/governor.ts';
-import { getTickers } from '../binance/rest.ts';
+import { getTickers, listTradableSymbols } from '../binance/rest.ts';
 import { ExecutionError, liveAutoTradeDenial } from '../services/executionService.ts';
+import { buildSpotHoldings } from '../services/spotHoldings.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
 
 const previewSchema = z
@@ -219,7 +220,7 @@ export function tradingRoutes(context: ApiContext): Router {
         { autoTrade: { enabled: parsed.data.enabled } },
         { targetMode: alvo, targetMarket: modalidade },
       );
-      await context.audit.record({
+      context.audit.record({
         action: parsed.data.enabled ? 'ROBOT_ENABLED' : 'ROBOT_DISABLED',
         mode: alvo,
         detail: { origem: 'painel', modalidade },
@@ -233,16 +234,20 @@ export function tradingRoutes(context: ApiContext): Router {
     }),
   );
 
-  /**
-   * Arma o robô para a conta real por tempo limitado — e ele desarma sozinho.
-   * Robô que fica armado para sempre é robô que ninguém está vigiando.
-   */
+  /** Arma o robô real por um prazo ou, quando escolhido explicitamente, sem prazo. */
   router.post(
     '/robot/arm',
     asyncHandler(async (request, response) => {
-      const parsed = z.object({ minutes: z.number().int().min(5).max(720) }).safeParse(request.body);
+      const parsed = z
+        .union([
+          z.object({ minutes: z.number().int().min(5).max(10_080) }),
+          z.object({ indefinite: z.literal(true) }),
+        ])
+        .safeParse(request.body);
       if (!parsed.success) {
-        response.status(400).json({ error: 'Informe por quantos minutos armar (5 a 720)' });
+        response.status(400).json({
+          error: 'Informe por quantos minutos armar (5 a 10.080) ou escolha sem prazo',
+        });
         return;
       }
       if (!context.settings.forMode('LIVE').autoTrade.allowLive) {
@@ -251,16 +256,24 @@ export function tradingRoutes(context: ApiContext): Router {
         });
         return;
       }
-      const until = new Date(Date.now() + parsed.data.minutes * 60_000).toISOString();
+      const indefinite = 'indefinite' in parsed.data;
+      const minutes = 'minutes' in parsed.data ? parsed.data.minutes : null;
+      const until = minutes === null ? null : new Date(Date.now() + minutes * 60_000).toISOString();
       const settings = await context.settings.update(
-        { autoTrade: { enabled: true, liveArmedUntil: until } },
+        {
+          autoTrade: {
+            enabled: true,
+            liveArmedUntil: until,
+            liveArmedIndefinitely: indefinite,
+          },
+        },
         { targetMode: 'LIVE' },
       );
       const denial = liveAutoTradeDenial(context.settings.forMode('LIVE'));
-      await context.audit.record({
+      context.audit.record({
         action: 'ROBOT_ARMED_LIVE',
         mode: settings.mode,
-        detail: { until, minutos: parsed.data.minutes, pendencia: denial },
+        detail: { until, minutos: minutes, semPrazo: indefinite, pendencia: denial },
       });
       context.bus.broadcast({ type: 'settings', payload: settings });
       response.json({ settings, denial });
@@ -271,10 +284,10 @@ export function tradingRoutes(context: ApiContext): Router {
     '/robot/disarm',
     asyncHandler(async (_request, response) => {
       const settings = await context.settings.update(
-        { autoTrade: { liveArmedUntil: null } },
+        { autoTrade: { liveArmedUntil: null, liveArmedIndefinitely: false } },
         { targetMode: 'LIVE' },
       );
-      await context.audit.record({ action: 'ROBOT_DISARMED_LIVE', mode: 'LIVE', detail: {} });
+      context.audit.record({ action: 'ROBOT_DISARMED_LIVE', mode: 'LIVE', detail: {} });
       context.bus.broadcast({ type: 'settings', payload: settings });
       response.json(settings);
     }),
@@ -295,9 +308,15 @@ export function tradingRoutes(context: ApiContext): Router {
           enabled: settings.autoTrade.enabled,
           allowLive: settings.autoTrade.allowLive,
           armedUntil: settings.autoTrade.liveArmedUntil,
+          armedIndefinitely: settings.autoTrade.liveArmedIndefinitely,
           serverAllowsLive: liveAutoTradeDenial({
             ...settings,
-            autoTrade: { ...settings.autoTrade, allowLive: true, liveArmedUntil: new Date(Date.now() + 60_000).toISOString() },
+            autoTrade: {
+              ...settings.autoTrade,
+              allowLive: true,
+              liveArmedUntil: new Date(Date.now() + 60_000).toISOString(),
+              liveArmedIndefinitely: false,
+            },
           }) === null,
           liveDenial: settings.mode === 'LIVE' ? liveAutoTradeDenial(settings) : null,
         },
@@ -319,7 +338,7 @@ export function tradingRoutes(context: ApiContext): Router {
       }
       const until = new Date(Date.now() + parsed.data.minutes * 60_000).toISOString();
       const settings = await context.settings.update({ guard: { mutedUntil: until } });
-      await context.audit.record({
+      context.audit.record({
         action: 'RISK_HALT_ACKNOWLEDGED',
         mode: settings.mode,
         detail: { until },
@@ -375,10 +394,34 @@ export function tradingRoutes(context: ApiContext): Router {
         trades.reduce((total, trade) => total + trade.realizedPnl, 0),
         2,
       );
-      const startingCapital =
-        settings.mode === 'PAPER'
-          ? capital.capital - trades.filter((t) => t.status === 'CLOSED').reduce((acc, t) => acc + t.realizedPnl, 0)
-          : capital.capital;
+
+      // `/api/v3/account` devolve cada moeda separada. Antes a Carteira REAL
+      // guardava apenas USDT e apagava visualmente qualquer ativo comprado —
+      // inclusive resíduos de uma venda já encerrada.
+      let holdings = buildSpotHoldings([], new Map(), new Map());
+      if (
+        settings.mode !== 'PAPER' &&
+        settings.market === 'SPOT' &&
+        (capital.idleAssets?.length ?? 0) > 0
+      ) {
+        const tradable = await listTradableSymbols('USDT', 'SPOT').catch(() => []);
+        const symbolByAsset = new Map(
+          tradable.map((symbol) => [symbol.baseAsset, symbol.symbol]),
+        );
+        const symbols = [
+          ...new Set(
+            (capital.idleAssets ?? [])
+              .map((holding) => symbolByAsset.get(holding.asset))
+              .filter((symbol): symbol is string => symbol !== undefined),
+          ),
+        ];
+        const tickers = symbols.length > 0 ? await getTickers(symbols).catch(() => []) : [];
+        holdings = buildSpotHoldings(
+          capital.idleAssets ?? [],
+          symbolByAsset,
+          new Map(tickers.map((ticker) => [ticker.symbol, Number(ticker.lastPrice)])),
+        );
+      }
 
       const positions = activeTrades
         .map((trade) => {
@@ -509,10 +552,20 @@ export function tradingRoutes(context: ApiContext): Router {
         daCarteira.reduce((total, position) => total + (position.unrealizedPnl ?? 0), 0),
         2,
       );
+      const holdingsValue = holdings.reduce(
+        (total, holding) => total + (holding.value ?? 0),
+        0,
+      );
       const currentEquity =
         settings.mode === 'PAPER'
-          ? round(startingCapital + realizedPnl + unrealizedPnl, 2)
-          : capital.capital;
+          ? round(capital.capital + unrealizedPnl, 2)
+          : settings.market === 'FUTURES'
+            ? round(capital.capital + unrealizedPnl, 2)
+            : round(capital.capital + holdingsValue, 2);
+      // Resultado e percentual precisam usar a mesma base. Na conta real o
+      // código antigo chamava o saldo de agora de "saldo inicial", então uma
+      // carteira com +US$ 0,14 mostrava 0,00% desde o início.
+      const startingCapital = round(currentEquity - realizedPnl - unrealizedPnl, 2);
 
       response.json({
         points: buildEquityCurve(trades, startingCapital),
@@ -534,6 +587,7 @@ export function tradingRoutes(context: ApiContext): Router {
         realizedPnl,
         unrealizedPnl,
         positions,
+        holdings,
         brlRate: capital.brlRate,
         mode: settings.mode,
         market: settings.market,

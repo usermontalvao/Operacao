@@ -1,4 +1,5 @@
 import type {
+  ChartInterval,
   AlertRecord,
   AppSettings,
   AuditEntry,
@@ -13,7 +14,6 @@ import type {
   ModeSettings,
   PerformanceStats,
   Side,
-  Timeframe,
   Trade,
   TradeSetup,
 } from './types.ts';
@@ -81,6 +81,7 @@ export interface SystemHealth {
     emExibicao: boolean;
     robo: string;
     armadoAte: string | null;
+    armadoSemPrazo: boolean;
     posicoesAbertas: number;
     ordensPendentes: number;
     disjuntorSilenciadoAte: string | null;
@@ -159,6 +160,16 @@ export interface EquityResponse {
     score: number;
     openedAt: string;
   }>;
+  /** saldos físicos não-USDT existentes na carteira Spot da Binance */
+  holdings: Array<{
+    asset: string;
+    free: number;
+    locked: number;
+    quantity: number;
+    symbol: string | null;
+    price: number | null;
+    value: number | null;
+  }>;
   brlRate: number | null;
   mode: AppSettings['mode'];
   /** a modalidade dos TOTAIS; a lista de posições pode trazer as duas */
@@ -193,6 +204,7 @@ export interface RiskResponse {
     enabled: boolean;
     allowLive: boolean;
     armedUntil: string | null;
+    armedIndefinitely: boolean;
     serverAllowsLive: boolean;
     liveDenial: string | null;
   };
@@ -205,6 +217,7 @@ export interface AccountBalanceResponse {
   currency: 'USDT';
   brlRate: number | null;
   mode: AppSettings['mode'];
+  idleAssets?: Array<{ asset: string; free: number; locked?: number }>;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -301,6 +314,12 @@ export interface PreviewResponse {
   brlRate: number | null;
   sizing: SizingView;
   filterErrors: string[];
+  /**
+   * Os limites do par NA CORRETORA. Chegam do servidor desde sempre; a tela é
+   * que os ignorava — e por isso deixava montar uma ordem de US$ 3,70 que a
+   * Binance nunca aceitaria, sem oferecer saída.
+   */
+  filters: { minNotional: number; minQty: number; stepSize: number } | null;
   blockers: string[];
   warnings: string[];
   netRiskReward: number;
@@ -330,8 +349,8 @@ export const api = {
     }),
   performance: (query = '') => request<PerformanceStats>(`/performance${query}`),
   audit: (limit = 100) => request<AuditEntry[]>(`/audit?limit=${limit}`),
-  candles: (symbol: string, timeframe: Timeframe) =>
-    request<{ symbol: string; timeframe: Timeframe; candles: Candle[] }>(
+  candles: (symbol: string, timeframe: ChartInterval) =>
+    request<{ symbol: string; timeframe: ChartInterval; candles: Candle[] }>(
       `/candles/${symbol}/${timeframe}`,
     ),
   balance: () => request<AccountBalanceResponse>('/account/balance'),
@@ -387,10 +406,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enabled, ...options }),
     }),
-  armRobot: (minutes: number) =>
+  armRobot: (minutes: number | null) =>
     request<{ settings: AppSettings; denial: string | null }>('/robot/arm', {
       method: 'POST',
-      body: JSON.stringify({ minutes }),
+      body: JSON.stringify(minutes === null ? { indefinite: true } : { minutes }),
     }),
   disarmRobot: () => request<AppSettings>('/robot/disarm', { method: 'POST' }),
   acknowledgeRisk: (minutes: number) =>

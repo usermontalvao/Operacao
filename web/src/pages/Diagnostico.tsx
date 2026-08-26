@@ -133,7 +133,11 @@ function Saude({ health }: { health: SystemHealth }) {
                       : 'ordens limite aguardando'
                   }`
                 : ''}
-              {sessao.armadoAte ? ` · armado até ${new Date(sessao.armadoAte).toLocaleTimeString('pt-BR')}` : ''}
+              {sessao.armadoSemPrazo
+                ? ' · armado sem prazo'
+                : sessao.armadoAte
+                  ? ` · armado até ${new Date(sessao.armadoAte).toLocaleTimeString('pt-BR')}`
+                  : ''}
             </p>
             {sessao.descansos.length > 0 ? (
               <p className="mt-1 text-[11px] text-warn">

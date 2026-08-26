@@ -1,4 +1,5 @@
 import type { Trade } from '../../core/types.ts';
+import { invalidateAccountCache } from '../binance/rest.ts';
 import type { EventBus } from '../events.ts';
 import { logger } from '../logger.ts';
 import type { ExecutionService } from './executionService.ts';
@@ -104,6 +105,9 @@ export class BalanceFeed {
     }
     this.emAndamento = true;
     try {
+      // este é o único lugar que NÃO pode aceitar saldo guardado: ele existe
+      // para contar que o dinheiro mudou
+      invalidateAccountCache();
       const { mode, market } = this.settings.get();
       const capital = await this.execution.getCapital(mode, market);
       this.bus.broadcast({

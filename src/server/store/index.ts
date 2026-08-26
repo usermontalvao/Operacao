@@ -2,6 +2,7 @@ import { config } from '../config.ts';
 import { logger } from '../logger.ts';
 import { findUserIdByEmail } from '../auth/supabaseAuth.ts';
 import { JsonStore } from './jsonStore.ts';
+import { CachedRepository } from './cachedRepository.ts';
 import { UnavailableRepository } from './unavailable.ts';
 import type { Repository } from './repository.ts';
 
@@ -39,7 +40,9 @@ export async function createRepository(): Promise<RepositoryHandle> {
       const { SupabaseStore } = await import('./supabaseStore.ts');
       const store = new SupabaseStore(config.supabase.url, config.supabase.serviceRoleKey, ownerId);
       await store.init();
-      return { repository: store, kind: 'supabase', degraded: false, error: null };
+      // a memória curta entra AQUI, envolvendo o banco: assim vale para todo
+      // mundo que lê, e ninguém precisa lembrar de não perguntar duas vezes
+      return { repository: new CachedRepository(store), kind: 'supabase', degraded: false, error: null };
     } catch (cause) {
       // a mensagem do erro pode carregar URL do projeto; a chave nunca passa
       // por aqui, mas o log fica no nível do motivo, não do segredo
@@ -55,7 +58,7 @@ export async function createRepository(): Promise<RepositoryHandle> {
   const store = new JsonStore(config.dataDir);
   await store.init();
   logger.info('Persistência local em arquivo', { directory: config.dataDir });
-  return { repository: store, kind: 'json', degraded: false, error: null };
+  return { repository: new CachedRepository(store), kind: 'json', degraded: false, error: null };
 }
 
 /**

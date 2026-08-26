@@ -27,6 +27,33 @@ export type Timeframe = '15m' | '1h' | '4h' | '1d';
 
 export const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
 
+/**
+ * Tempo gráfico da VISUALIZAÇÃO — não é o mesmo conjunto do motor.
+ *
+ * O robô lê 15m para cima porque abaixo disso o candle é mais ruído que
+ * informação: indicador de 1 minuto muda de opinião a cada tique e produziria
+ * tese que nasce e morre antes de alguém ler. Mas OLHAR o gráfico de 1 minuto
+ * para decidir o momento de clicar é outra coisa — é leitura humana, não
+ * entrada de motor. Por isso são dois conjuntos: alargar o `Timeframe` deixaria
+ * o scanner varrer 1m sem que ninguém tivesse pedido.
+ *
+ * Não existe "2m" na Binance. Os intervalos dela são 1m, 3m, 5m, 15m, 30m,
+ * 1h, 2h, 4h… — pedir 2m devolve erro, então a lista abaixo é a que a
+ * corretora realmente serve.
+ */
+export type ChartInterval = Timeframe | '1m' | '3m' | '5m' | '30m';
+
+export const CHART_INTERVALS: ChartInterval[] = [
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '4h',
+  '1d',
+];
+
 /** Peso de cada timeframe na leitura de tendência. 4H e diário mandam. */
 export const TIMEFRAME_WEIGHT: Record<Timeframe, number> = {
   '15m': 0.5,
@@ -404,8 +431,9 @@ export interface ScannerSettings {
  *
  * Em PAPER e TESTNET o robô opera livre. Em conta real ele só age com duas
  * chaves giradas ao mesmo tempo: a variável ALLOW_LIVE_AUTOTRADE no servidor
- * e o armar explícito no painel, que expira sozinho. Uma trava só na interface
- * seria uma trava que um clique errado desfaz.
+ * e o armar explícito no painel. O usuário escolhe um prazo ou assume de forma
+ * explícita o modo sem prazo; uma trava só na interface seria uma trava que um
+ * clique errado desfaz.
  */
 export interface AutoTradeSettings {
   enabled: boolean;
@@ -424,6 +452,8 @@ export interface AutoTradeSettings {
   allowLive: boolean;
   /** até quando o robô está armado para conta real (ISO); null = desarmado */
   liveArmedUntil: string | null;
+  /** armado até o usuário desarmar; distingue esse estado do null = desarmado */
+  liveArmedIndefinitely: boolean;
   /** teto absoluto em USDT por ordem automática, independente do percentual */
   maxNotionalPerTrade: number;
 }

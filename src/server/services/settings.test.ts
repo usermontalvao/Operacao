@@ -136,8 +136,13 @@ test('desligar o robô desarma a conta real só do modo mexido', async () => {
     await settings.update({ autoTrade: { liveArmedUntil: ate } });
     assert.equal(settings.get().autoTrade.liveArmedUntil, ate);
 
+    await settings.update({ autoTrade: { liveArmedIndefinitely: true } });
+    assert.equal(settings.get().autoTrade.liveArmedIndefinitely, true);
+    assert.equal(settings.get().autoTrade.liveArmedUntil, null);
+
     await settings.update({ autoTrade: { enabled: false } });
     assert.equal(settings.get().autoTrade.liveArmedUntil, null);
+    assert.equal(settings.get().autoTrade.liveArmedIndefinitely, false);
   } finally {
     await cleanup();
   }

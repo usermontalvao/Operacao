@@ -243,14 +243,14 @@ export function settingsRoutes(context: ApiContext): Router {
       }
 
       if (nextMode && nextMode !== previous.mode) {
-        await context.audit.record({
+        context.audit.record({
           action: 'MODE_CHANGED',
           mode: updated.mode,
           detail: { from: previous.mode, to: updated.mode, environment: nextEnvironment },
         });
       }
       if (parsed.data.market && parsed.data.market !== previous.market) {
-        await context.audit.record({
+        context.audit.record({
           action: 'MARKET_CHANGED',
           mode: updated.mode,
           detail: { de: previous.market, para: updated.market, ambiente: nextEnvironment },

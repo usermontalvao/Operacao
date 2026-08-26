@@ -87,6 +87,15 @@ async function main(): Promise<void> {
   const close = new CloseService(repository, paper, market, audit, settings, bus, (trade) =>
     journal.record(trade),
   );
+  /*
+   * Ordem cancelada sem executar devolve a tese ao radar.
+   *
+   * `markBought` é chamado quando a ordem é ENVIADA, não quando ela preenche —
+   * e ordem enviada pode morrer sem comprar nada. Sem este caminho de volta, o
+   * setup ficava "EM OPERAÇÃO" para sempre: sumia da mesa, o scanner o pulava,
+   * e a tese seguia viva no mercado sem ninguém poder entrar nela de novo.
+   */
+  close.setOnOrderCancelled((setupId) => scanner.releaseSetup(setupId));
 
   // fluxo da conta: a corretora avisa a execução em vez de sermos nós a perguntar
   const accounts = new AccountStreams();
@@ -321,6 +330,9 @@ async function main(): Promise<void> {
     news.stop();
     liveMonitor.stop();
     void accounts.stop();
+    // a fila de auditoria drena antes de o processo sair: o que aconteceu
+    // nos últimos milissegundos ainda tem de virar histórico
+    void audit.flush();
     market.stop();
     clearInterval(heartbeat);
     clearInterval(floodSweeper);

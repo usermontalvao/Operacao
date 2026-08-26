@@ -7,7 +7,7 @@ import type { SymbolFilters, TradeSetup } from '../../core/types.ts';
 import { EventBus } from '../events.ts';
 import { JsonStore } from '../store/jsonStore.ts';
 import { AuditService } from './auditService.ts';
-import { ExecutionService } from './executionService.ts';
+import { ExecutionService, hasActiveLiveArm } from './executionService.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import { PaperTradingEngine } from './paperTradingEngine.ts';
 import { RiskService } from './riskService.ts';
@@ -30,6 +30,32 @@ const FILTERS: SymbolFilters = {
   ocoAllowed: true,
   market: 'SPOT',
 };
+
+test('armamento real aceita prazo ou permanência explícita, nunca null como sem prazo', () => {
+  const now = Date.parse('2026-08-26T12:00:00.000Z');
+  assert.equal(
+    hasActiveLiveArm({ liveArmedUntil: null, liveArmedIndefinitely: false }, now),
+    false,
+  );
+  assert.equal(
+    hasActiveLiveArm(
+      { liveArmedUntil: '2026-08-26T13:00:00.000Z', liveArmedIndefinitely: false },
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    hasActiveLiveArm(
+      { liveArmedUntil: '2026-08-26T11:00:00.000Z', liveArmedIndefinitely: false },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    hasActiveLiveArm({ liveArmedUntil: null, liveArmedIndefinitely: true }, now),
+    true,
+  );
+});
 
 function makeSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
   return {
@@ -301,6 +327,24 @@ test('robô compra na conta de teste e não empilha no mesmo ativo', async (t) =
     null,
   );
   assert.equal((await context.repository.listTrades()).length, 1);
+});
+
+test('robô PAPER usa o caixa demo mesmo quando a tela está na conta LIVE', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  // Primeiro configura a sessão PAPER; depois apenas muda a conta exibida.
+  await context.settings.update({
+    autoTrade: { enabled: true, percentOfCapital: 20, minimumScore: 90, maxNotionalPerTrade: 50 },
+  });
+  await context.settings.update({ mode: 'LIVE' });
+  context.setBalance({ free: 24.42, locked: 0 });
+
+  const trade = await context.execution.executeAutomatic(makeAutomaticSetup(), 'PAPER');
+
+  assert.ok(trade, 'o saldo real pequeno não pode bloquear a sessão demo');
+  assert.equal(trade.mode, 'PAPER');
+  assert.ok(trade.notional > 24.42, 'a ordem deve ter sido dimensionada pelo capital demo');
 });
 
 test('teto por ordem limita a compra automática mesmo com percentual alto', async (t) => {

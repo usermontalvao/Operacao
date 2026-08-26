@@ -119,6 +119,7 @@ export function diagnosticsRoutes(context: ApiContext): Router {
             emExibicao: mode === settings.mode,
             robo: policy.autoTrade.enabled ? 'LIGADO' : 'DESLIGADO',
             armadoAte: policy.autoTrade.liveArmedUntil,
+            armadoSemPrazo: policy.autoTrade.liveArmedIndefinitely,
             posicoesAbertas: abertas.length,
             ordensPendentes: pendentes.length,
             disjuntorSilenciadoAte: policy.guard.mutedUntil,

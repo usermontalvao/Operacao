@@ -34,7 +34,6 @@ import {
   getSymbolFilters,
   getUsdtBrlRate,
   newOtocoOrder,
-  testOrder,
 } from '../binance/rest.ts';
 import {
   futuresEntryOrder,
@@ -89,8 +88,8 @@ const defaultDependencies: ExecutionDependencies = {
      * posição, não dinheiro parado.
      */
     const idle = balances
-      .filter((item) => item.asset !== 'USDT' && item.free > 0)
-      .map((item) => ({ asset: item.asset, free: item.free }));
+      .filter((item) => item.asset !== 'USDT' && item.free + item.locked > 0)
+      .map((item) => ({ asset: item.asset, free: item.free, locked: item.locked }));
     return { free: usdt?.free ?? 0, locked: usdt?.locked ?? 0, idle };
   },
   loadBrlRate: getUsdtBrlRate,
@@ -165,7 +164,7 @@ export interface CapitalView {
   currency: 'USDT';
   brlRate: number | null;
   /** saldos na conta que o painel NÃO usa por não serem USDT */
-  idleAssets?: Array<{ asset: string; free: number }>;
+  idleAssets?: Array<{ asset: string; free: number; locked?: number }>;
 }
 
 export interface PreviewResult {
@@ -455,6 +454,16 @@ export class ExecutionService {
       requestedQuote: automatic ? undefined : quoteAmount > 0 ? quoteAmount : undefined,
       sizeFactor: gate.sizeFactor,
       stepSize: filters?.stepSize,
+      /*
+       * O piso da corretora só existe para a ordem MANUAL.
+       *
+       * Quem clica decide com o número na frente e pode assumir risco acima do
+       * orçamento — a tela mostra quanto e exige confirmação. O robô não:
+       * ele opera dentro do orçamento ou não opera. Deixá-lo subir sozinho até
+       * o mínimo da corretora seria autorizá-lo a estourar a régua toda vez
+       * que a conta ficasse pequena, que é justamente quando ela mais protege.
+       */
+      minNotional: automatic ? undefined : filters?.minNotional,
       side,
       leverage,
     });
@@ -605,8 +614,9 @@ export class ExecutionService {
      * disponível".
      */
     for (const parado of capitalView.idleAssets ?? []) {
+      const quantidade = parado.free + (parado.locked ?? 0);
       warnings.push(
-        `Há ${parado.free.toLocaleString('pt-BR', { maximumFractionDigits: 8 })} ${parado.asset} na conta que o painel NÃO usa — ele opera em USDT. Converta na Binance para que entre no capital`,
+        `Há ${quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 8 })} ${parado.asset} na conta que o painel NÃO usa — ele opera em USDT. Converta na Binance para que entre no capital`,
       );
     }
 
@@ -823,7 +833,7 @@ export class ExecutionService {
 
     const strategyRejection = automaticStrategyRejectionReason(setup);
     if (strategyRejection !== null) {
-      await this.audit.record({
+      this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
         mode,
         symbol: setup.symbol,
@@ -847,7 +857,7 @@ export class ExecutionService {
     if (mode === 'LIVE') {
       const denial = liveAutoTradeDenial(policy);
       if (denial !== null) {
-        await this.audit.record({
+        this.audit.record({
           action: 'AUTO_TRADE_BLOCKED_LIVE',
           mode,
           symbol: setup.symbol,
@@ -863,7 +873,7 @@ export class ExecutionService {
     // deixava o risco por operação virar um aviso sem efeito.
     const preview = await this.preview({ setupId: setup.id }, setup, true, mode, market);
     if (!preview.canExecute || !preview.confirmationToken) {
-      await this.audit.record({
+      this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
         mode,
         symbol: setup.symbol,
@@ -893,7 +903,7 @@ export class ExecutionService {
       market,
     );
 
-    await this.audit.record({
+    this.audit.record({
       action: 'AUTO_TRADE_EXECUTED',
       mode,
       symbol: setup.symbol,
@@ -932,7 +942,7 @@ export class ExecutionService {
       (trade) => trade.mode === mode && trade.clientOrderId === clientOrderId,
     );
     if (duplicate) {
-      await this.audit.record({
+      this.audit.record({
         action: 'ORDER_DUPLICATE_IGNORED',
         mode,
         symbol: setup.symbol,
@@ -1002,7 +1012,7 @@ export class ExecutionService {
     if (forcada) {
       // registro próprio, e não uma nota dentro do ORDER_CONFIRMED: uma ordem
       // que passou por cima das travas precisa ser encontrável sozinha depois
-      await this.audit.record({
+      await this.audit.recordNow({
         action: 'ORDER_OVERRIDE',
         mode,
         symbol: setup.symbol,
@@ -1027,7 +1037,9 @@ export class ExecutionService {
       if (!validation.valid) throw new ExecutionError(validation.errors[0] as string);
     }
 
-    await this.audit.record({
+    // este espera: é o registro de "aprovei esta ordem", e ele precisa estar
+    // gravado antes de a ordem existir na corretora
+    await this.audit.recordNow({
       action: payload.automatic ? 'AUTO_ORDER_CONFIRMED' : 'ORDER_CONFIRMED',
       mode,
       symbol: setup.symbol,
@@ -1053,7 +1065,7 @@ export class ExecutionService {
       side,
     });
     if (targets.dropped.length > 0) {
-      await this.audit.record({
+      this.audit.record({
         action: 'TARGETS_SANITIZED',
         mode,
         symbol: setup.symbol,
@@ -1135,7 +1147,7 @@ export class ExecutionService {
       await this.repository.saveTrade(trade);
       this.paper.track(trade);
       this.bus.broadcast({ type: 'trade', payload: trade });
-      await this.audit.record({
+      this.audit.record({
         action: 'PAPER_TRADE_CREATED',
         mode,
         symbol: setup.symbol,
@@ -1211,7 +1223,7 @@ export class ExecutionService {
       if (applied !== trade.leverage) {
         // a corretora pode devolver menos que o pedido quando a faixa de
         // notional não permite: quem manda é o número dela
-        await this.audit.record({
+        this.audit.record({
           action: 'FUTURES_LEVERAGE_ADJUSTED',
           mode: trade.mode,
           symbol: trade.symbol,
@@ -1237,7 +1249,7 @@ export class ExecutionService {
       this.paper.track(trade);
       this.bus.broadcast({ type: 'trade', payload: trade });
 
-      await this.audit.record({
+      this.audit.record({
         action: 'FUTURES_ORDER_SENT',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -1262,7 +1274,7 @@ export class ExecutionService {
         error instanceof BinanceError
           ? `Binance recusou a ordem de futuros: ${error.message} (código ${error.code})`
           : (error as Error).message;
-      await this.audit.record({
+      this.audit.record({
         action: 'ORDER_FAILED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -1294,16 +1306,18 @@ export class ExecutionService {
     const stopLimit = formatPrice(trade.stopLoss - filters.tickSize, filters);
 
     try {
-      await testOrder({
-        symbol: trade.symbol,
-        side: 'BUY',
-        type: 'LIMIT',
-        timeInForce: 'GTC',
-        quantity,
-        price: entry,
-        newClientOrderId: `${trade.clientOrderId}t`,
-      });
-
+      /*
+       * A pré-checagem saiu do caminho.
+       *
+       * Ela mandava um `order/test` de uma ordem LIMIT simples e, logo em
+       * seguida, enviava um OTOCO — ou seja, testava uma coisa e mandava
+       * outra. Custava uma viagem inteira à Binance (~340 ms medidos daqui)
+       * para validar um formato que não é o que sai.
+       *
+       * E não protegia nada: ordem recusada não deixa resto na corretora, o
+       * erro volta igual, e os filtros do par já são conferidos aqui do lado
+       * de cá por `validateOrder` antes de chegar neste ponto.
+       */
       const result = await newOtocoOrder({
         symbol: trade.symbol,
         listClientOrderId: trade.clientOrderId,
@@ -1321,7 +1335,7 @@ export class ExecutionService {
       this.paper.track(trade);
       this.bus.broadcast({ type: 'trade', payload: trade });
 
-      await this.audit.record({
+      this.audit.record({
         action: 'ORDER_SENT',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -1339,7 +1353,7 @@ export class ExecutionService {
         error instanceof BinanceError
           ? `Binance recusou a ordem: ${error.message} (código ${error.code})`
           : (error as Error).message;
-      await this.audit.record({
+      this.audit.record({
         action: 'ORDER_FAILED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -1411,12 +1425,23 @@ export function liveAutoTradeDenial(
   if (!settings.autoTrade.allowLive) {
     return 'a compra automática em conta real não foi liberada nos ajustes';
   }
+  if (hasActiveLiveArm(settings.autoTrade)) return null;
   const armedUntil = settings.autoTrade.liveArmedUntil;
   if (armedUntil === null) return 'o robô não está armado para a conta real';
   if (new Date(armedUntil).getTime() <= Date.now()) {
     return `o armamento da conta real venceu em ${armedUntil}`;
   }
   return null;
+}
+
+/** Estado puro do armamento, separado das outras duas chaves de liberação. */
+export function hasActiveLiveArm(
+  autoTrade: Pick<AppSettings['autoTrade'], 'liveArmedUntil' | 'liveArmedIndefinitely'>,
+  now = Date.now(),
+): boolean {
+  if (autoTrade.liveArmedIndefinitely) return true;
+  if (autoTrade.liveArmedUntil === null) return false;
+  return new Date(autoTrade.liveArmedUntil).getTime() > now;
 }
 
 /** Qual variável do .env falta para esta combinação de conta e modalidade. */
@@ -1450,6 +1475,7 @@ const LIMIT_LABEL: Record<RiskSizingResult['boundBy'], string> = {
   AVAILABLE_BALANCE: 'saldo disponível',
   REQUESTED: 'valor pedido',
   EXCHANGE_STEP: 'passo de lote da Binance',
+  EXCHANGE_MINIMUM: 'valor mínimo por ordem da Binance',
 };
 
 /**

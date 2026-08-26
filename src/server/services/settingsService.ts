@@ -44,6 +44,7 @@ const autoTradeSchema = z.object({
   requireInsideEntryZone: z.boolean(),
   allowLive: z.boolean(),
   liveArmedUntil: z.string().datetime().nullable(),
+  liveArmedIndefinitely: z.boolean(),
   maxNotionalPerTrade: z.number().min(5).max(1_000_000),
 });
 
@@ -66,6 +67,7 @@ const guardSchema = z.object({
   blockWhenBtcBearish: z.boolean(),
   highVolatilitySizeFactor: z.number().min(0.1).max(1),
   lossCooldownMinutes: z.number().int().min(0).max(1440),
+  minLossesForCooldown: z.number().int().min(1).max(10),
   minNetRiskReward: z.number().min(1).max(10),
   minQuoteVolume24h: z.number().min(0).max(1_000_000_000),
   breakevenAfterTarget1: z.boolean(),
@@ -137,6 +139,7 @@ const FIELD_LABELS: Record<string, string> = {
   'guard.maxTotalExposurePercent': 'Exposição total máxima (%)',
   'guard.maxAltExposurePercent': 'Exposição em altcoins (%)',
   'guard.lossCooldownMinutes': 'Descanso após perda (min)',
+  'guard.minLossesForCooldown': 'Perdas seguidas para o descanso armar',
   'guard.trailingStopPercent': 'Stop que sobe (%)',
   'guard.maxTargetPercent': 'Alvo máximo aceito (%)',
   'guard.minQuoteVolume24h': 'Volume mínimo para operar',
@@ -224,6 +227,7 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
       requireInsideEntryZone: true,
       allowLive: false,
       liveArmedUntil: null,
+      liveArmedIndefinitely: false,
       maxNotionalPerTrade: 50,
     },
     guard: {
@@ -513,10 +517,17 @@ export class SettingsService {
     if (bucket.risk.minimumScoreToShow > bucket.risk.minimumScoreToAlert) {
       bucket.risk.minimumScoreToShow = bucket.risk.minimumScoreToAlert;
     }
+    // Armamento com prazo e sem prazo são estados mutuamente exclusivos.
+    if (patch.autoTrade?.liveArmedIndefinitely === true) {
+      bucket.autoTrade.liveArmedUntil = null;
+    } else if (patch.autoTrade?.liveArmedUntil) {
+      bucket.autoTrade.liveArmedIndefinitely = false;
+    }
     // desligar o robô desarma a conta real junto: religar não pode herdar
     // um "armado" de antes, senão o robô voltaria já operando dinheiro real
     if (bucket.autoTrade.enabled === false || bucket.autoTrade.allowLive === false) {
       bucket.autoTrade.liveArmedUntil = null;
+      bucket.autoTrade.liveArmedIndefinitely = false;
     }
 
     const next: StoredSettings = {

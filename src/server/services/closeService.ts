@@ -60,6 +60,19 @@ export class CloseService {
     this.onClosed = onClosed;
   }
 
+  /**
+   * Como devolver a tese ao radar quando a ordem morre sem comprar.
+   *
+   * Injetado em vez de importado porque o encerramento não conhece o scanner
+   * — e não deveria: o que ele sabe é que a ordem saiu sem executar. Quem
+   * decide o que isso significa para o radar é quem ligou os dois.
+   */
+  private releaseSetup: ((setupId: string) => Promise<void>) | null = null;
+
+  setOnOrderCancelled(handler: (setupId: string) => Promise<void>): void {
+    this.releaseSetup = handler;
+  }
+
   async findTrade(tradeId: string): Promise<Trade | null> {
     const trades = await this.repository.listTrades();
     return trades.find((trade) => trade.id === tradeId) ?? null;
@@ -118,7 +131,7 @@ export class CloseService {
         failed.push({ id: trade.id, error: (error as Error).message });
       }
     }
-    await this.audit.record({
+    this.audit.record({
       action: 'PANIC_CLOSE_ALL',
       mode: this.settings.get().mode,
       detail: { reason, encerradas: closed.length, falhas: failed },
@@ -147,7 +160,10 @@ export class CloseService {
       trade.closedAt = new Date().toISOString();
       trade.updatedAt = trade.closedAt;
       await this.persist(trade);
-      await this.audit.record({
+      // a tese volta para o radar: a ordem saiu sem comprar nada, e o setup
+      // carimbado como "EM OPERAÇÃO" some da mesa para sempre
+      if (this.releaseSetup) await this.releaseSetup(trade.setupId);
+      this.audit.record({
         action: 'LIVE_ORDER_CANCELLED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -193,7 +209,7 @@ export class CloseService {
         error instanceof BinanceError
           ? `Binance recusou a venda: ${error.message} (código ${error.code})`
           : (error as Error).message;
-      await this.audit.record({
+      this.audit.record({
         action: 'MANUAL_CLOSE_FAILED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -241,7 +257,7 @@ export class CloseService {
     trade.updatedAt = new Date().toISOString();
 
     await this.persist(trade);
-    await this.audit.record({
+    this.audit.record({
       action: 'MANUAL_CLOSE_EXECUTED',
       mode: trade.mode,
       symbol: trade.symbol,
@@ -281,7 +297,10 @@ export class CloseService {
       trade.closedAt = new Date().toISOString();
       trade.updatedAt = trade.closedAt;
       await this.persist(trade);
-      await this.audit.record({
+      // a tese volta para o radar: a ordem saiu sem comprar nada, e o setup
+      // carimbado como "EM OPERAÇÃO" some da mesa para sempre
+      if (this.releaseSetup) await this.releaseSetup(trade.setupId);
+      this.audit.record({
         action: 'LIVE_ORDER_CANCELLED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -325,7 +344,7 @@ export class CloseService {
         error instanceof BinanceError
           ? `Binance recusou o encerramento: ${error.message} (código ${error.code})`
           : (error as Error).message;
-      await this.audit.record({
+      this.audit.record({
         action: 'MANUAL_CLOSE_FAILED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -367,7 +386,7 @@ export class CloseService {
     trade.updatedAt = new Date().toISOString();
 
     await this.persist(trade);
-    await this.audit.record({
+    this.audit.record({
       action: 'MANUAL_CLOSE_EXECUTED',
       mode: trade.mode,
       symbol: trade.symbol,

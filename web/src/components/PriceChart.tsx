@@ -13,9 +13,17 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import { api } from '../lib/api.ts';
-import type { Candle, Timeframe } from '../lib/types.ts';
+import type { Candle, ChartInterval } from '../lib/types.ts';
 
-const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+/*
+ * Os tempos que o gráfico oferece.
+ *
+ * Mais curtos que os do motor de propósito: o robô não decide em 1 minuto,
+ * mas quem clica em comprar decide — e decidir sem ver o minuto é escolher o
+ * momento no escuro. "2m" não está aqui porque não existe na Binance: os
+ * intervalos dela pulam de 1m para 3m.
+ */
+const TIMEFRAMES: ChartInterval[] = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'];
 /**
  * Quantos candles a tela mostra ao abrir.
  *
@@ -50,7 +58,7 @@ export interface ChartMarker {
 interface PriceChartProps {
   symbol: string;
   /** timeframe em que o gráfico abre; o usuário troca nos botões */
-  timeframe?: Timeframe;
+  timeframe?: ChartInterval;
   plan?: ChartPlan | null;
   markers?: ChartMarker[] | null;
   /** momento que a tela deve enquadrar ao abrir (ex.: a hora do encerramento) */
@@ -103,7 +111,18 @@ export function PriceChart({
   /** as linhas do plano são recriadas a cada carga — sem isto elas se acumulam */
   const priceLines = useRef<IPriceLine[]>([]);
 
-  const [timeframe, setTimeframe] = useState<Timeframe>(initialTimeframe);
+  const [timeframe, setTimeframe] = useState<ChartInterval>(initialTimeframe);
+  /** o gráfico ocupando a tela inteira, para ler o candle de perto */
+  const [ampliado, setAmpliado] = useState(false);
+  /*
+   * Ampliar recria o gráfico — e recriar custa o zoom que a pessoa tinha
+   * dado. É aceitável aqui porque ampliar JÁ é um gesto de "quero outra
+   * vista"; seria inaceitável se acontecesse sozinho, e é por isso que a
+   * altura só muda quando alguém clica.
+   */
+  const alturaEfetiva = ampliado
+    ? Math.max(420, (typeof window === 'undefined' ? 900 : window.innerHeight) - 150)
+    : height;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   /** muda a cada carga de candles: é o gatilho para redesenhar o que é sobreposto */
@@ -137,7 +156,7 @@ export function PriceChart({
   useEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
-      height,
+      height: alturaEfetiva,
       layout: {
         background: { color: 'transparent' },
         textColor: '#8b909a',
@@ -184,7 +203,7 @@ export function PriceChart({
       markerPlugin.current = null;
       priceLines.current = [];
     };
-  }, [height]);
+  }, [alturaEfetiva]);
 
   // carga dos candles: só o par e o timeframe mandam recarregar
   useEffect(() => {
@@ -303,16 +322,33 @@ export function PriceChart({
     });
   }, [livePrice]);
 
+  useEffect(() => {
+    if (!ampliado) return;
+    const aoTeclar = (event: KeyboardEvent): void => {
+      // Esc é o gesto que todo mundo tenta primeiro; sem ele o gráfico
+      // ampliado vira uma tela da qual não se sabe sair
+      if (event.key === 'Escape') setAmpliado(false);
+    };
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [ampliado]);
+
   return (
-    <div className="rounded-xl border border-terminal-border bg-terminal-panel-soft p-2">
-      <div className="mb-2 flex items-center justify-between px-1">
-        <div className="flex gap-1">
+    <div
+      className={
+        ampliado
+          ? 'fixed inset-0 z-50 flex flex-col bg-terminal-bg/98 p-3 backdrop-blur'
+          : 'rounded-xl border border-terminal-border bg-terminal-panel-soft p-2'
+      }
+    >
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+        <div className="flex min-w-0 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TIMEFRAMES.map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => setTimeframe(option)}
-              className={`rounded px-2 py-1 text-[11px] font-semibold ${
+              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold transition ${
                 timeframe === option
                   ? 'bg-terminal-border text-terminal-text'
                   : 'text-terminal-muted hover:text-terminal-text'
@@ -322,10 +358,21 @@ export function PriceChart({
             </button>
           ))}
         </div>
-        <span className="text-[10px] text-terminal-muted">{symbol} · dados da Binance</span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden text-[10px] text-terminal-muted sm:inline">{symbol}</span>
+          <button
+            type="button"
+            onClick={() => setAmpliado((atual) => !atual)}
+            aria-label={ampliado ? 'Reduzir gráfico' : 'Ampliar gráfico'}
+            title={ampliado ? 'Reduzir (Esc)' : 'Ampliar'}
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-terminal-muted transition hover:bg-terminal-border hover:text-terminal-text"
+          >
+            {ampliado ? '↙ reduzir' : '↗ ampliar'}
+          </button>
+        </div>
       </div>
       {error ? (
-        <div className="flex items-center justify-center text-xs text-bear" style={{ height }}>
+        <div className="flex items-center justify-center text-xs text-bear" style={{ height: alturaEfetiva }}>
           {error}
         </div>
       ) : null}

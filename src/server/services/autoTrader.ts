@@ -149,17 +149,13 @@ export class AutoTrader {
         });
       }
     } catch (error) {
-      await this.audit
-        .record({
-          action: 'AUTO_TRADE_FAILED',
-          mode,
-          symbol: setup.symbol,
-          setupId: setup.id,
-          detail: { message: (error as Error).message },
-        })
-        .catch(() => {
-          /* auditoria indisponível já é o próprio sintoma; não mascara o erro original */
-        });
+      this.audit.record({
+        action: 'AUTO_TRADE_FAILED',
+        mode,
+        symbol: setup.symbol,
+        setupId: setup.id,
+        detail: { message: (error as Error).message },
+      });
       logger.warn('Compra automática falhou', {
         symbol: setup.symbol,
         mode,

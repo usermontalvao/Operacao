@@ -243,7 +243,7 @@ export class ScannerService {
     this.rememberRetired(updated);
     await this.repository.saveSetup(updated);
     this.bus.broadcast({ type: 'setupRemoved', payload: { id } });
-    await this.audit.record({
+    this.audit.record({
       action: 'SETUP_IGNORED',
       mode: this.settings.get().mode,
       symbol: setup.symbol,
@@ -259,6 +259,29 @@ export class ScannerService {
     await this.repository.saveSetup(updated);
     this.bus.broadcast({ type: 'setup', payload: updated });
     return updated;
+  }
+
+  /**
+   * Devolve o setup ao radar quando a ordem morreu sem comprar nada.
+   *
+   * `markBought` é definitivo por desenho — comprou, o setup sai do radar e
+   * quem manda passa a ser a operação. Só que ele também era chamado quando a
+   * ordem apenas foi ENVIADA, e ordem enviada pode ser cancelada sem executar
+   * nada. Nesse caso o setup ficava carimbado "EM OPERAÇÃO" para sempre: some
+   * do radar, o scanner pula (`status === 'BOUGHT'` continua), e a tese segue
+   * viva no mercado sem que ninguém possa entrar nela de novo.
+   */
+  async releaseSetup(setupId: string): Promise<void> {
+    const atual = this.setups.get(setupId);
+    if (!atual || atual.status !== 'BOUGHT') return;
+    const updated: TradeSetup = { ...atual, status: 'ACTIVE', updatedAt: new Date().toISOString() };
+    this.setups.set(updated.id, updated);
+    await this.repository.saveSetup(updated);
+    this.bus.broadcast({ type: 'setup', payload: updated });
+    logger.info('Setup devolvido ao radar — a ordem saiu sem executar', {
+      setupId,
+      symbol: updated.symbol,
+    });
   }
 
   /**
@@ -478,7 +501,7 @@ export class ScannerService {
       this.setups.set(candidate.id, candidate);
       await this.repository.saveSetup(candidate);
       this.bus.broadcast({ type: 'setup', payload: candidate });
-      await this.audit.record({
+      this.audit.record({
         action: 'SETUP_CREATED',
         mode: settings.mode,
         symbol: candidate.symbol,
@@ -519,7 +542,7 @@ export class ScannerService {
         this.rememberRetired(updated);
         this.bus.broadcast({ type: 'setupRemoved', payload: { id: updated.id } });
         await this.paper.cancelPending(updated.id, updated.invalidationNote ?? 'Setup encerrado');
-        await this.audit.record({
+        this.audit.record({
           action: updated.status === 'INVALIDATED' ? 'SETUP_INVALIDATED' : 'SETUP_EXPIRED',
           mode: this.settings.get().mode,
           symbol: updated.symbol,

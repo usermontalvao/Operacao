@@ -162,6 +162,7 @@ export function Dashboard(props: DashboardProps) {
           <MarketColumn
             key={market}
             market={market}
+            sozinha={markets.length === 1}
             setups={visible.filter((setup) => setup.market === market)}
             robot={robots[market]}
             robotBusy={robotBusy === market}
@@ -218,6 +219,7 @@ export function Dashboard(props: DashboardProps) {
 function MarketColumn({
   market,
   setups,
+  sozinha,
   robot,
   robotBusy,
   onToggleRobot,
@@ -228,6 +230,8 @@ function MarketColumn({
 }: {
   market: MarketKind;
   setups: TradeSetup[];
+  /** é a única modalidade na tela — então não há o que distinguir */
+  sozinha: boolean;
   robot: RobotState;
   robotBusy: boolean;
   onToggleRobot: (market: MarketKind, enabled: boolean) => void;
@@ -241,10 +245,19 @@ function MarketColumn({
 
   return (
     <div className="flex flex-col">
+      {/*
+        Com futuros barrado o carimbo da modalidade não informa nada.
+
+        Escrever "SPOT" sobre a única lista da tela é responder a uma pergunta
+        que ninguém fez — e era assim que a tela funcionava antes de os futuros
+        existirem: uma seção chamada "Setups na mesa", ocupando a largura
+        inteira. O interruptor do robô continua, porque ele não é rótulo: é
+        controle, e some com ele seria perder função para ganhar limpeza.
+      */}
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide">
-          <span className={futuros ? 'text-info' : 'text-terminal-text'}>
-            {MARKET_LABEL[market]}
+          <span className={sozinha ? 'text-terminal-muted' : futuros ? 'text-info' : 'text-terminal-text'}>
+            {sozinha ? 'Setups na mesa' : MARKET_LABEL[market]}
           </span>
           <span className="text-terminal-text">{setups.length}</span>
           {vendidas > 0 ? (
@@ -394,14 +407,22 @@ function SetupRow({
       <div className="flex items-center gap-2">
         <span className="w-14 shrink-0 font-semibold">{setup.symbol.replace('USDT', '')}</span>
 
-        {/* a direção fica ANTES do estado: ela é o que decide se "quase lá"
-            quer dizer preço subindo ou preço caindo */}
-        <span
-          className={`rounded border px-1 py-0.5 text-[9px] font-bold ${sideTone(setup.side)}`}
-          title={setup.side === 'SELL' ? 'tese vendida — ganha na queda' : 'tese comprada'}
-        >
-          {SIDE_LABEL[setup.side]}
-        </span>
+        {/*
+          A direção só aparece quando é VENDA.
+          
+          Compra é a esmagadora maioria das linhas, e um distintivo que se
+          repete em todas não distingue nada — vira ruído que empurra o resto
+          para a direita. A venda é a exceção e é ela que precisa saltar: é a
+          única em que "quase lá" significa preço SUBINDO.
+        */}
+        {setup.side === 'SELL' ? (
+          <span
+            className={`rounded border px-1 py-0.5 text-[9px] font-bold ${sideTone(setup.side)}`}
+            title="tese vendida — ganha na queda"
+          >
+            {SIDE_LABEL[setup.side]}
+          </span>
+        ) : null}
 
         {inTrade || bought ? (
           <span className="rounded border border-info/50 bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
@@ -418,7 +439,7 @@ function SetupRow({
           </span>
         )}
 
-        <span className="hidden text-[11px] text-terminal-muted sm:inline">
+        <span className="hidden min-w-0 truncate text-[11px] text-terminal-muted sm:inline">
           {SETUP_LABEL[setup.setupType]} · {setup.timeframe}
         </span>
 

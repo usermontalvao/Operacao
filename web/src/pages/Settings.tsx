@@ -95,6 +95,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [armMinutes, setArmMinutes] = useState('60');
 
   const {
     dados,
@@ -353,7 +354,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
             </h2>
             <p className="mt-0.5 text-[11px] text-terminal-muted">
               Nas contas demo o robô opera livre. Na conta real ele precisa de duas chaves ao mesmo
-              tempo: a liberação no servidor e o armamento aqui — que vence sozinho.
+              tempo: a liberação no servidor e o armamento aqui, com prazo ou até você desarmar.
             </p>
           </div>
           <button
@@ -402,14 +403,16 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
 
           {auto.allowLive ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              {auto.liveArmedUntil && new Date(auto.liveArmedUntil).getTime() > Date.now() ? (
+              {auto.liveArmedIndefinitely ||
+              (auto.liveArmedUntil && new Date(auto.liveArmedUntil).getTime() > Date.now()) ? (
                 <>
                   <span className="rounded border border-bull/50 bg-bull/10 px-2 py-1 text-[11px] font-semibold text-bull">
-                    Armado até{' '}
-                    {new Date(auto.liveArmedUntil).toLocaleTimeString('pt-BR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {auto.liveArmedIndefinitely
+                      ? 'Armado sem prazo'
+                      : `Armado até ${new Date(auto.liveArmedUntil as string).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}`}
                   </span>
                   <button
                     type="button"
@@ -423,26 +426,58 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
               ) : (
                 <>
                   <span className="text-[11px] text-terminal-muted">Desarmado. Armar por:</span>
-                  {[30, 60, 240].map((minutes) => (
-                    <button
-                      key={minutes}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            `Armar o robô na conta REAL por ${minutes} minutos?\n\nEle vai enviar ordens com dinheiro de verdade, respeitando o teto por ordem e o disjuntor.`,
-                          )
-                        ) {
-                          return;
-                        }
-                        void run(() => api.armRobot(minutes), `Robô armado por ${minutes} min`);
-                      }}
-                      className="rounded-lg border border-bear/50 bg-bear/10 px-3 py-1 text-[11px] font-semibold text-bear"
-                    >
-                      {minutes} min
-                    </button>
-                  ))}
+                  <input
+                    type="number"
+                    min={5}
+                    max={10_080}
+                    step={5}
+                    value={armMinutes}
+                    disabled={busy}
+                    onChange={(event) => setArmMinutes(event.target.value)}
+                    aria-label="Minutos de armamento do robô real"
+                    className="w-24 rounded-lg border border-terminal-border bg-terminal-bg px-2 py-1 text-xs"
+                  />
+                  <span className="text-[11px] text-terminal-muted">min</span>
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      !Number.isInteger(Number(armMinutes)) ||
+                      Number(armMinutes) < 5 ||
+                      Number(armMinutes) > 10_080
+                    }
+                    onClick={() => {
+                      const minutes = Number(armMinutes);
+                      if (
+                        !window.confirm(
+                          `Armar o robô na conta REAL por ${minutes} minutos?\n\nEle vai enviar ordens com dinheiro de verdade, respeitando o teto por ordem e o disjuntor.`,
+                        )
+                      ) {
+                        return;
+                      }
+                      void run(() => api.armRobot(minutes), `Robô armado por ${minutes} min`);
+                    }}
+                    className="rounded-lg border border-bear/50 bg-bear/10 px-3 py-1 text-[11px] font-semibold text-bear disabled:opacity-40"
+                  >
+                    Armar com prazo
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          'Armar o robô na conta REAL sem prazo?\n\nEle continuará enviando ordens com dinheiro de verdade até você desarmar manualmente. As travas de risco permanecem ativas.',
+                        )
+                      ) {
+                        return;
+                      }
+                      void run(() => api.armRobot(null), 'Robô armado sem prazo');
+                    }}
+                    className="rounded-lg border border-bear/50 bg-bear/10 px-3 py-1 text-[11px] font-semibold text-bear"
+                  >
+                    Sem prazo
+                  </button>
                 </>
               )}
             </div>

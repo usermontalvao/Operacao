@@ -42,8 +42,30 @@ export function DecisionBadge({ decision }: { decision: EntryDecision | undefine
       </span>
     );
   }
-  const principal = decision.blockers[0];
+  /*
+   * "Em observação" é propriedade da ESTRATÉGIA, não desta linha.
+   *
+   * Hoje só MOMENTUM_BURST é validada, então esse distintivo aparecia em
+   * praticamente todas as linhas do radar — e um aviso que está em todo lugar
+   * não avisa nada, só empurra o resto da linha para a direita. O nome da
+   * estratégia já está escrito ao lado; quem quer o motivo inteiro abre o
+   * setup. O que fica na linha é o que muda DE LINHA PARA LINHA: distância da
+   * zona, R/R fraco, exposição no teto.
+   */
+  const especifico = decision.blockers.find((item) => item.code !== 'STRATEGY_NOT_VALIDATED');
+  const principal = especifico ?? decision.blockers[0];
   if (!principal) return null;
+  if (!especifico) {
+    // sobrou só a estratégia não validada: um ponto discreto, com o texto
+    // completo a um passar de mouse
+    return (
+      <span
+        className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn/50"
+        title={principal.message}
+        aria-label={principal.message}
+      />
+    );
+  }
   return (
     <span
       className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${toneFor(principal.code)}`}
@@ -130,11 +152,14 @@ export function DecisionPanel({ decision, entryLow, entryHigh, currentPrice }: D
           {decision.blockers.map((motivo) => (
             <li
               key={motivo.code + motivo.message}
-              className={`rounded border px-2 py-1.5 text-[11px] ${toneFor(motivo.code)}`}
+              className={`flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded border px-2 py-1 text-[11px] ${toneFor(motivo.code)}`}
             >
-              {motivo.message}
-              <span className="mt-0.5 block font-mono text-[9px] opacity-50">
-                {motivo.code} · regra: {motivo.rule}
+              {/* o código na MESMA linha do motivo: em segunda linha ele
+                  custava três linhas de altura no modal para dizer algo que
+                  só interessa a quem vai procurar a regra no código */}
+              <span className="min-w-0">{motivo.message}</span>
+              <span className="shrink-0 font-mono text-[9px] opacity-50">
+                {motivo.code} · {motivo.rule}
               </span>
             </li>
           ))}

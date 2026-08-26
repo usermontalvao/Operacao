@@ -64,6 +64,7 @@ export function labSettings(overrides: Partial<AppSettings> = {}): AppSettings {
       requireInsideEntryZone: true,
       allowLive: false,
       liveArmedUntil: null,
+      liveArmedIndefinitely: false,
       maxNotionalPerTrade: 50,
     },
     guard: { ...DEFAULT_GUARD },
@@ -88,15 +89,31 @@ export const BASE_POLICY: ExitPolicy = {
 
 export const LAB_COSTS: CostSettings = { ...DEFAULT_COSTS };
 
-export async function loadDataset(symbols: string[], days: number): Promise<Dataset[]> {
+/**
+ * Mínimo de barras para um par entrar no estudo.
+ *
+ * O número acompanha o tamanho da barra: 1500 barras de 1h são dois meses,
+ * 1500 barras de 15m são duas semanas. Exigir o mesmo dos dois deixaria
+ * passar em 15m uma amostra curta demais para significar alguma coisa.
+ */
+const MINIMO_DE_BARRAS: Partial<Record<Timeframe, number>> = {
+  '15m': 4000,
+  '1h': 1500,
+};
+
+export async function loadDataset(
+  symbols: string[],
+  days: number,
+  timeframes: Timeframe[] = LAB_TIMEFRAMES,
+): Promise<Dataset[]> {
   const dataset: Dataset[] = [];
   for (const symbol of symbols) {
     const series = new Map<Timeframe, Candle[]>();
     let usable = true;
-    for (const timeframe of LAB_TIMEFRAMES) {
+    for (const timeframe of timeframes) {
       const candles = await loadKlines(symbol, timeframe, days);
       // sem histórico não há o que medir; moeda nova entra viesada
-      if (candles.length < (timeframe === '1h' ? 1500 : 90)) usable = false;
+      if (candles.length < (MINIMO_DE_BARRAS[timeframe] ?? 90)) usable = false;
       series.set(timeframe, candles);
     }
     if (usable) dataset.push({ symbol, series });

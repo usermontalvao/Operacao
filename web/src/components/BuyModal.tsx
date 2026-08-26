@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { api, type PreviewResponse } from '../lib/api.ts';
 import type { Trade, TradeSetup } from '../lib/types.ts';
 import {
@@ -73,6 +73,17 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
   */
   const [forcar, setForcar] = useState(false);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  /**
+   * O menor valor que a Binance aceita neste par, com uma folga de 2%.
+   *
+   * A folga não é superstição: a quantidade é arredondada PARA BAIXO no passo
+   * de lote, então pedir exatamente o mínimo costuma cair um centavo abaixo
+   * dele e a ordem volta recusada.
+   */
+  const minimoDaCorretora = useMemo(() => {
+    const minimo = preview?.filters?.minNotional ?? 0;
+    return minimo > 0 ? Math.ceil(minimo * 1.02 * 100) / 100 : null;
+  }, [preview]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +178,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 sm:items-center" onClick={onClose}>
       <div
-        className="max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl border border-terminal-border bg-terminal-panel p-5 sm:rounded-2xl sm:p-6"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2">
@@ -221,7 +232,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
         {step === 'SIZE' ? (
           <>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             <div>
             <div className="rounded-xl border border-terminal-border bg-terminal-panel-soft p-3 text-sm">
               <div className="flex justify-between">
@@ -235,20 +246,52 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
             <div className="mt-4">
               <label className="text-xs uppercase tracking-wide text-terminal-muted">Quero investir</label>
               <div className="mt-1 flex gap-2">
-                {PERCENT_OPTIONS.map((option) => (
+                {PERCENT_OPTIONS.map((option) => {
+                  // percentual que não alcança o mínimo da corretora produz uma
+                  // ordem morta: some com o botão em vez de deixar o usuário
+                  // montar a ordem inteira para descobrir no fim que ela não sai
+                  const daria = ((preview?.available ?? 0) * option) / 100;
+                  const insuficiente = minimoDaCorretora !== null && daria < minimoDaCorretora;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => applyPercent(option)}
+                      disabled={insuficiente}
+                      title={
+                        insuficiente
+                          ? `${option}% do capital dá US$ ${daria.toFixed(2)} — abaixo do mínimo de US$ ${minimoDaCorretora?.toFixed(2)} da Binance`
+                          : undefined
+                      }
+                      className={`flex-1 rounded-lg border px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-30 ${
+                        percentChoice === option
+                          ? 'border-bull/60 bg-bull/10 text-bull'
+                          : 'border-terminal-border text-terminal-muted'
+                      }`}
+                    >
+                      {option}%
+                    </button>
+                  );
+                })}
+                {/*
+                  O atalho para o mínimo que a corretora aceita.
+                  
+                  Este não é um valor "nosso": é a régua da Binance. Sem o
+                  botão, a única saída de uma ordem pequena demais era o
+                  usuário adivinhar o número no campo — com "Operação
+                  bloqueada" na tela e nenhuma pista de quanto faltava.
+                */}
+                {minimoDaCorretora !== null ? (
                   <button
-                    key={option}
                     type="button"
-                    onClick={() => applyPercent(option)}
-                    className={`flex-1 rounded-lg border px-2 py-2 text-sm font-semibold ${
-                      percentChoice === option
-                        ? 'border-bull/60 bg-bull/10 text-bull'
-                        : 'border-terminal-border text-terminal-muted'
-                    }`}
+                    onClick={() => applyAmount(minimoDaCorretora)}
+                    disabled={(preview?.available ?? 0) < minimoDaCorretora}
+                    title={`Mínimo por ordem na Binance: US$ ${minimoDaCorretora.toFixed(2)}`}
+                    className="flex-1 rounded-lg border border-terminal-border px-2 py-2 text-sm font-semibold text-terminal-muted disabled:cursor-not-allowed disabled:opacity-30"
                   >
-                    {option}%
+                    mín.
                   </button>
-                ))}
+                ) : null}
               </div>
               <div className="mt-2 flex items-center gap-2 rounded-xl border border-terminal-border bg-terminal-panel-soft px-3 py-3">
                 <span className="text-xs text-terminal-muted">USDT</span>
@@ -436,7 +479,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                   ? [...preview.blockers, ...preview.filterErrors].join(' · ')
                   : undefined
               }
-              className={`mt-5 w-full rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
+              className={`mt-3.5 w-full rounded-lg px-4 py-2.5 text-sm font-bold disabled:opacity-40 ${sideButton(
                 side,
               )}`}
             >
@@ -522,7 +565,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 type="button"
                 onClick={() => setStep('SIZE')}
                 disabled={sending}
-                className="rounded-xl border border-terminal-border px-4 py-4 text-sm text-terminal-muted"
+                className="rounded-lg border border-terminal-border px-4 py-2.5 text-sm text-terminal-muted"
               >
                 Cancelar
               </button>
@@ -530,7 +573,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 type="button"
                 onClick={() => void confirm()}
                 disabled={sending || !preview?.canExecute}
-                className={`rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${
+                className={`rounded-lg px-4 py-2.5 text-sm font-bold disabled:opacity-40 ${
                   preview?.overridden ? 'bg-bear text-white' : sideButton(side)
                 }`}
               >

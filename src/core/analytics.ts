@@ -2,6 +2,72 @@ import type { DecisionRecord, EquityPoint, FactorPerformance, Trade } from './ty
 import { round } from './risk/riskReward.ts';
 
 /**
+ * Quanto a carteira andou DENTRO de uma janela de tempo.
+ *
+ * O painel tem o filtro de período há tempos, mas ele só recortava o gráfico:
+ * o número grande do topo continuava sendo "desde o início", em qualquer
+ * recorte. Trocar para "Ontem" e ver o mesmo +0,58% de sempre é pior que não
+ * ter o filtro — parece resposta e não é.
+ *
+ * A base da janela é o patrimônio no instante em que ela começa: o último
+ * ponto ANTES do recorte, não o primeiro ponto dentro dele. Usar o primeiro
+ * de dentro apagaria justamente a operação que abriu o período.
+ *
+ * `agora` entra só quando a janela vai até hoje. Em janela fechada (ontem, um
+ * mês passado) o fim tem de sair da curva, senão o resultado de hoje vazaria
+ * para dentro do período de ontem.
+ */
+export function growthInWindow(input: {
+  points: EquityPoint[];
+  startingCapital: number;
+  /** patrimônio de agora, já com o resultado em aberto */
+  currentEquity: number;
+  /** início da janela em ms; null = desde sempre */
+  from: number | null;
+  /** fim da janela em ms; null = até agora */
+  to: number | null;
+}): { percent: number; base: number; end: number; hasData: boolean } {
+  const { points, startingCapital, currentEquity, from, to } = input;
+
+  if (from === null && to === null) {
+    const base = startingCapital;
+    const percent = base > 0 ? ((currentEquity - base) / base) * 100 : 0;
+    return { percent, base, end: currentEquity, hasData: points.length > 1 };
+  }
+
+  const comTempo = points
+    .map((point) => ({ time: Date.parse(point.time), equity: point.equity }))
+    .filter((point) => Number.isFinite(point.time))
+    .sort((a, b) => a.time - b.time);
+
+  const inicio = from ?? Number.NEGATIVE_INFINITY;
+  const fim = to ?? Number.POSITIVE_INFINITY;
+
+  const anteriores = comTempo.filter((point) => point.time < inicio);
+  const base = anteriores.length > 0 ? (anteriores[anteriores.length - 1] as { equity: number }).equity : startingCapital;
+
+  const dentro = comTempo.filter((point) => point.time >= inicio && point.time <= fim);
+  const end =
+    to === null
+      ? currentEquity
+      : dentro.length > 0
+        ? (dentro[dentro.length - 1] as { equity: number }).equity
+        : base;
+
+  const percent = base > 0 ? ((end - base) / base) * 100 : 0;
+  /*
+   * "Teve movimento?" não é a mesma pergunta que "encerrou operação?".
+   *
+   * Uma posição aberta que subiu hoje move o patrimônio sem produzir ponto
+   * nenhum na curva — a curva só registra encerramento. Dizer "sem operação
+   * hoje" enquanto o número mudou seria negar o que a própria tela mostra
+   * logo acima.
+   */
+  const houveMovimento = Math.abs(end - base) > 1e-9;
+  return { percent, base, end, hasData: dentro.length > 0 || houveMovimento };
+}
+
+/**
  * Curva de patrimônio a partir das operações encerradas. O ponto inicial é o
  * capital declarado; cada fechamento move a linha.
  */

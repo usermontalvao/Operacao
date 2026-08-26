@@ -8,7 +8,13 @@ import {
   quantidadeQueEntrou,
   restoEhPo,
 } from '../../core/execution/posicaoReal.ts';
-import { getOrderById, getOrderList, getSymbolFilters } from '../binance/rest.ts';
+import {
+  getMyTrades,
+  getOrderById,
+  getOrderList,
+  getSymbolFilters,
+  type MyTrade,
+} from '../binance/rest.ts';
 import { getFuturesOrderById } from '../binance/futures.ts';
 import type { AccountStreams, MarketExecutionEvent } from '../binance/accountStreams.ts';
 import { averageFillPrice, type OrderExecutionEvent } from '../binance/userEvents.ts';
@@ -175,7 +181,20 @@ export class LiveTradeMonitor {
     if (!changed) return;
 
     await this.settle(trade);
-    if (trade.status === 'OPEN') await this.ensureProtection(trade);
+    /*
+     * Gravar de novo DEPOIS de armar a proteção.
+     *
+     * `rearm` escreve em `trade.protectionListIds` os ids das ordens de alvo
+     * e stop que acabaram de nascer na corretora. Como o `settle` acima já
+     * tinha rodado, esses ids ficavam só na memória do processo — e o banco
+     * guardava `null`. No reinício seguinte a operação voltava sem saber onde
+     * estava a própria proteção, a reconciliação não tinha o que consultar, e
+     * uma posição JÁ ENCERRADA pelo stop continuava aberta no painel para
+     * sempre, inflando o patrimônio pelo valor dela.
+     */
+    if (trade.status === 'OPEN' && (await this.ensureProtection(trade))) {
+      await this.settle(trade);
+    }
   }
 
   private guard(): AppSettings['guard'] {
@@ -254,6 +273,9 @@ export class LiveTradeMonitor {
         });
         if (applied) changed = true;
       }
+
+      // a verdade da corretora, não só as ordens que este servidor lembra
+      if (await this.aplicarNegociosExecutados(trade)) changed = true;
 
       if (trade.status === 'OPEN') {
         // antes de proteger: o que sobrou ainda é posição, ou já é pó? Armar
@@ -371,6 +393,96 @@ export class LiveTradeMonitor {
   }
 
   /**
+   * Reconciliação pelos NEGÓCIOS, não pelas ordens.
+   *
+   * A conferência por ordem tem um ponto cego estrutural: ela só pergunta
+   * por ordens que este servidor gravou. Tudo que executa fora dessa lista
+   * fica invisível — a proteção cujo id não chegou ao banco, a venda de
+   * emergência, e principalmente uma venda feita à mão pelo aplicativo da
+   * Binance. O sintoma é sempre o mesmo e é caro: a posição já não existe na
+   * corretora, o painel segue mostrando ela aberta, e o patrimônio aparece
+   * inflado pelo valor de algo que já foi vendido.
+   *
+   * `myTrades` responde pelo PAR: todo negócio executado, com preço, taxa e
+   * id da ordem. Agrupando por ordem, o resultado entra pela mesma
+   * contabilidade de sempre — e como ela desconta o que já foi gravado
+   * naquele id, nada é contado duas vezes.
+   */
+  private async aplicarNegociosExecutados(trade: Trade): Promise<boolean> {
+    let negocios: MyTrade[];
+    try {
+      negocios = await getMyTrades(trade.symbol, 50);
+    } catch (error) {
+      logger.debug('Negócios do par indisponíveis na reconciliação', {
+        tradeId: trade.id,
+        error: (error as Error).message,
+      });
+      return false;
+    }
+
+    const abertura = Date.parse(trade.openedAt);
+    const porOrdem = new Map<
+      string,
+      { quantidade: number; financeiro: number; comissao: number; moeda: string; compra: boolean }
+    >();
+    for (const negocio of negocios) {
+      // negócio anterior à operação é de outra vida deste par
+      if (Number.isFinite(abertura) && negocio.time < abertura - 60_000) continue;
+      const chave = String(negocio.orderId);
+      const atual = porOrdem.get(chave) ?? {
+        quantidade: 0,
+        financeiro: 0,
+        comissao: 0,
+        moeda: negocio.commissionAsset,
+        compra: negocio.isBuyer,
+      };
+      atual.quantidade += Number(negocio.qty);
+      atual.financeiro += Number(negocio.quoteQty);
+      atual.comissao += Number(negocio.commission);
+      porOrdem.set(chave, atual);
+    }
+
+    let mudou = false;
+    for (const [orderId, somado] of porOrdem) {
+      if (somado.quantidade <= 0) continue;
+      // nada de novo nesta ordem: não gasta uma consulta para descobrir o tipo
+      if (somado.quantidade - this.processedQuantity(trade, orderId) <= 1e-10) continue;
+
+      /*
+       * O TIPO da ordem decide se a saída foi STOP ou ALVO.
+       *
+       * `myTrades` diz o que foi negociado, não por qual ordem — e chamar de
+       * "alvo atingido" uma saída que foi stop não erra o resultado, erra a
+       * ESTATÍSTICA: o diário e o desempenho agrupam por esse rótulo, e um
+       * prejuízo arquivado como alvo contamina a taxa de acerto que decide se
+       * a estratégia continua ligada. A consulta só sai para ordem que trouxe
+       * quantidade nova, que é rara.
+       */
+      let isStop = false;
+      if (!somado.compra) {
+        try {
+          const ordem = await getOrderById(trade.symbol, orderId);
+          isStop = ordem.type.includes('STOP');
+        } catch {
+          // sem o tipo, o rótulo cai no padrão; o resultado financeiro não muda
+        }
+      }
+
+      const aplicado = await this.applyOrderState(trade, {
+        orderId,
+        side: somado.compra ? 'BUY' : 'SELL',
+        isStop,
+        executedQuantity: somado.quantidade,
+        averagePrice: somado.financeiro / somado.quantidade,
+        commission: somado.comissao,
+        commissionAsset: somado.moeda,
+      });
+      if (aplicado) mudou = true;
+    }
+    return mudou;
+  }
+
+  /**
    * Contabilidade de uma ordem — a mesma para a consulta e para o fluxo.
    *
    * A quantidade que chega é sempre a ACUMULADA da ordem, nunca o pedaço novo.
@@ -418,6 +530,23 @@ export class LiveTradeMonitor {
       trade.notional = round((trade.averageFillPrice as number) * filled, 2);
       trade.feesPaid = round(trade.feesPaid + feeFor(averagePrice, delta, feePercent), 6);
       trade.status = 'OPEN';
+      /*
+       * A operação REABRIU — o carimbo de encerramento tem de sair junto.
+       *
+       * A reconciliação marca CANCELLED quando vê a lista da entrada como
+       * ALL_DONE enquanto a ordem ainda está pendente, e isso acontece um
+       * instante ANTES de o preenchimento chegar. O preenchimento então
+       * corrigia o status para OPEN e deixava para trás um `closedAt` de
+       * segundos antes da entrada.
+       *
+       * O estrago não é cosmético: `closedAt` é a data que datava a operação
+       * como perda para o descanso pós-perda, para o resultado do dia e para a
+       * ordem da curva de patrimônio. A PEPE encerrou às 14:57 e ficou
+       * carimbada como 14:53 — o descanso começou a contar quatro minutos
+       * antes de existir prejuízo.
+       */
+      trade.closedAt = null;
+      trade.closeReason = null;
       if (trade.highWaterPrice === null) trade.highWaterPrice = averagePrice;
       trade.fills.push({
         kind: 'ENTRY',
@@ -426,7 +555,7 @@ export class LiveTradeMonitor {
         time: new Date().toISOString(),
         orderId,
       });
-      await this.audit.record({
+      this.audit.record({
         action: 'LIVE_ORDER_FILLED',
         mode: trade.mode,
         symbol: trade.symbol,
@@ -509,7 +638,7 @@ export class LiveTradeMonitor {
     trade.closeReason =
       trade.closeReason ??
       `posição zerada — sobraram ${sobra} ${filters.baseAsset}, abaixo do mínimo negociável da Binance`;
-    await this.audit.record({
+    this.audit.record({
       action: 'LIVE_TRADE_DUST_CLOSED',
       mode: trade.mode,
       symbol: trade.symbol,
@@ -664,7 +793,7 @@ export class LiveTradeMonitor {
 
     trade.stopLoss = moved;
     trade.protectiveStop = moved;
-    await this.audit.record({
+    this.audit.record({
       action: 'PROTECTIVE_STOP_MOVED',
       mode: trade.mode,
       symbol: trade.symbol,
