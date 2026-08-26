@@ -21,7 +21,7 @@ import type { MarketDataService } from './marketDataService.ts';
 import type { PaperTradingEngine } from './paperTradingEngine.ts';
 import type { SettingsService } from './settingsService.ts';
 import type { AutoTrader } from './autoTrader.ts';
-import { MAX_FOCUS_SYMBOLS, withBitcoin } from './focus.ts';
+import { prioritizedFocus } from './focus.ts';
 
 const SCAN_INTERVAL_MS = 30_000;
 const LIVE_STATUSES: TradeSetup['status'][] = ['WATCHING', 'ACTIVE', 'TRIGGERED'];
@@ -358,9 +358,8 @@ export class ScannerService {
   private async syncFocus(): Promise<void> {
     const watchlist = this.settings.get().scanner.watchlist;
     const withSetups = [...new Set([...this.setups.values()].map((setup) => setup.symbol))];
-    const focus = withBitcoin(
-      [...new Set([...watchlist, ...withSetups])].slice(0, MAX_FOCUS_SYMBOLS),
-    );
+    const withTrades = this.paper.getOpenTrades().map((trade) => trade.symbol);
+    const focus = prioritizedFocus(withTrades, watchlist, withSetups);
     const current = this.market.getSymbols();
     const same =
       focus.length === current.length && focus.every((symbol) => current.includes(symbol));

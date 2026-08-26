@@ -18,7 +18,7 @@ import { logger } from '../logger.ts';
 import { describeSettingsIssue, settingsUpdateSchema } from '../services/settingsService.ts';
 import { missingCredentialsMessage } from '../services/executionService.ts';
 import { buildCuratedWatchlist } from '../services/curatedWatchlist.ts';
-import { withBitcoin } from '../services/focus.ts';
+import { prioritizedFocus } from '../services/focus.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
 
 const symbolSchema = z.object({ symbol: z.string().regex(/^[A-Z0-9]{4,20}$/) });
@@ -62,6 +62,12 @@ async function readUsdtBalance(environment: BinanceEnvironment): Promise<UsdtBal
 
 export function settingsRoutes(context: ApiContext): Router {
   const router = Router();
+  const liveFocus = (watchlist: string[]): string[] =>
+    prioritizedFocus(
+      context.paper.getOpenTrades().map((trade) => trade.symbol),
+      watchlist,
+      context.scanner.getSetups().map((setup) => setup.symbol),
+    );
 
   router.get(
     '/settings',
@@ -149,9 +155,9 @@ export function settingsRoutes(context: ApiContext): Router {
         // outra lista de pares: comparar com a anterior inventaria deslistagens
         context.news.reset();
         void context.news.refresh();
-        await context.market.restart(withBitcoin(updated.scanner.watchlist));
+        await context.market.restart(liveFocus(updated.scanner.watchlist));
       } else if (parsed.data.scanner?.watchlist) {
-        await context.market.setSymbols(withBitcoin(updated.scanner.watchlist));
+        await context.market.setSymbols(liveFocus(updated.scanner.watchlist));
       }
       if (parsed.data.scanner?.universe && parsed.data.scanner.universe !== previous.scanner.universe) {
         context.universe.reset();
@@ -221,7 +227,7 @@ export function settingsRoutes(context: ApiContext): Router {
       const updated = await context.settings.update({
         scanner: { watchlist: [...current, symbol] },
       });
-      await context.market.setSymbols(withBitcoin(updated.scanner.watchlist));
+      await context.market.setSymbols(liveFocus(updated.scanner.watchlist));
       void context.scanner.scan();
       context.bus.broadcast({ type: 'settings', payload: updated });
       response.json(updated);
@@ -248,7 +254,7 @@ export function settingsRoutes(context: ApiContext): Router {
           return;
         }
         const updated = await context.settings.update({ scanner: { watchlist } });
-        await context.market.setSymbols(withBitcoin(updated.scanner.watchlist));
+        await context.market.setSymbols(liveFocus(updated.scanner.watchlist));
         context.universe.reset();
         void context.scanner.scan();
         context.bus.broadcast({ type: 'settings', payload: updated });
@@ -271,7 +277,7 @@ export function settingsRoutes(context: ApiContext): Router {
       const updated = await context.settings.update({
         scanner: { watchlist: current.filter((item) => item !== symbol) },
       });
-      await context.market.setSymbols(withBitcoin(updated.scanner.watchlist));
+      await context.market.setSymbols(liveFocus(updated.scanner.watchlist));
       context.bus.broadcast({ type: 'settings', payload: updated });
       response.json(updated);
     }),

@@ -481,24 +481,45 @@ test('a ordem forçada desarma a trava de POLÍTICA e nada além dela', async (t
   assert.match(JSON.stringify(registro?.detail ?? {}), /R\/R líquido/);
 });
 
-test('forçar NÃO atravessa o que é da corretora nem o saldo que não existe', async (t) => {
+test('forçar não cria dinheiro: a ordem nunca passa do saldo que existe', async (t) => {
   const context = await harness(1.43);
   t.after(context.cleanup);
   await context.settings.update({ risk: { paperCapital: 12, paperCapitalCurrency: 'USDT' } });
 
   const setup = makeShortSetup();
-  // pede muito mais do que a carteira tem
+  // pede quatrocentas vezes o que a carteira tem, com as travas desarmadas
   const forcada = await context.execution.preview(
     { setupId: setup.id, quoteAmount: 5_000, override: true },
     setup,
   );
 
-  assert.equal(forcada.canExecute, false, 'saldo inexistente não cede a confirmação nenhuma');
+  // o painel não recusa: ele ENCOLHE. O que não pode, em hipótese nenhuma, é
+  // a margem exigida passar do saldo — override desarma régua, não aritmética
   assert.ok(
-    forcada.blockers.some((item) => /Saldo insuficiente/i.test(item)),
-    `esperava o bloqueio de saldo, veio: ${forcada.blockers.join(' | ')}`,
+    forcada.margin <= forcada.available + 0.01,
+    `margem ${forcada.margin} não cabe no disponível ${forcada.available}`,
   );
+  assert.ok(forcada.sizing.notional <= forcada.available * 10 + 0.01, 'nem a alavancagem cria saldo');
+});
+
+test('saldo que não existe recusa mesmo com as travas desarmadas', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  // carteira menor que o mínimo de nocional da corretora: não há tamanho que sirva
+  await context.settings.update({ risk: { paperCapital: 1, paperCapitalCurrency: 'USDT' } });
+
+  const setup = makeShortSetup();
+  const forcada = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 50, override: true },
+    setup,
+  );
+
+  assert.equal(forcada.canExecute, false, 'nenhuma confirmação inventa saldo');
   assert.equal(forcada.confirmationToken, null);
+  assert.ok(
+    [...forcada.blockers, ...forcada.filterErrors].length > 0,
+    'a recusa precisa dizer o motivo',
+  );
 });
 
 test('o robô nunca recebe o atalho: override não vem de entrada automática', async (t) => {

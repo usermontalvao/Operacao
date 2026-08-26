@@ -28,7 +28,7 @@ import { authRoutes } from './routes/authRoutes.ts';
 import { AuthService } from './auth/authService.ts';
 import { RequestLimiter } from './auth/rateLimit.ts';
 import { requireSession, throttle } from './auth/middleware.ts';
-import { withBitcoin } from './services/focus.ts';
+import { prioritizedFocus } from './services/focus.ts';
 import { UniverseService } from './services/universeService.ts';
 import { NewsService } from './services/newsService.ts';
 
@@ -234,7 +234,15 @@ async function main(): Promise<void> {
       { store: store.kind, error: store.error },
     );
   } else {
-    await market.start(withBitcoin(settings.get().scanner.watchlist));
+    const trackedSymbols = paper.getOpenTrades().map((trade) => trade.symbol);
+    await market.start(prioritizedFocus(trackedSymbols, settings.get().scanner.watchlist));
+    // O retrato REST carregado acima já basta para processar as ordens. Não
+    // esperamos o próximo negócio no WebSocket — pares menos líquidos podem
+    // passar muito tempo sem um tique e deixariam a interface em "aguardando".
+    for (const trade of paper.getOpenTrades()) {
+      const price = market.getPrice(trade.symbol);
+      if (price !== null) await paper.onPrice(trade.symbol, price);
+    }
     await scanner.start();
     universe.start();
     news.start();

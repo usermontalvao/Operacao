@@ -48,6 +48,7 @@ import type { MarketDataService } from './marketDataService.ts';
 import { paperBalance, type PaperTradingEngine } from './paperTradingEngine.ts';
 import type { RiskService } from './riskService.ts';
 import type { SettingsService } from './settingsService.ts';
+import { prioritizedFocus } from './focus.ts';
 
 const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 
@@ -508,19 +509,44 @@ export class ExecutionService {
     }
 
     const margin = futures ? round(marginRequired(sizing.notional, leverage), 2) : sizing.notional;
+
+    /*
+     * As travas julgam a ORDEM QUE VAI SAIR, não o valor digitado.
+     *
+     * O dimensionamento é um funil: pede-se 6 USDT, o teto por posição corta
+     * para 1,26, e é 1,26 que vai para a corretora. Julgar o pedido produzia
+     * uma tela que se contradizia — "Valor da posição US$ 1,26" logo acima de
+     * "Saldo insuficiente: disponível 5,08" e "Exposição chegaria a 6,00".
+     * Três números, um só verdadeiro, e o usuário sem como saber qual.
+     *
+     * Em futuros o que precisa caber no saldo é a MARGEM: com 3x, uma posição
+     * de 300 USDT prende 100.
+     */
+    const gateFinal =
+      round(sizing.notional, 2) === round(quoteAmount, 2)
+        ? gate
+        : this.risk.gate({
+            snapshot,
+            symbol: setup.symbol,
+            quoteAmount: sizing.notional,
+            netRiskReward: netRR,
+            openTrades,
+            side,
+            mode,
+            market,
+          });
+
     const blockers = [
       ...(await this.collectBlockers({
         setup,
         mode,
         market,
-        // o que precisa caber no saldo é a MARGEM, não o notional: com 3x,
-        // uma posição de 300 USDT prende 100
-        quoteAmount: futures ? round(marginRequired(quoteAmount, leverage), 2) : quoteAmount,
+        quoteAmount: margin,
         available: capitalView.available,
         capital: capitalView.capital,
         sizingBlockers: sizing.blockReasons,
       })),
-      ...gate.blockers,
+      ...gateFinal.blockers,
     ];
     if (liquidation?.blockReason) {
       blockers.push(
@@ -530,7 +556,7 @@ export class ExecutionService {
       );
     }
 
-    const warnings = [...sizing.warnings, ...gate.warnings];
+    const warnings = [...sizing.warnings, ...gateFinal.warnings];
     if (alvos.dropped.length > 0) {
       warnings.push(`Alvo descartado — ${alvos.dropped.join('; ')}. A posição vive do alvo 1 e do stop`);
     }
@@ -672,7 +698,11 @@ export class ExecutionService {
     }
 
     if (quoteAmount > available) {
-      blockers.push(`Saldo insuficiente: disponível ${available.toFixed(2)} USDT`);
+      // dizer só o disponível obrigava a adivinhar o que faltou; com os dois
+      // números a frase se explica sozinha
+      blockers.push(
+        `Saldo insuficiente: a ordem precisa de ${quoteAmount.toFixed(2)} USDT e há ${available.toFixed(2)} disponíveis`,
+      );
     }
     if (setup.status === 'INVALIDATED' || setup.status === 'EXPIRED') {
       blockers.push('Este setup não está mais válido');
@@ -1080,6 +1110,22 @@ export class ExecutionService {
         tradeId: trade.id,
         detail: { quantity: trade.requestedQuantity, entryPrice: trade.entryPrice },
       });
+      // Uma operação recém-criada vira prioridade do fluxo ao vivo. Mesmo que
+      // o ativo não esteja na watchlist, ele recebe o primeiro retrato agora e
+      // continua acompanhado até encerrar.
+      // Alguns testes e integrações enxutas fornecem apenas leitura de preço;
+      // nesses casos não há um stream para reorganizar.
+      if (
+        typeof this.market.getSymbols === 'function' &&
+        typeof this.market.setSymbols === 'function'
+      ) {
+        await this.market.setSymbols(
+          prioritizedFocus(
+            this.paper.getOpenTrades().map((item) => item.symbol),
+            this.market.getSymbols(),
+          ),
+        );
+      }
       // se o preço já está na zona, a ordem preenche na hora
       const price = this.market.getPrice(setup.symbol);
       if (price !== null) await this.paper.onPrice(setup.symbol, price);
