@@ -464,6 +464,8 @@ export function tradingRoutes(context: ApiContext): Router {
       // os totais são da CARTEIRA em exibição; a posição da outra modalidade
       // aparece na lista, mas não entra no patrimônio desta conta
       const daCarteira = positions.filter((position) => position.market === settings.market);
+      const abertasDaCarteira = daCarteira.filter((position) => position.status === 'OPEN');
+      const pendentesDaCarteira = daCarteira.filter((position) => position.status === 'PENDING');
       const unrealizedPnl = round(
         daCarteira.reduce((total, position) => total + (position.unrealizedPnl ?? 0), 0),
         2,
@@ -478,7 +480,18 @@ export function tradingRoutes(context: ApiContext): Router {
         startingCapital,
         currentEquity,
         available: capital.available,
-        invested: round(daCarteira.reduce((total, position) => total + position.invested, 0), 2),
+        invested: round(abertasDaCarteira.reduce((total, position) => total + position.invested, 0), 2),
+        reserved: round(
+          pendentesDaCarteira.reduce(
+            (total, position) =>
+              total +
+              (position.market === 'FUTURES' && position.initialMargin > 0
+                ? position.initialMargin
+                : position.invested),
+            0,
+          ),
+          2,
+        ),
         realizedPnl,
         unrealizedPnl,
         positions,

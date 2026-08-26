@@ -133,6 +133,8 @@ export function Header(props: HeaderProps) {
    */
   const openState: 'nenhuma' | 'carregando' | 'pronto' =
     liveEquity.positions === 0 ? 'nenhuma' : liveEquity.partial || !balanceReady ? 'carregando' : 'pronto';
+  const awaitingOnly = liveEquity.positions === 0 && liveEquity.pendingOrders > 0;
+  const hasActivity = liveEquity.positions > 0 || liveEquity.pendingOrders > 0;
   const openTone =
     liveEquity.unrealized > 0 ? 'text-bull' : liveEquity.unrealized < 0 ? 'text-bear' : 'text-terminal-muted';
 
@@ -202,10 +204,12 @@ export function Header(props: HeaderProps) {
                 </div>
               </div>
 
-              {openState !== 'nenhuma' ? (
+              {hasActivity ? (
                 <div
                   className={`shrink-0 rounded-lg border px-2 py-1 text-right leading-tight tabular ${
-                    openState === 'carregando'
+                    awaitingOnly
+                      ? 'border-warn/25 bg-warn/[0.07] text-warn'
+                      : openState === 'carregando'
                       ? 'border-white/[0.07] bg-black/20 text-terminal-muted'
                       : liveEquity.unrealized > 0
                         ? 'border-bull/20 bg-bull/[0.07]'
@@ -213,14 +217,24 @@ export function Header(props: HeaderProps) {
                           ? 'border-bear/20 bg-bear/[0.07]'
                           : 'border-white/[0.07] bg-black/20'
                   }`}
-                  title={`${liveEquity.positions} posição(ões) em aberto`}
+                  title={
+                    awaitingOnly
+                      ? `${liveEquity.pendingOrders} ordem(ns) aguardando entrada`
+                      : `${liveEquity.positions} posição(ões) aberta(s)${
+                          liveEquity.pendingOrders > 0 ? ` e ${liveEquity.pendingOrders} aguardando` : ''
+                        }`
+                  }
                 >
-                  <div className={`text-xs font-bold ${openState === 'pronto' ? openTone : ''}`}>
-                    {openState === 'carregando'
+                  <div className={`text-xs font-bold ${!awaitingOnly && openState === 'pronto' ? openTone : ''}`}>
+                    {awaitingOnly
+                      ? `${liveEquity.pendingOrders} ordem${liveEquity.pendingOrders === 1 ? '' : 's'}`
+                      : openState === 'carregando'
                       ? '···'
                       : `${liveEquity.unrealized > 0 ? '+' : ''}${usd(liveEquity.unrealized)}`}
                   </div>
-                  <div className="text-[9px] uppercase tracking-wide text-terminal-muted">aberto</div>
+                  <div className="text-[9px] uppercase tracking-wide text-terminal-muted">
+                    {awaitingOnly ? 'aguardando' : 'aberto'}
+                  </div>
                 </div>
               ) : null}
             </div>

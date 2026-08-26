@@ -42,6 +42,8 @@ export function Performance() {
       ? ((equity.currentEquity - equity.startingCapital) / equity.startingCapital) * 100
       : 0;
   const livePnl = equity.realizedPnl + equity.unrealizedPnl;
+  const openPositions = equity.positions.filter((position) => position.status === 'OPEN');
+  const pendingOrders = equity.positions.filter((position) => position.status === 'PENDING');
 
   // a curva vem inteira do servidor; o recorte é aplicado aqui
   const points = period.from
@@ -72,12 +74,13 @@ export function Performance() {
           <PeriodFilter value={periodId} onChange={setPeriodId} />
         </div>
 
-        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           <Figure label="Disponível" value={usd(equity.available)} />
           <Figure label="Em posição" value={usd(equity.invested)} />
+          <Figure label="Reservado" value={usd(equity.reserved)} />
           <Figure
             label="Resultado aberto"
-            value={usd(equity.unrealizedPnl)}
+            value={openPositions.length > 0 ? usd(equity.unrealizedPnl) : '—'}
             tone={equity.unrealizedPnl >= 0 ? 'text-bull' : 'text-bear'}
           />
           <Figure
@@ -105,7 +108,7 @@ export function Performance() {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Metric
             label="Operações"
-            value={`${stats.closedTrades} fechadas · ${stats.openTrades} abertas`}
+            value={`${stats.closedTrades} fechadas · ${stats.openTrades} em andamento`}
           />
           <Metric label="Acerto" value={stats.closedTrades > 0 ? `${stats.winRate.toFixed(1)}%` : '—'} />
           <Metric
@@ -134,7 +137,9 @@ export function Performance() {
 
       {equity.positions.length > 0 ? (
         <section>
-          <SectionTitle title="Em andamento" count={equity.positions.length} />
+          <SectionTitle
+            title={`Em andamento · ${openPositions.length} aberta${openPositions.length === 1 ? '' : 's'} · ${pendingOrders.length} aguardando`}
+          />
           {/*
             Só o resumo aqui. O acompanhamento com régua de preço e o botão de
             encerrar vivem na aba Operações — repetir o cartão inteiro nas duas
@@ -166,7 +171,7 @@ export function Performance() {
                             stopLoss: position.stopLoss,
                             target1: position.target1,
                           }}
-                          note="posição aberta"
+                          note={position.status === 'PENDING' ? 'ordem aguardando entrada' : 'posição aberta'}
                           className="font-medium"
                         />
                         {position.side === 'SELL' ? (
@@ -187,7 +192,11 @@ export function Performance() {
                         {position.currentPrice === null ? '—' : price(position.currentPrice)}
                       </Td>
                       <Td className={`text-right ${tone}`}>
-                        {pnl === null ? '—' : `${usd(pnl)} (${percent(position.pnlPercent ?? 0)})`}
+                        {position.status === 'PENDING'
+                          ? <span className="text-warn">aguardando entrada</span>
+                          : pnl === null
+                            ? '—'
+                            : `${usd(pnl)} (${percent(position.pnlPercent ?? 0)})`}
                       </Td>
                     </tr>
                   );

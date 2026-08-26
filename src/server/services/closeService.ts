@@ -72,12 +72,19 @@ export class CloseService {
     if (trade.mode !== this.settings.get().mode) {
       throw new ExecutionError('Esta operação pertence a outra conta. Selecione a conta correta para encerrá-la.', 409);
     }
-    if (trade.market !== this.settings.get().market) {
-      throw new ExecutionError(
-        `Esta operação é de ${trade.market === 'FUTURES' ? 'futuros' : 'spot'}. Troque de modalidade para encerrá-la.`,
-        409,
-      );
-    }
+    /*
+     * Encerrar não pergunta qual aba está aberta.
+     *
+     * Esta trava fazia sentido quando havia uma modalidade por vez: sair de
+     * uma posição exigia estar "nela". Agora a carteira lista as duas juntas,
+     * de propósito — e uma posição que aparece na tela com um botão
+     * "Cancelar" que responde "troque de modalidade" é o pior momento
+     * possível para pedir um passo a mais: é justamente quando se quer sair.
+     *
+     * O caminho já sabe se virar sozinho: `closeOnExchange` roteia por
+     * `trade.market`, e o cliente REST escolhe a corretora pelo caminho da
+     * chamada. Nada aqui dependia da modalidade em exibição além do bloqueio.
+     */
     if (trade.status === 'CLOSED' || trade.status === 'CANCELLED') {
       throw new ExecutionError('Esta operação já está encerrada');
     }
@@ -89,12 +96,18 @@ export class CloseService {
     return this.closeOnExchange(trade, reason);
   }
 
-  /** Encerra tudo que estiver aberto — o botão de pânico. */
+  /**
+   * Encerra tudo que estiver aberto — o botão de pânico.
+   *
+   * TUDO quer dizer as duas modalidades. Fechar só a que está na tela seria a
+   * pior meia-verdade do painel: quem aperta este botão está saindo do
+   * mercado, não organizando uma aba, e ficaria com posição alavancada aberta
+   * achando que tinha encerrado. A conta continua sendo a que está em
+   * exibição — demo e real são carteiras diferentes de verdade.
+   */
   async closeAll(reason: string): Promise<{ closed: string[]; failed: Array<{ id: string; error: string }> }> {
-    const { mode, market } = this.settings.get();
-    const open = this.paper
-      .getOpenTrades()
-      .filter((trade) => trade.mode === mode && trade.market === market);
+    const { mode } = this.settings.get();
+    const open = this.paper.getOpenTrades().filter((trade) => trade.mode === mode);
     const closed: string[] = [];
     const failed: Array<{ id: string; error: string }> = [];
     for (const trade of open) {

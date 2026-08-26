@@ -106,6 +106,8 @@ export interface EquityResponse {
   currentEquity: number;
   available: number;
   invested: number;
+  /** saldo ou margem reservado por ordens ainda não preenchidas */
+  reserved: number;
   realizedPnl: number;
   unrealizedPnl: number;
   positions: Array<{

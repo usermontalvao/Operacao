@@ -7,6 +7,7 @@ import type { SymbolFilters, Trade, TradeSetup } from '../../core/types.ts';
 import { EventBus } from '../events.ts';
 import { JsonStore } from '../store/jsonStore.ts';
 import { AuditService } from './auditService.ts';
+import { CloseService } from './closeService.ts';
 import { ExecutionService } from './executionService.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import { PaperTradingEngine } from './paperTradingEngine.ts';
@@ -111,12 +112,14 @@ async function harness(price = 1.43) {
     loadUsdtBalance: async () => ({ free: 1000, locked: 0 }),
     loadBrlRate: async () => 5.16,
   });
+  const close = new CloseService(repository, paper, market, audit, settings, bus, async () => {});
   return {
     repository,
     settings,
     paper,
     audit,
     execution,
+    close,
     setPrice: (value: number) => {
       currentPrice = value;
     },
@@ -378,4 +381,29 @@ test('o R/R do preview é o do preço de AGORA, não o de quando a tese nasceu',
   assert.notEqual(preview.sizing.riskReward, 2.7, 'o R/R gravado na tese não pode vazar para a ordem');
   // e o líquido, que é quem decide, fica ABAIXO do bruto: taxa e escorregamento
   assert.ok(preview.netRiskReward < preview.sizing.riskReward);
+});
+
+test('dá para encerrar uma posição de futuros com a tela em spot', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+
+  const setup = makeShortSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'fechar-de-outra-aba',
+    },
+    setup,
+  );
+  assert.equal(trade.market, 'FUTURES');
+
+  // a carteira lista as duas modalidades de propósito; o botão "Encerrar" não
+  // pode responder "troque de modalidade" bem na hora em que se quer sair
+  await context.settings.update({ market: 'SPOT' });
+  const fechada = await context.close.close(trade.id, 'saída manual de outra aba');
+
+  assert.equal(fechada.status, 'CLOSED');
+  assert.equal(fechada.outcome, 'MANUAL');
 });

@@ -8,10 +8,14 @@ export interface LiveEquity {
   unrealized: number;
   /** quanto está parado em posição */
   invested: number;
+  /** quanto está reservado por ordens que ainda não preencheram */
+  reserved: number;
   /** true quando faltou preço de alguma posição e o número está incompleto */
   partial: boolean;
-  /** quantas posições entraram na conta — 0 significa "ainda não há o que somar" */
+  /** quantas posições foram realmente preenchidas */
   positions: number;
+  /** ordens enviadas que ainda aguardam o preço de entrada */
+  pendingOrders: number;
 }
 
 /**
@@ -53,23 +57,29 @@ export function computeLiveEquity(input: {
 
   let unrealized = 0;
   let invested = 0;
+  let reserved = 0;
   let marketValue = 0;
   let partial = false;
   let positions = 0;
+  let pendingOrders = 0;
 
   for (const trade of trades) {
     if (trade.mode !== mode) continue;
     if (trade.status !== 'OPEN' && trade.status !== 'PENDING') continue;
 
-    positions += 1;
     const entry = trade.averageFillPrice ?? trade.entryPrice;
     if (trade.status === 'PENDING') {
-      // ordem ainda não preencheu: o dinheiro está reservado, não exposto
-      invested += trade.notional;
-      marketValue += trade.notional;
+      // a ordem ainda não preencheu: não há posição nem PnL. Em conta real o
+      // saldo `capital` já inclui o USDT bloqueado, então somá-lo outra vez
+      // inflaria o patrimônio.
+      pendingOrders += 1;
+      reserved += trade.market === 'FUTURES' && trade.initialMargin > 0
+        ? trade.initialMargin
+        : trade.notional;
       continue;
     }
 
+    positions += 1;
     const quantity = trade.remainingQuantity;
     const price = prices[trade.symbol] ?? fallback[trade.symbol];
     invested += entry * quantity;
@@ -87,7 +97,9 @@ export function computeLiveEquity(input: {
     equity: Math.round(equity * 100) / 100,
     unrealized: Math.round(unrealized * 100) / 100,
     invested: Math.round(invested * 100) / 100,
+    reserved: Math.round(reserved * 100) / 100,
     partial,
     positions,
+    pendingOrders,
   };
 }

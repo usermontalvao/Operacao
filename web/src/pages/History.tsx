@@ -131,7 +131,14 @@ export function History() {
   const totalPnlPercent = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
   const totalReserved = positions
     .filter((position) => position.status === 'PENDING')
-    .reduce((total, position) => total + position.invested, 0);
+    .reduce(
+      (total, position) =>
+        total +
+        (position.market === 'FUTURES' && position.initialMargin > 0
+          ? position.initialMargin
+          : position.invested),
+      0,
+    );
 
   if (primeiraVez) return <PageSkeleton blocos={3} />;
 
