@@ -88,10 +88,48 @@ export class ExecutionError extends Error {
   }
 }
 
+/**
+ * As recusas que uma confirmação explícita desarma.
+ *
+ * A lista é por TRECHO da frase, e não por código, porque os bloqueios nascem
+ * como texto em dois módulos diferentes (o porteiro de risco e o coletor de
+ * impedimentos). Um teste amarra cada trecho à frase real que o sistema
+ * produz — sem ele, mudar a redação de um bloqueio o transformaria
+ * silenciosamente em intransponível, ou pior, em transponível sem querer.
+ *
+ * O que NÃO está aqui é intransponível de propósito: mínimo da corretora,
+ * par parado, saldo insuficiente, setup inválido, liquidação antes do stop,
+ * modalidade barrada, posição já aberta no ativo e o disjuntor — este último
+ * tem caminho próprio ("reconhecer"), que registra e expira sozinho.
+ */
+const TRAVAS_NEGOCIAVEIS = [
+  'R/R líquido',
+  'Exposição total',
+  'Exposição em altcoins',
+  'do patrimônio acima do teto',
+  'operações abertas atingido',
+  'Limite de',
+  'Descanso pós-perda',
+  'Volume de',
+] as const;
+
+function cedeAConfirmacao(motivo: string): boolean {
+  return TRAVAS_NEGOCIAVEIS.some((trecho) => motivo.includes(trecho));
+}
+
 export interface PreviewRequest {
   setupId: string;
   quoteAmount?: number;
   percentOfCapital?: number;
+  /**
+   * Ordem forçada: desarma as travas de POLÍTICA nesta ordem, e só nela.
+   *
+   * Existe para o caso em que afrouxar a régua de todas as ordens seria pior
+   * que atropelá-la numa — testar a conta real com pouco dinheiro é o
+   * exemplo. Nunca vem do robô, fica gravado na auditoria e não toca em nada
+   * que seja da corretora.
+   */
+  override?: boolean;
   /**
    * Alavancagem desta ordem, quando o usuário mexe no seletor do modal.
    *
@@ -139,6 +177,12 @@ export interface PreviewResult {
   /** R/R já descontadas corretagem e escorregamento — é este que decide */
   netRiskReward: number;
   canExecute: boolean;
+  /** travas de política que uma confirmação explícita desarmaria */
+  overridableBlockers: string[];
+  /** true quando SÓ falta a confirmação explícita para a ordem sair */
+  canOverride: boolean;
+  /** esta prévia já está com as travas de política desarmadas */
+  overridden: boolean;
   /** só com este token o servidor aceita criar a ordem */
   confirmationToken: string | null;
   expiresAt: string | null;
@@ -165,6 +209,10 @@ interface ConfirmationPayload {
   market: MarketKind;
   side: Side;
   leverage: number;
+  /** a ordem foi aprovada com as travas de política desarmadas */
+  override?: boolean;
+  /** quais travas o usuário viu na tela quando aprovou — vai para a auditoria */
+  overrideReasons?: string[];
 }
 
 /**
@@ -299,7 +347,15 @@ export class ExecutionService {
       ? Math.min(Math.max(1, Math.round(pedida)), Math.max(1, Math.round(policy.futures.maxLeverage)))
       : 1;
     const currentPrice = this.market.getPrice(setup.symbol) ?? setup.currentPrice;
-    const entryPrice = clampToZone(currentPrice, setup);
+    /*
+     * Clique manual no DEMO significa entrar agora.
+     *
+     * Antes o clique criava uma ordem no limite da zona quando o preço já
+     * tinha passado dali. A tela dizia "comprar", mas a operação ficava horas
+     * em AGUARDANDO. O robô continua usando a zona — ele não tem autorização
+     * para perseguir preço — e conta real/testnet continuam como ordem limite.
+     */
+    const entryPrice = mode === 'PAPER' && !automatic ? currentPrice : clampToZone(currentPrice, setup);
 
     const capitalView = await this.getCapital(mode, market);
     const requested =
@@ -495,7 +551,42 @@ export class ExecutionService {
       warnings.push('Setup marcado como ESTICADO — o preço já se afastou do ponto de invalidação');
     }
 
-    const canExecute = blockers.length === 0 && filterErrors.length === 0 && sizing.quantity > 0;
+    /*
+     * Nem toda recusa é do mesmo tipo.
+     *
+     * Umas são POLÍTICA: R/R mínimo, teto de exposição, limite de operações.
+     * São réguas que o próprio usuário escolheu e que ele pode, sabendo o que
+     * faz, atropelar numa ordem específica — testar o caminho da conta real
+     * com cinco dólares é um motivo legítimo, e obrigá-lo a afrouxar a régua
+     * de TODAS as ordens para fazer uma seria trocar um problema pequeno por
+     * um permanente.
+     *
+     * Outras são REALIDADE: o mínimo de nocional da Binance, o par que parou
+     * de negociar, o saldo que não existe, a liquidação que chega antes do
+     * stop. Nenhuma confirmação muda essas — atropelá-las só mudaria o lugar
+     * da recusa, do painel para a corretora, ou pior: deixaria passar uma
+     * ordem que a corretora aceita e que não protege nada.
+     *
+     * O `override` só desarma as primeiras, uma ordem por vez, e fica gravado.
+     */
+    const duros = blockers.filter((motivo) => !cedeAConfirmacao(motivo));
+    const negociaveis = blockers.filter((motivo) => cedeAConfirmacao(motivo));
+    const override = request.override === true;
+    const impeditivos = override ? duros : blockers;
+
+    const canExecute = impeditivos.length === 0 && filterErrors.length === 0 && sizing.quantity > 0;
+    // só faz sentido oferecer o atalho quando é ELE que está no caminho
+    const canOverride =
+      !override &&
+      negociaveis.length > 0 &&
+      duros.length === 0 &&
+      filterErrors.length === 0 &&
+      sizing.quantity > 0;
+    if (override && negociaveis.length > 0) {
+      warnings.push(
+        `ORDEM FORÇADA — travas ignoradas nesta ordem: ${negociaveis.join('; ')}`,
+      );
+    }
     const expiresAt = canExecute ? Date.now() + CONFIRMATION_TTL_MS : null;
 
     return {
@@ -517,7 +608,10 @@ export class ExecutionService {
       riskSizing: sized,
       filters,
       filterErrors,
-      blockers,
+      blockers: impeditivos,
+      overridableBlockers: negociaveis,
+      canOverride,
+      overridden: override && negociaveis.length > 0,
       warnings: [...new Set(warnings)],
       netRiskReward: netRR,
       canExecute,
@@ -535,6 +629,8 @@ export class ExecutionService {
             market,
             side,
             leverage,
+            override,
+            overrideReasons: override ? negociaveis : undefined,
           })
         : null,
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
@@ -815,7 +911,52 @@ export class ExecutionService {
       capital: capitalView.capital,
       sizingBlockers: [],
     });
-    if (blockers.length > 0) throw new ExecutionError(blockers[0] as string);
+    /*
+     * A reconferência na hora do envio.
+     *
+     * O token diz se o usuário aprovou uma ordem FORÇADA — e só as travas de
+     * política cedem a isso. As de realidade continuam de pé aqui, que é o
+     * ponto: entre a confirmação e o envio o saldo pode ter sumido, o par
+     * pode ter parado, e nenhuma aprovação de trinta segundos atrás muda isso.
+     *
+     * O robô nunca chega aqui com override: `executeAutomatic` não oferece o
+     * caminho, e o token que ele assina nasce sem a marca.
+     */
+    const forcada = payload.override === true && !payload.automatic;
+    const impeditivos = forcada ? blockers.filter((motivo) => !cedeAConfirmacao(motivo)) : blockers;
+    if (impeditivos.length > 0) throw new ExecutionError(impeditivos[0] as string);
+
+    /*
+     * O registro sai do TOKEN, não do que sobrou na reconferência.
+     *
+     * Boa parte das travas de política mora no porteiro de risco, que só roda
+     * na prévia — na hora do envio elas nem reaparecem. Condicionar o registro
+     * a "ainda estar bloqueado" deixaria a ordem forçada passar sem rastro
+     * justamente no caso mais comum. O que precisa ficar gravado é o fato: o
+     * usuário aprovou uma ordem forçada.
+     */
+    const ignoradas = forcada ? blockers.filter(cedeAConfirmacao) : [];
+    if (forcada) {
+      // registro próprio, e não uma nota dentro do ORDER_CONFIRMED: uma ordem
+      // que passou por cima das travas precisa ser encontrável sozinha depois
+      await this.audit.record({
+        action: 'ORDER_OVERRIDE',
+        mode,
+        symbol: setup.symbol,
+        setupId: setup.id,
+        detail: {
+          travasIgnoradas: ignoradas.length > 0 ? ignoradas : payload.overrideReasons ?? [],
+          quantity: payload.quantity,
+          quoteAmount: payload.quoteAmount,
+          entryPrice: payload.entryPrice,
+        },
+      });
+      logger.warn('Ordem enviada com travas de risco desarmadas pelo usuário', {
+        symbol: setup.symbol,
+        mode,
+        travas: ignoradas,
+      });
+    }
 
     const filters = await this.dependencies.loadFilters(setup.symbol, market);
     if (filters) {

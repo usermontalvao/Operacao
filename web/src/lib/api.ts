@@ -73,6 +73,7 @@ export interface SystemHealth {
     robo: string;
     armadoAte: string | null;
     posicoesAbertas: number;
+    ordensPendentes: number;
     disjuntorSilenciadoAte: string | null;
     descansos: Array<{ symbol: string; until: string; remainingMinutes: number }>;
   }>;
@@ -295,6 +296,12 @@ export interface PreviewResponse {
   warnings: string[];
   netRiskReward: number;
   canExecute: boolean;
+  /** travas de política que uma confirmação explícita desarmaria */
+  overridableBlockers: string[];
+  /** true quando só falta essa confirmação para a ordem sair */
+  canOverride: boolean;
+  /** esta prévia já veio com as travas desarmadas */
+  overridden: boolean;
   confirmationToken: string | null;
   expiresAt: string | null;
 }
@@ -350,6 +357,8 @@ export const api = {
     percentOfCapital?: number;
     /** alavancagem desta ordem; ausente = a dos ajustes da modalidade */
     leverage?: number;
+    /** ordem forçada: desarma as travas de política NESTA ordem */
+    override?: boolean;
   }) =>
     request<PreviewResponse>('/orders/preview', { method: 'POST', body: JSON.stringify(body) }),
   execute: (body: { setupId: string; confirmationToken: string; idempotencyKey: string }) =>

@@ -17,6 +17,8 @@ const previewSchema = z
     percentOfCapital: z.number().positive().max(100).optional(),
     // o teto real é o dos ajustes; 25 aqui é só sanidade de entrada
     leverage: z.number().int().min(1).max(25).optional(),
+    /** ordem forçada: desarma as travas de política NESTA ordem */
+    override: z.boolean().optional(),
   })
   .refine((value) => value.quoteAmount !== undefined || value.percentOfCapital !== undefined, {
     message: 'Informe o valor a investir ou o percentual do capital',

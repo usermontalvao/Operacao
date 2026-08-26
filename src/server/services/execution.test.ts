@@ -207,6 +207,35 @@ test('ordem só é criada com o token da confirmação que o usuário aprovou', 
   assert.equal(trade.filledQuantity, 139.8);
 });
 
+test('compra manual no DEMO entra agora, mesmo com o preço acima da antiga zona', async (t) => {
+  const context = await harness(1.5);
+  t.after(context.cleanup);
+  const setup = makeSetup({
+    currentPrice: 1.5,
+    entryLow: 1.41,
+    entryHigh: 1.44,
+    stopLoss: 1.37,
+    target1: 1.75,
+  });
+
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  assert.equal(preview.entryPrice, 1.5, 'o modal precisa mostrar o preço em que vai entrar');
+  assert.equal(preview.canExecute, true, preview.blockers.join(' | '));
+
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'manual-entra-agora',
+    },
+    setup,
+  );
+
+  assert.equal(trade.status, 'OPEN');
+  assert.equal(trade.averageFillPrice, 1.5);
+  assert.ok(trade.fills.some((item) => item.kind === 'ENTRY'));
+});
+
 test('token de outro setup ou com plano alterado é recusado', async (t) => {
   const context = await harness();
   t.after(context.cleanup);

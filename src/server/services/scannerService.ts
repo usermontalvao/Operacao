@@ -147,6 +147,12 @@ export class ScannerService {
     this.market.on('candleClosed', () => {
       void this.scan();
     });
+    // O histórico aquece em segundo plano para o preço vivo (e as ordens)
+    // começarem primeiro. Assim que ele termina, não esperamos o próximo
+    // intervalo para produzir o radar completo.
+    this.market.on('historyLoaded', () => {
+      void this.scan();
+    });
     this.market.on('status', (connection) => {
       this.bus.broadcast({
         type: 'status',
@@ -606,4 +612,3 @@ export class ScannerService {
     });
   }
 }
-

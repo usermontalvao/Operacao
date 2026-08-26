@@ -95,16 +95,37 @@ export class MarketDataService extends EventEmitter {
   /** Carrega o histórico e abre os streams. Sem histórico não há indicador. */
   async start(symbols: string[]): Promise<void> {
     this.symbols = [...new Set(symbols)];
-    await this.loadHistory(this.symbols);
+    /*
+     * O preço vivo vem ANTES do histórico.
+     *
+     * São cerca de 150 chamadas de candles no boot. Quando o WebSocket era
+     * aberto só depois delas, o processo já respondia HTTP, mas o painel
+     * passava quase um minuto em OFFLINE e as ordens pendentes ficavam sem
+     * acompanhamento nesse intervalo. Um retrato de ticker basta para o
+     * primeiro quadro; o histórico pode terminar de carregar em seguida.
+     */
+    await this.loadTickers(this.symbols);
     this.stream.start(this.buildStreams(this.symbols));
+    // Indicadores podem aquecer em segundo plano. Acompanhamento de ordem e
+    // stop não pode esperar as ~150 chamadas históricas terminarem.
+    void this.loadHistory(this.symbols).then(() => {
+      this.emit('historyLoaded', { symbols: this.symbols });
+    });
   }
 
   async setSymbols(symbols: string[]): Promise<void> {
     const next = [...new Set(symbols)];
     const added = next.filter((symbol) => !this.symbols.includes(symbol));
     this.symbols = next;
-    if (added.length > 0) await this.loadHistory(added);
+    if (added.length > 0) await this.loadTickers(added);
+    // O novo ativo começa a receber preço já; candles servem aos indicadores
+    // e podem chegar logo depois sem deixar a ordem cega enquanto carregam.
     this.stream.updateStreams(this.buildStreams(next));
+    if (added.length > 0) {
+      void this.loadHistory(added).then(() => {
+        this.emit('historyLoaded', { symbols: added });
+      });
+    }
   }
 
   stop(): void {
@@ -152,7 +173,10 @@ export class MarketDataService extends EventEmitter {
       }
       this.dirty.add(symbol);
     }
+  }
 
+  private async loadTickers(symbols: string[]): Promise<void> {
+    if (symbols.length === 0) return;
     try {
       const tickers = await getTickers(symbols);
       for (const ticker of tickers) {

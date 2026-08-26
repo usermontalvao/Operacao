@@ -124,7 +124,15 @@ function Saude({ health }: { health: SystemHealth }) {
               </span>
             </div>
             <p className="mt-1 text-[11px] text-terminal-muted">
-              {sessao.posicoesAbertas} posição(ões) aberta(s)
+              {sessao.posicoesAbertas}{' '}
+              {sessao.posicoesAbertas === 1 ? 'posição aberta' : 'posições abertas'}
+              {sessao.ordensPendentes > 0
+                ? ` · ${sessao.ordensPendentes} ${
+                    sessao.ordensPendentes === 1
+                      ? 'ordem limite aguardando'
+                      : 'ordens limite aguardando'
+                  }`
+                : ''}
               {sessao.armadoAte ? ` · armado até ${new Date(sessao.armadoAte).toLocaleTimeString('pt-BR')}` : ''}
             </p>
             {sessao.descansos.length > 0 ? (

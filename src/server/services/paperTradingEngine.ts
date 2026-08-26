@@ -82,8 +82,11 @@ export class PaperTradingEngine {
     else this.open.delete(trade.id);
   }
 
-  private guard(): AppSettings['guard'] {
-    return this.settings.get().guard;
+  private guard(trade: Trade): AppSettings['guard'] {
+    // A conta exibida no topo pode ser REAL enquanto ainda há uma posição
+    // DEMO sendo acompanhada. Custos e proteções pertencem à operação, não à
+    // tela atualmente selecionada.
+    return this.settings.forMode(trade.mode, trade.market).guard;
   }
 
   /** Cancela a ordem pendente quando o setup morre antes de acionar. */
@@ -110,6 +113,12 @@ export class PaperTradingEngine {
   async onPrice(symbol: string, price: number): Promise<void> {
     for (const trade of this.open.values()) {
       if (trade.symbol !== symbol || trade.mode !== 'PAPER') continue;
+      // No DEMO, a decisão manual é uma entrada imediata. Ordens antigas que
+      // ficaram PENDING pela regra anterior são corrigidas no primeiro tique,
+      // sem aumentar o orçamento de risco originalmente aprovado.
+      if (trade.status === 'PENDING' && !trade.automatic) {
+        await this.fillPendingAtMarket(trade, price);
+      }
       await this.step(trade, price);
     }
   }
@@ -125,7 +134,7 @@ export class PaperTradingEngine {
    * de verdade.
    */
   async closeAtMarket(trade: Trade, price: number, reason: string): Promise<Trade> {
-    const costs = this.guard();
+    const costs = this.guard(trade);
     if (trade.status === 'PENDING') {
       trade.status = 'CANCELLED';
       trade.outcome = 'MANUAL';
@@ -166,7 +175,7 @@ export class PaperTradingEngine {
   }
 
   private async step(trade: Trade, price: number): Promise<void> {
-    const costs = this.guard();
+    const costs = this.guard(trade);
     let changed = false;
 
     if (trade.status === 'PENDING') {
@@ -176,25 +185,7 @@ export class PaperTradingEngine {
       // ordem limitada preenche no preço combinado, nunca melhor: assumir
       // preenchimento no fundo do pavio é o otimismo que quebra o backtest
       const fillPrice = trade.entryPrice;
-      trade.status = 'OPEN';
-      trade.filledQuantity = trade.requestedQuantity;
-      trade.remainingQuantity = trade.requestedQuantity;
-      trade.averageFillPrice = fillPrice;
-      trade.notional = round(fillPrice * trade.requestedQuantity, 2);
-      trade.feesPaid = round(feeFor(fillPrice, trade.requestedQuantity, costs.feePercent), 6);
-      trade.highWaterPrice = fillPrice;
-      // a liquidação estimada nasce com a posição: em papel ela existe para
-      // que a demo de futuros possa perder do mesmo jeito que a conta real
-      if (trade.market === 'FUTURES') {
-        trade.liquidationPrice = liquidationPrice({
-          side: trade.side,
-          entryPrice: fillPrice,
-          quantity: trade.requestedQuantity,
-          leverage: trade.leverage,
-          marginMode: trade.marginMode ?? 'ISOLATED',
-        });
-      }
-      trade.fills.push(fill('ENTRY', fillPrice, trade.requestedQuantity));
+      this.applyEntryFill(trade, fillPrice, trade.requestedQuantity);
       changed = true;
       await this.audit.record({
         action: 'PAPER_TRADE_FILLED',
@@ -354,12 +345,108 @@ export class PaperTradingEngine {
   }
 
   /**
+   * Converte uma ordem manual PAPER antiga em posição ao preço de agora.
+   *
+   * Se o mercado andou contra a tese desde a confirmação, a quantidade cai
+   * para que o prejuízo estimado no stop nunca ultrapasse o orçamento que o
+   * usuário aprovou originalmente. Entrar agora não é licença para arriscar
+   * mais só porque a entrada ficou pior.
+   */
+  private async fillPendingAtMarket(trade: Trade, price: number): Promise<void> {
+    if (trade.status !== 'PENDING' || trade.mode !== 'PAPER' || price <= 0) return;
+    const costs = this.guard(trade);
+    const stopFill = stopFillPrice(trade.stopLoss, costs, trade.side);
+    const oldPerUnitRisk = -netPnl({
+      entryPrice: trade.entryPrice,
+      exitPrice: stopFill,
+      quantity: 1,
+      feePercent: costs.feePercent,
+      side: trade.side,
+    });
+    const newPerUnitRisk = -netPnl({
+      entryPrice: price,
+      exitPrice: stopFill,
+      quantity: 1,
+      feePercent: costs.feePercent,
+      side: trade.side,
+    });
+    if (!(newPerUnitRisk > 0)) {
+      await this.closeAtMarket(
+        trade,
+        price,
+        'Ordem manual cancelada: o preço atual já invalidou o stop da tese',
+      );
+      return;
+    }
+
+    const plannedQuantity = trade.requestedQuantity;
+    const originalRiskBudget = Math.max(oldPerUnitRisk, 0) * plannedQuantity;
+    const quantity = round(
+      Math.min(
+        plannedQuantity,
+        originalRiskBudget > 0 ? originalRiskBudget / newPerUnitRisk : plannedQuantity,
+      ),
+      8,
+    );
+    if (!(quantity > 0)) return;
+
+    const previousEntry = trade.entryPrice;
+    this.applyEntryFill(trade, price, quantity);
+    trade.riskAmount = round(newPerUnitRisk * quantity, 2);
+    await this.audit.record({
+      action: 'PAPER_MANUAL_FILLED_AT_MARKET',
+      mode: trade.mode,
+      symbol: trade.symbol,
+      setupId: trade.setupId,
+      tradeId: trade.id,
+      detail: {
+        entradaPlanejada: previousEntry,
+        entradaReal: price,
+        quantidadePlanejada: plannedQuantity,
+        quantidadeExecutada: quantity,
+        riscoNoStop: trade.riskAmount,
+      },
+    });
+    await this.persist(trade);
+  }
+
+  /** Aplica o preenchimento de entrada; limite e mercado usam a mesma conta. */
+  private applyEntryFill(trade: Trade, fillPrice: number, quantity: number): void {
+    const costs = this.guard(trade);
+    const openedAt = new Date().toISOString();
+    trade.status = 'OPEN';
+    trade.requestedQuantity = quantity;
+    trade.filledQuantity = quantity;
+    trade.remainingQuantity = quantity;
+    trade.entryPrice = fillPrice;
+    trade.averageFillPrice = fillPrice;
+    trade.notional = round(fillPrice * quantity, 2);
+    trade.initialMargin =
+      trade.market === 'FUTURES'
+        ? round(trade.notional / Math.max(trade.leverage, 1), 2)
+        : trade.notional;
+    trade.feesPaid = round(feeFor(fillPrice, quantity, costs.feePercent), 6);
+    trade.highWaterPrice = fillPrice;
+    trade.openedAt = openedAt;
+    if (trade.market === 'FUTURES') {
+      trade.liquidationPrice = liquidationPrice({
+        side: trade.side,
+        entryPrice: fillPrice,
+        quantity,
+        leverage: trade.leverage,
+        marginMode: trade.marginMode ?? 'ISOLATED',
+      });
+    }
+    trade.fills.push(fill('ENTRY', fillPrice, quantity));
+  }
+
+  /**
    * Sobe o stop quando há lucro para proteger. Só sobe — e nunca acima do
    * preço, senão a proteção viraria uma venda imediata.
    */
   private async moveProtectiveStop(trade: Trade, price: number): Promise<boolean> {
     if (trade.status !== 'OPEN' || trade.remainingQuantity <= 0) return false;
-    const guard = this.guard();
+    const guard = this.guard(trade);
     if (!guard.breakevenAfterTarget1 && guard.trailingStopPercent <= 0) return false;
 
     const entry = trade.averageFillPrice ?? trade.entryPrice;
@@ -400,7 +487,7 @@ export class PaperTradingEngine {
     const amount = Math.min(quantity, trade.remainingQuantity);
     if (amount <= 0) return;
 
-    const feePercent = this.guard().feePercent;
+    const feePercent = this.guard(trade).feePercent;
     trade.remainingQuantity = round(trade.remainingQuantity - amount, 10);
     trade.realizedPnl = round(
       trade.realizedPnl +

@@ -442,9 +442,11 @@ function PositionCard({
                   } ${Math.abs(position.distanceToEntryPercent).toFixed(2)}%`
             }
           >
-            AGUARDANDO
+            ORDEM LIMITE
             {position.distanceToEntryPercent !== null
-              ? ` · falta ${Math.abs(position.distanceToEntryPercent).toFixed(2)}%`
+              ? ` · ${position.side === 'SELL' ? 'vende se subir' : 'compra se cair'} ${Math.abs(
+                  position.distanceToEntryPercent,
+                ).toFixed(2)}%`
               : ''}
           </span>
         ) : position.protectiveStop != null ? (

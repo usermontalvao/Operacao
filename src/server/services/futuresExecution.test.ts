@@ -441,3 +441,75 @@ test('dá para encerrar uma posição de futuros com a tela em spot', async (t) 
   assert.equal(fechada.status, 'CLOSED');
   assert.equal(fechada.outcome, 'MANUAL');
 });
+
+test('a ordem forçada desarma a trava de POLÍTICA e nada além dela', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  // R/R mínimo alto o bastante para recusar a tese
+  await context.settings.update({ guard: { minNetRiskReward: 9 } });
+
+  const setup = makeShortSetup();
+  const normal = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  assert.equal(normal.canExecute, false);
+  assert.equal(normal.canOverride, true, 'só falta a confirmação — o atalho tem de aparecer');
+  assert.ok(normal.overridableBlockers.some((item) => /R\/R líquido/.test(item)));
+
+  const forcada = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 300, override: true },
+    setup,
+  );
+  assert.equal(forcada.canExecute, true, forcada.blockers.join(' | '));
+  assert.equal(forcada.overridden, true);
+  assert.ok(forcada.warnings.some((item) => /ORDEM FORÇADA/.test(item)));
+  assert.ok(forcada.confirmationToken, 'a ordem forçada precisa de token como qualquer outra');
+
+  // e a ordem sai mesmo, deixando rastro com nome próprio
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: forcada.confirmationToken as string,
+      idempotencyKey: 'forcada-uma-vez',
+    },
+    setup,
+  );
+  // preço dentro da zona preenche na hora; o que importa é que a ordem SAIU
+  assert.ok(trade.status === 'PENDING' || trade.status === 'OPEN', trade.status);
+
+  const audit = await context.audit.list(30);
+  const registro = audit.find((entry) => entry.action === 'ORDER_OVERRIDE');
+  assert.ok(registro, 'uma ordem que passou por cima das travas precisa ser encontrável sozinha');
+  assert.match(JSON.stringify(registro?.detail ?? {}), /R\/R líquido/);
+});
+
+test('forçar NÃO atravessa o que é da corretora nem o saldo que não existe', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  await context.settings.update({ risk: { paperCapital: 12, paperCapitalCurrency: 'USDT' } });
+
+  const setup = makeShortSetup();
+  // pede muito mais do que a carteira tem
+  const forcada = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 5_000, override: true },
+    setup,
+  );
+
+  assert.equal(forcada.canExecute, false, 'saldo inexistente não cede a confirmação nenhuma');
+  assert.ok(
+    forcada.blockers.some((item) => /Saldo insuficiente/i.test(item)),
+    `esperava o bloqueio de saldo, veio: ${forcada.blockers.join(' | ')}`,
+  );
+  assert.equal(forcada.confirmationToken, null);
+});
+
+test('o robô nunca recebe o atalho: override não vem de entrada automática', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  await context.settings.update({
+    autoTrade: { enabled: true, minimumScore: 50 },
+    guard: { minNetRiskReward: 9 },
+  });
+
+  const setup = makeShortSetup({ side: 'BUY', setupType: 'MOMENTUM_BURST', score: 95 });
+  const trade = await context.execution.executeAutomatic(setup, 'PAPER');
+  assert.equal(trade, null, 'o robô não pode se autoconceder a confirmação do usuário');
+});

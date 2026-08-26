@@ -109,15 +109,18 @@ export function diagnosticsRoutes(context: ApiContext): Router {
         // o coração da mudança que o usuário pediu: as sessões que operam AGORA
         sessoes: sessoes.map((mode) => {
           const policy = context.settings.forMode(mode);
-          const abertas = context.paper
+          const emAndamento = context.paper
             .getOpenTrades()
             .filter((trade) => trade.mode === mode);
+          const abertas = emAndamento.filter((trade) => trade.status === 'OPEN');
+          const pendentes = emAndamento.filter((trade) => trade.status === 'PENDING');
           return {
             mode,
             emExibicao: mode === settings.mode,
             robo: policy.autoTrade.enabled ? 'LIGADO' : 'DESLIGADO',
             armadoAte: policy.autoTrade.liveArmedUntil,
             posicoesAbertas: abertas.length,
+            ordensPendentes: pendentes.length,
             disjuntorSilenciadoAte: policy.guard.mutedUntil,
             descansos: activeCooldowns({
               trades,

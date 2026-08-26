@@ -219,15 +219,17 @@ export function Header(props: HeaderProps) {
                   }`}
                   title={
                     awaitingOnly
-                      ? `${liveEquity.pendingOrders} ordem(ns) aguardando entrada`
-                      : `${liveEquity.positions} posição(ões) aberta(s)${
-                          liveEquity.pendingOrders > 0 ? ` e ${liveEquity.pendingOrders} aguardando` : ''
+                      ? `${liveEquity.pendingOrders} ${liveEquity.pendingOrders === 1 ? 'ordem' : 'ordens'} aguardando entrada`
+                      : `${liveEquity.positions} ${liveEquity.positions === 1 ? 'posição aberta' : 'posições abertas'}${
+                          liveEquity.pendingOrders > 0
+                            ? ` e ${liveEquity.pendingOrders} ${liveEquity.pendingOrders === 1 ? 'ordem aguardando' : 'ordens aguardando'}`
+                            : ''
                         }`
                   }
                 >
                   <div className={`text-xs font-bold ${!awaitingOnly && openState === 'pronto' ? openTone : ''}`}>
                     {awaitingOnly
-                      ? `${liveEquity.pendingOrders} ordem${liveEquity.pendingOrders === 1 ? '' : 's'}`
+                      ? `${liveEquity.pendingOrders} ${liveEquity.pendingOrders === 1 ? 'ordem' : 'ordens'}`
                       : openState === 'carregando'
                       ? '···'
                       : `${liveEquity.unrealized > 0 ? '+' : ''}${usd(liveEquity.unrealized)}`}

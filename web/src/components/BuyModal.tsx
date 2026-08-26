@@ -64,6 +64,14 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
     token da confirmação carrega a alavancagem aprovada.
   */
   const [leverage, setLeverage] = useState<number | null>(null);
+  /*
+    Ordem forçada.
+
+    Estado da SESSÃO do modal, nunca configuração: fecha a janela, some. As
+    travas de política que ela desarma valem para todas as outras ordens no
+    segundo seguinte — é essa a diferença entre atropelar uma régua e afrouxá-la.
+  */
+  const [forcar, setForcar] = useState(false);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -81,7 +89,12 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
   const setup = preview?.setup ?? clicado;
 
   const load = useCallback(
-    async (body: { quoteAmount?: number; percentOfCapital?: number; leverage?: number }) => {
+    async (body: {
+      quoteAmount?: number;
+      percentOfCapital?: number;
+      leverage?: number;
+      override?: boolean;
+    }) => {
       setLoading(true);
       setError(null);
       try {
@@ -111,18 +124,25 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
   const applyPercent = (value: number): void => {
     setPercentChoice(value);
-    void load({ percentOfCapital: value, leverage: leverage ?? undefined });
+    void load({ percentOfCapital: value, leverage: leverage ?? undefined, override: forcar });
   };
 
   const applyAmount = (value: number): void => {
     setPercentChoice(null);
     setAmount(value);
-    if (value > 0) void load({ quoteAmount: value, leverage: leverage ?? undefined });
+    if (value > 0) void load({ quoteAmount: value, leverage: leverage ?? undefined, override: forcar });
   };
 
   const applyLeverage = (value: number): void => {
     setLeverage(value);
-    void load({ ...tamanhoAtual(), leverage: value });
+    void load({ ...tamanhoAtual(), leverage: value, override: forcar });
+  };
+
+  /** Refaz a conta com as travas de política desarmadas — e volta atrás igual. */
+  const alternarForcar = (): void => {
+    const proximo = !forcar;
+    setForcar(proximo);
+    void load({ ...tamanhoAtual(), leverage: leverage ?? undefined, override: proximo });
   };
 
   const confirm = async (): Promise<void> => {
@@ -355,6 +375,58 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
             <Messages preview={preview} error={error} />
 
+            {/*
+              O caminho forçado é OUTRO botão, nunca o mesmo.
+
+              Quem chega aqui está com a ordem recusada por uma régua que ele
+              mesmo escolheu. Afrouxar a régua nos ajustes resolveria — e valeria
+              para todas as ordens dali em diante, que é o preço errado a pagar
+              por um teste. Este botão atropela a régua UMA vez, lista o que está
+              ignorando e some quando o modal fecha. A ordem forçada fica gravada
+              na auditoria com nome próprio.
+
+              Só aparece quando o que resta são travas de política. Mínimo da
+              corretora, par parado, saldo que não existe e liquidação antes do
+              stop não aparecem aqui porque nenhuma confirmação muda o mundo.
+            */}
+            {preview?.canOverride ? (
+              <div className="mt-3 rounded-lg border border-warn/40 bg-warn/5 p-3">
+                <p className="text-[11px] font-semibold text-warn">
+                  Estas travas são suas, não da corretora
+                </p>
+                <ul className="mt-1 space-y-0.5 text-[10px] leading-relaxed text-terminal-muted">
+                  {preview.overridableBlockers.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={alternarForcar}
+                  className="mt-2 w-full rounded-lg border border-warn/50 px-3 py-2 text-[11px] font-bold text-warn transition hover:bg-warn/10"
+                >
+                  Assumir o risco e liberar esta ordem
+                </button>
+              </div>
+            ) : null}
+
+            {preview?.overridden ? (
+              <div className="mt-3 rounded-lg border border-bear/50 bg-bear/10 p-3">
+                <p className="text-[11px] font-bold text-bear">ORDEM FORÇADA</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-terminal-muted">
+                  Esta ordem vai sair com {preview.overridableBlockers.length} trava(s) de risco
+                  desarmada(s), só desta vez, e fica registrada na auditoria. As regras da corretora
+                  continuam valendo.
+                </p>
+                <button
+                  type="button"
+                  onClick={alternarForcar}
+                  className="mt-2 w-full rounded-lg border border-terminal-border px-3 py-2 text-[11px] font-semibold text-terminal-muted"
+                >
+                  Voltar a respeitar as travas
+                </button>
+              </div>
+            ) : null}
+
             <button
               type="button"
               disabled={!preview?.canExecute || loading}
@@ -374,18 +446,42 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                   ? preview.blockers.some((item) => item.includes('R/R líquido'))
                     ? 'Bloqueada: R/R líquido abaixo do mínimo'
                     : 'Operação bloqueada'
-                  : 'Revisar operação'}
+                  : preview?.overridden
+                    ? 'Revisar operação FORÇADA'
+                    : 'Revisar operação'}
             </button>
           </>
         ) : (
           <>
-            <div className="mt-4 space-y-1.5 rounded-xl border border-warn/40 bg-warn/5 p-4 text-sm">
-              <p className="text-xs uppercase tracking-wide text-warn">Confirmar operação</p>
+            <div
+              className={`mt-4 space-y-1.5 rounded-xl border p-4 text-sm ${
+                preview?.overridden ? 'border-bear/50 bg-bear/10' : 'border-warn/40 bg-warn/5'
+              }`}
+            >
+              <p
+                className={`text-xs uppercase tracking-wide ${
+                  preview?.overridden ? 'font-bold text-bear' : 'text-warn'
+                }`}
+              >
+                {preview?.overridden ? 'Confirmar ordem FORÇADA' : 'Confirmar operação'}
+              </p>
+              {/* a segunda etapa repete o que está sendo ignorado: quem forçou
+                  há dois cliques precisa reler antes de mandar, e não lembrar */}
+              {preview?.overridden ? (
+                <ul className="space-y-0.5 text-[10px] leading-relaxed text-bear/90">
+                  {preview.overridableBlockers.map((item) => (
+                    <li key={item}>• ignorando: {item}</li>
+                  ))}
+                </ul>
+              ) : null}
               <p className="text-lg font-semibold">
                 {verbo} {quantity(preview?.sizing.quantity ?? 0)} {setup.symbol.replace('USDT', '')}
                 {preview && preview.leverage > 1 ? ` com ${preview.leverage}x` : ''}
               </p>
-              <Row label="Entrada limite" value={price(preview?.entryPrice ?? 0)} />
+              <Row
+                label={preview?.mode === 'PAPER' ? 'Entrada imediata' : 'Entrada limite'}
+                value={price(preview?.entryPrice ?? 0)}
+              />
               <Row
                 label="Valor aproximado"
                 value={usdWithBrl(preview?.sizing.notional ?? 0, preview?.brlRate ?? null)}
@@ -408,7 +504,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
             {preview?.mode === 'PAPER' ? (
               <p className="mt-2 text-xs text-terminal-muted">
-                Operação simulada: nada é enviado à Binance. O acompanhamento usa o preço real.
+                Operação simulada com entrada imediata: nada é enviado à Binance. O acompanhamento usa o preço real.
               </p>
             ) : (
               <p className="mt-2 text-xs text-warn">
@@ -434,11 +530,15 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 type="button"
                 onClick={() => void confirm()}
                 disabled={sending || !preview?.canExecute}
-                className={`rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
-                  side,
-                )}`}
+                className={`rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${
+                  preview?.overridden ? 'bg-bear text-white' : sideButton(side)
+                }`}
               >
-                {sending ? 'Enviando…' : `CONFIRMAR ${SIDE_LABEL[side]}`}
+                {sending
+                  ? 'Enviando…'
+                  : preview?.overridden
+                    ? `FORÇAR ${SIDE_LABEL[side]}`
+                    : `CONFIRMAR ${SIDE_LABEL[side]}`}
               </button>
             </div>
           </>
