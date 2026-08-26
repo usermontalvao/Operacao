@@ -2,7 +2,8 @@ import type { AppSettings, SymbolFilters, Trade } from '../../core/types.ts';
 import { sideLabel } from '../../core/direction.ts';
 import { buildExitPlan, SCALE_OUT, type ExitPlan } from '../../core/execution/exitPlan.ts';
 import { formatPrice, formatQuantity } from '../../core/risk/index.ts';
-import { cancelOrderList, marketSell, newOcoSellOrder } from '../binance/rest.ts';
+import { quantidadeVendavel } from '../../core/execution/posicaoReal.ts';
+import { cancelOrderList, getAccountBalances, marketSell, newOcoSellOrder } from '../binance/rest.ts';
 import {
   cancelAllFuturesOrders,
   futuresMarketExit,
@@ -49,6 +50,26 @@ export class LiveProtection {
   }
 
   /**
+   * Quanto do ativo está livre na conta agora.
+   *
+   * Falha de leitura devolve a quantidade da operação: ficar sem proteção
+   * porque a consulta de saldo não respondeu seria trocar um risco pequeno
+   * (ordem recusada) pelo maior de todos (posição sem stop).
+   */
+  private async livreNaCarteira(trade: Trade, filters: SymbolFilters): Promise<number> {
+    try {
+      const balances = await getAccountBalances();
+      return balances.find((item) => item.asset === filters.baseAsset)?.free ?? 0;
+    } catch (error) {
+      logger.warn('Saldo do ativo não pôde ser lido antes de proteger', {
+        tradeId: trade.id,
+        error: (error as Error).message,
+      });
+      return trade.remainingQuantity;
+    }
+  }
+
+  /**
    * Deixa a corretora com exatamente a proteção que o plano pede para a
    * quantidade que está na mão agora.
    */
@@ -58,12 +79,32 @@ export class LiveProtection {
     stopPrice: number,
     why: string,
   ): Promise<ProtectionResult> {
-    const quantity = trade.remainingQuantity;
-    if (quantity <= 0) return { armed: false, kind: 'NONE', listIds: [], notes: ['sem posição'] };
+    if (trade.remainingQuantity <= 0) {
+      return { armed: false, kind: 'NONE', listIds: [], notes: ['sem posição'] };
+    }
 
     if (trade.market === 'FUTURES') return this.rearmFutures(trade, filters, stopPrice, why);
 
     await this.cancelExisting(trade);
+
+    /*
+     * O plano é feito sobre o que a CARTEIRA tem, não sobre o que a operação
+     * diz ter.
+     *
+     * Sem BNB para pagar taxa, a Binance cobra a comissão da compra na moeda
+     * comprada: entram 1156,94 de um preenchimento de 1158,1. Pedir o número
+     * bruto não produz uma venda menor — produz recusa. Em 26/08/2026 isso
+     * derrubou as três ordens de proteção E a venda de emergência, e uma
+     * posição real passou 23 minutos sem stop. O encerramento manual já
+     * limitava pela carteira; era o único lugar que limitava.
+     */
+    const emMaos = await this.livreNaCarteira(trade, filters);
+    const quantity = quantidadeVendavel(trade.remainingQuantity, emMaos, filters.stepSize);
+    if (quantity <= 0) {
+      const nota = `Carteira tem ${emMaos} ${filters.baseAsset} — nada a proteger`;
+      await this.alarm(trade, why, [nota]);
+      return { armed: false, kind: 'NONE', listIds: [], notes: [nota] };
+    }
 
     const guard = this.guard();
     const plan = buildExitPlan({
@@ -257,21 +298,39 @@ export class LiveProtection {
   /** Encerra a mercado o que ficou descoberto — último recurso, nunca silencioso. */
   async panicSell(trade: Trade, filters: SymbolFilters, why: string): Promise<boolean> {
     if (trade.remainingQuantity <= 0) return false;
+    /*
+     * A última rede não pode cair pelo mesmo motivo que derrubou as outras.
+     *
+     * Em 26/08/2026 as três ordens de proteção foram recusadas por saldo
+     * insuficiente — e esta venda, que existe justamente para salvar o que
+     * sobrou, pediu o mesmo número bruto e levou a mesma recusa. Em futuros
+     * não há taxa em moeda-base: a posição é a que a corretora diz que é.
+     */
+    const quantity =
+      trade.market === 'FUTURES'
+        ? trade.remainingQuantity
+        : quantidadeVendavel(
+            trade.remainingQuantity,
+            await this.livreNaCarteira(trade, filters),
+            filters.stepSize,
+          );
+    if (quantity <= 0) {
+      await this.alarm(trade, `${why} — carteira sem ${filters.baseAsset} para vender`, [
+        `operação diz ter ${trade.remainingQuantity}, a conta não tem nada vendável`,
+      ]);
+      return false;
+    }
     try {
       if (trade.market === 'FUTURES') {
         await cancelAllFuturesOrders(trade.symbol);
         await futuresMarketExit({
           symbol: trade.symbol,
           positionSide: trade.side,
-          quantity: formatQuantity(trade.remainingQuantity, filters),
+          quantity: formatQuantity(quantity, filters),
           clientOrderId: this.listIdFor(trade, 98),
         });
       } else {
-        await marketSell(
-          trade.symbol,
-          formatQuantity(trade.remainingQuantity, filters),
-          this.listIdFor(trade, 99),
-        );
+        await marketSell(trade.symbol, formatQuantity(quantity, filters), this.listIdFor(trade, 99));
       }
       await this.audit.record({
         action: 'LIVE_PANIC_SELL',
@@ -279,7 +338,7 @@ export class LiveProtection {
         symbol: trade.symbol,
         setupId: trade.setupId,
         tradeId: trade.id,
-        detail: { motivo: why, quantidade: trade.remainingQuantity },
+        detail: { motivo: why, quantidade: quantity, naOperacao: trade.remainingQuantity },
       });
       return true;
     } catch (error) {

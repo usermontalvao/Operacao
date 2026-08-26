@@ -3,6 +3,11 @@ import { isFavorable } from '../../core/direction.ts';
 import { round } from '../../core/risk/index.ts';
 import { feeFor, netPnl } from '../../core/risk/costs.ts';
 import { nextProtectiveStop } from '../../core/risk/stops.ts';
+import {
+  moedaBaseDoPar,
+  quantidadeQueEntrou,
+  restoEhPo,
+} from '../../core/execution/posicaoReal.ts';
 import { getOrderById, getOrderList, getSymbolFilters } from '../binance/rest.ts';
 import { getFuturesOrderById } from '../binance/futures.ts';
 import type { AccountStreams, MarketExecutionEvent } from '../binance/accountStreams.ts';
@@ -31,6 +36,14 @@ interface OrderState {
   isStop: boolean;
   executedQuantity: number;
   averagePrice: number;
+  /**
+   * Taxa cobrada nesta execução e em que moeda. Sem BNB, a Binance cobra a
+   * comissão da COMPRA na moeda comprada — e aí a quantidade que entra na
+   * carteira é menor que a preenchida. Ignorar isso fazia toda ordem de venda
+   * pedir mais do que existe.
+   */
+  commission?: number;
+  commissionAsset?: string | null;
 }
 
 /**
@@ -156,6 +169,8 @@ export class LiveTradeMonitor {
       isStop: event.orderType.includes('STOP'),
       executedQuantity: event.cumulativeFilledQuantity,
       averagePrice: price,
+      commission: event.commission,
+      commissionAsset: event.commissionAsset,
     });
     if (!changed) return;
 
@@ -241,6 +256,14 @@ export class LiveTradeMonitor {
       }
 
       if (trade.status === 'OPEN') {
+        // antes de proteger: o que sobrou ainda é posição, ou já é pó? Armar
+        // stop para uma fração que a corretora não aceita vender só produz
+        // recusa — e foi assim que uma operação encerrada de fato ficou
+        // aberta no painel, dividindo o resultado por um resto de meio centavo
+        if (await this.encerrarSePo(trade)) changed = true;
+      }
+
+      if (trade.status === 'OPEN') {
         if (await this.ensureProtection(trade)) changed = true;
         const price = this.market.getPrice(trade.symbol);
         if (price !== null) {
@@ -318,6 +341,14 @@ export class LiveTradeMonitor {
       }
 
       if (trade.status === 'OPEN') {
+        // antes de proteger: o que sobrou ainda é posição, ou já é pó? Armar
+        // stop para uma fração que a corretora não aceita vender só produz
+        // recusa — e foi assim que uma operação encerrada de fato ficou
+        // aberta no painel, dividindo o resultado por um resto de meio centavo
+        if (await this.encerrarSePo(trade)) changed = true;
+      }
+
+      if (trade.status === 'OPEN') {
         if (await this.ensureProtection(trade)) changed = true;
         const price = this.market.getPrice(trade.symbol);
         if (price !== null) {
@@ -363,10 +394,27 @@ export class LiveTradeMonitor {
       const previousFilled = trade.filledQuantity;
       const previousEntry = trade.averageFillPrice ?? 0;
       const filled = round(previousFilled + delta, 10);
+      /*
+       * O que ENTRA na carteira pode ser menos do que o que foi preenchido.
+       *
+       * Sem BNB, a Binance cobra a comissão da compra na moeda comprada: de
+       * 1158,1 JASMY preenchidos, chegam 1156,94. A quantidade preenchida
+       * continua sendo a cheia — ela é o que a corretora acumula na ordem, e
+       * é por ela que este método evita contar o mesmo negócio duas vezes. O
+       * que muda é a POSIÇÃO EM MÃOS, que é o número de toda ordem de venda.
+       * Enquanto os dois eram o mesmo, alvo, stop e venda de emergência
+       * pediam mais do que existia e voltavam recusados.
+       */
+      const emMaos = quantidadeQueEntrou({
+        preenchida: delta,
+        comissao: state.commission ?? 0,
+        moedaDaComissao: state.commissionAsset ?? null,
+        moedaBase: moedaBaseDoPar(trade.symbol),
+      });
       // preço médio ponderado: compra parcial em duas levas tem duas contas
       trade.averageFillPrice = round((previousEntry * previousFilled + averagePrice * delta) / filled, 8);
       trade.filledQuantity = filled;
-      trade.remainingQuantity = round(trade.remainingQuantity + delta, 10);
+      trade.remainingQuantity = round(trade.remainingQuantity + emMaos, 10);
       trade.notional = round((trade.averageFillPrice as number) * filled, 2);
       trade.feesPaid = round(trade.feesPaid + feeFor(averagePrice, delta, feePercent), 6);
       trade.status = 'OPEN';
@@ -431,8 +479,56 @@ export class LiveTradeMonitor {
     return trade.fills[trade.fills.length - 1]?.kind ?? 'TARGET1';
   }
 
+  /**
+   * A posição virou pó — não há mais o que encerrar.
+   *
+   * A taxa cobrada na moeda comprada deixa uma fração para trás, e a fração
+   * costuma ficar abaixo do mínimo de lote (ou dos 5 USDT de nocional) que a
+   * corretora aceita. Sem esta pergunta a operação fica ABERTA para sempre
+   * segurando algo que nenhuma ordem consegue tocar — e a tela passa a
+   * dividir o resultado por esse resto: foi assim que um lucro de US$ 0,14
+   * apareceu como "+1400%".
+   */
+  private async encerrarSePo(trade: Trade): Promise<boolean> {
+    if (trade.status !== 'OPEN' || trade.filledQuantity <= 0) return false;
+    const price =
+      this.market.getPrice(trade.symbol) ?? trade.averageFillPrice ?? trade.entryPrice;
+    let filters;
+    try {
+      filters = (await getSymbolFilters([trade.symbol], trade.market)).get(trade.symbol);
+    } catch {
+      return false;
+    }
+    if (!filters) return false;
+    if (!restoEhPo(trade.remainingQuantity, price, filters)) return false;
+
+    const sobra = trade.remainingQuantity;
+    trade.status = 'CLOSED';
+    trade.remainingQuantity = 0;
+    trade.closedAt = trade.closedAt ?? new Date().toISOString();
+    trade.closeReason =
+      trade.closeReason ??
+      `posição zerada — sobraram ${sobra} ${filters.baseAsset}, abaixo do mínimo negociável da Binance`;
+    await this.audit.record({
+      action: 'LIVE_TRADE_DUST_CLOSED',
+      mode: trade.mode,
+      symbol: trade.symbol,
+      setupId: trade.setupId,
+      tradeId: trade.id,
+      detail: {
+        motivo: 'o resto da posição não alcança o mínimo de lote nem o nocional mínimo',
+        sobra,
+        minimoDeLote: filters.minQty,
+        nocionalMinimo: filters.minNotional,
+        resultado: trade.realizedPnl,
+      },
+    });
+    return true;
+  }
+
   /** Grava, avisa a tela e fecha o ciclo quando a operação encerrou. */
   private async settle(trade: Trade): Promise<void> {
+    await this.encerrarSePo(trade);
     trade.updatedAt = new Date().toISOString();
     await this.repository.saveTrade(trade);
     this.paper.track(trade);
