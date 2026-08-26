@@ -1,4 +1,11 @@
-import type { SetupClassification, SetupType, SetupVisualState, TradeSetup } from './types.ts';
+import type {
+  MarketKind,
+  SetupClassification,
+  SetupType,
+  SetupVisualState,
+  Side,
+  TradeSetup,
+} from './types.ts';
 
 /** Preço legível para qualquer faixa: BTC em 79.000 e ONDO em 0,3723. */
 export function price(value: number | null | undefined): string {
@@ -52,6 +59,41 @@ export const CLASSIFICATION_LABEL: Record<SetupClassification, string> = {
   SETUP_EXCEPCIONAL: 'Setup excepcional',
 };
 
+/**
+ * O vocabulário do lado.
+ *
+ * Uma tese vendida ganha quando o preço CAI: chamar isso de "comprar" na tela
+ * é o erro mais caro que a interface pode cometer, porque o usuário confirma
+ * a ordem lendo o botão. Tudo que fala de direção sai daqui.
+ */
+export const SIDE_LABEL: Record<Side, string> = {
+  BUY: 'COMPRA',
+  SELL: 'VENDA',
+};
+
+/** O verbo, para o botão e para a frase da confirmação. */
+export const SIDE_VERB: Record<Side, string> = {
+  BUY: 'Comprar',
+  SELL: 'Vender',
+};
+
+/** Verde para comprado, vermelho para vendido — a mesma cor do gráfico. */
+export function sideTone(side: Side): string {
+  return side === 'SELL'
+    ? 'bg-bear/15 text-bear border-bear/40'
+    : 'bg-bull/15 text-bull border-bull/40';
+}
+
+/** Cor de fundo do botão que executa — é o último aviso antes da ordem. */
+export function sideButton(side: Side): string {
+  return side === 'SELL' ? 'bg-bear text-white' : 'bg-bull text-black';
+}
+
+export const MARKET_LABEL: Record<MarketKind, string> = {
+  SPOT: 'SPOT',
+  FUTURES: 'FUTUROS',
+};
+
 export const STATE_LABEL: Record<SetupVisualState, string> = {
   AGUARDANDO: 'Aguardando',
   QUASE_LA: 'Quase lá',
@@ -63,10 +105,26 @@ export const STATE_LABEL: Record<SetupVisualState, string> = {
   INVALIDADO: 'Invalidado',
 };
 
-export function stateTone(state: SetupVisualState | null): string {
+/**
+ * O estado visual escrito no idioma do lado.
+ *
+ * `COMPRAVEL` é o nome interno de "dá para executar agora" — e numa tese
+ * vendida executar é VENDER. O motor não precisa de dois estados; a tela
+ * precisa de duas palavras.
+ */
+export function stateLabel(state: SetupVisualState, side: Side = 'BUY'): string {
+  if (state === 'COMPRAVEL' && side === 'SELL') return 'Vendível';
+  return STATE_LABEL[state];
+}
+
+export function stateTone(state: SetupVisualState | null, side: Side = 'BUY'): string {
   switch (state) {
     case 'COMPRAVEL':
-      return 'bg-bull/15 text-bull border-bull/40';
+      // "dá para executar" pinta da cor do LADO: verde executando uma venda
+      // faria o olho ler alta onde a tese é de queda
+      return side === 'SELL'
+        ? 'bg-bear/15 text-bear border-bear/40'
+        : 'bg-bull/15 text-bull border-bull/40';
     case 'SETUP_ATIVO':
     case 'ROMPENDO':
       return 'bg-info/15 text-info border-info/40';
@@ -95,6 +153,12 @@ export function changeTone(value: number | null | undefined): string {
   if (value > 0) return 'text-bull';
   if (value < 0) return 'text-bear';
   return 'text-terminal-muted';
+}
+
+/** Alavancagem só aparece quando existe: "1x" em spot é ruído. */
+export function leverageLabel(leverage: number | null | undefined): string | null {
+  if (!leverage || leverage <= 1) return null;
+  return `${leverage}x`;
 }
 
 /** Distância percentual do preço atual até a zona de entrada. */

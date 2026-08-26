@@ -47,6 +47,8 @@ export function buildDecision(trade: Trade, setup: TradeSetup): DecisionRecord {
     setupId: setup.id,
     symbol: trade.symbol,
     mode: trade.mode,
+    side: trade.side,
+    market: trade.market,
     setupType: setup.setupType,
     timeframe: setup.timeframe,
     anchorTimeframe: setup.anchorTimeframe,
@@ -72,6 +74,7 @@ export function buildDecision(trade: Trade, setup: TradeSetup): DecisionRecord {
     openedAt: trade.openedAt,
     closedAt,
     postMortem: postMortemOf({
+      side: trade.side,
       entryPrice: trade.averageFillPrice ?? trade.entryPrice,
       // o stop pode ter subido durante a operação; a autópsia é sobre o plano
       // original, que é o que decidiu o tamanho da posição

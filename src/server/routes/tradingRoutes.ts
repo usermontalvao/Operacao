@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { computePerformance } from '../../core/performance.ts';
 import { analyzeFactors, buildEquityCurve } from '../../core/analytics.ts';
+import { gainPerUnit } from '../../core/direction.ts';
 import { round } from '../../core/risk/index.ts';
 import { PANIC_CLOSE_REASON } from '../../core/risk/governor.ts';
 import { getTickers } from '../binance/rest.ts';
@@ -116,9 +117,9 @@ export function tradingRoutes(context: ApiContext): Router {
   router.get(
     '/trades',
     asyncHandler(async (_request, response) => {
-      const mode = context.settings.get().mode;
+      const { mode, market } = context.settings.get();
       const trades = await context.repository.listTrades();
-      response.json(trades.filter((trade) => trade.mode === mode));
+      response.json(trades.filter((trade) => trade.mode === mode && trade.market === market));
     }),
   );
 
@@ -303,9 +304,26 @@ export function tradingRoutes(context: ApiContext): Router {
         context.execution.getCapital(),
       ]);
       const settings = context.settings.get();
-      const trades = allTrades.filter((trade) => trade.mode === settings.mode);
-      const activeTrades = trades.filter(
-        (trade) => trade.status === 'PENDING' || trade.status === 'OPEN',
+      /*
+       * Duas listas de propósito.
+       *
+       * A CARTEIRA é do par modo+modalidade: capital, curva e realizado de
+       * spot e de futuros são separados, e somá-los daria um patrimônio que
+       * não existe em nenhuma das duas contas.
+       *
+       * A lista de POSIÇÕES ABERTAS não. Dinheiro exposto agora não pode
+       * depender de qual aba está selecionada: esconder uma posição vendida
+       * porque a tela está em spot é o jeito mais rápido de esquecer que ela
+       * existe. Cada posição vai carimbada com a modalidade, e os totais
+       * continuam sendo os da carteira em exibição.
+       */
+      const trades = allTrades.filter(
+        (trade) => trade.mode === settings.mode && trade.market === settings.market,
+      );
+      const activeTrades = allTrades.filter(
+        (trade) =>
+          trade.mode === settings.mode &&
+          (trade.status === 'PENDING' || trade.status === 'OPEN'),
       );
       const missingSymbols = [
         ...new Set(
@@ -336,15 +354,37 @@ export function tradingRoutes(context: ApiContext): Router {
           const quantity = trade.status === 'PENDING' ? trade.requestedQuantity : trade.remainingQuantity;
           const invested =
             trade.status === 'PENDING' ? trade.notional : round(entryPrice * trade.remainingQuantity, 2);
+          /*
+           * Quanto a posição vale PARA QUEM ESTÁ NELA.
+           *
+           * Comprado, isso é preço × quantidade. Vendido, não: a posição vale
+           * mais quando o preço cai, e `preço × quantidade` diria o contrário.
+           * `investido + resultado em aberto` dá o mesmo número no comprado e
+           * o número certo no vendido.
+           */
           const currentValue =
-            trade.status === 'OPEN' && currentPrice !== null
-              ? round(currentPrice * trade.remainingQuantity, 2)
-              : null;
+            trade.status === 'OPEN' && currentPrice !== null ? invested : null;
+          /*
+           * `valor de agora − valor investido` só é lucro para quem comprou.
+           * Na posição vendida a mesma subtração devolve o simétrico: a tela
+           * mostraria prejuízo justo quando o preço cai, que é o momento em
+           * que ela ganha. A diferença passa pela direção.
+           */
           const unrealizedPnl =
-            currentValue !== null ? round(currentValue - invested, 2) : null;
+            trade.status === 'OPEN' && currentPrice !== null
+              ? round(
+                  gainPerUnit(trade.side ?? 'BUY', entryPrice, currentPrice) *
+                    trade.remainingQuantity,
+                  2,
+                )
+              : null;
           const totalPnl =
             trade.status === 'OPEN' && unrealizedPnl !== null
               ? round(trade.realizedPnl + unrealizedPnl, 2)
+              : null;
+          const valorAgora =
+            currentValue !== null && unrealizedPnl !== null
+              ? round(currentValue + unrealizedPnl, 2)
               : null;
           const pnlPercent =
             totalPnl !== null && trade.notional > 0
@@ -361,6 +401,15 @@ export function tradingRoutes(context: ApiContext): Router {
             currentPrice !== null && currentPrice > 0
               ? round(((trade.target1 - currentPrice) / currentPrice) * 100, 2)
               : null;
+          // distância até a linha da corretora: em posição alavancada é o
+          // número que decide se dá para respirar ou se é hora de sair
+          const toLiquidation =
+            trade.liquidationPrice !== null &&
+            trade.liquidationPrice !== undefined &&
+            currentPrice !== null &&
+            currentPrice > 0
+              ? round(((trade.liquidationPrice - currentPrice) / currentPrice) * 100, 2)
+              : null;
 
           return {
             id: trade.id,
@@ -370,7 +419,7 @@ export function tradingRoutes(context: ApiContext): Router {
             entryPrice,
             currentPrice,
             invested,
-            currentValue,
+            currentValue: valorAgora,
             realizedPnl: trade.realizedPnl,
             unrealizedPnl,
             totalPnl,
@@ -384,6 +433,14 @@ export function tradingRoutes(context: ApiContext): Router {
             protectiveStop: trade.protectiveStop ?? null,
             distanceToStopPercent: toStop,
             distanceToTargetPercent: toTarget,
+            // linha por linha, a tela precisa saber de onde a posição é:
+            // as duas modalidades aparecem juntas na mesma lista
+            market: trade.market ?? 'SPOT',
+            side: trade.side ?? 'BUY',
+            leverage: trade.leverage ?? 1,
+            initialMargin: trade.initialMargin ?? 0,
+            liquidationPrice: trade.liquidationPrice ?? null,
+            distanceToLiquidationPercent: toLiquidation,
             feesPaid: trade.feesPaid ?? 0,
             automatic: trade.automatic ?? false,
             setupType: trade.setupType,
@@ -392,8 +449,11 @@ export function tradingRoutes(context: ApiContext): Router {
           };
         });
 
+      // os totais são da CARTEIRA em exibição; a posição da outra modalidade
+      // aparece na lista, mas não entra no patrimônio desta conta
+      const daCarteira = positions.filter((position) => position.market === settings.market);
       const unrealizedPnl = round(
-        positions.reduce((total, position) => total + (position.unrealizedPnl ?? 0), 0),
+        daCarteira.reduce((total, position) => total + (position.unrealizedPnl ?? 0), 0),
         2,
       );
       const currentEquity =
@@ -406,12 +466,13 @@ export function tradingRoutes(context: ApiContext): Router {
         startingCapital,
         currentEquity,
         available: capital.available,
-        invested: round(positions.reduce((total, position) => total + position.invested, 0), 2),
+        invested: round(daCarteira.reduce((total, position) => total + position.invested, 0), 2),
         realizedPnl,
         unrealizedPnl,
         positions,
         brlRate: capital.brlRate,
         mode: settings.mode,
+        market: settings.market,
         updatedAt: new Date().toISOString(),
       });
     }),
@@ -421,12 +482,18 @@ export function tradingRoutes(context: ApiContext): Router {
   router.get(
     '/decisions',
     asyncHandler(async (request, response) => {
-      const mode = context.settings.get().mode;
+      const { mode, market } = context.settings.get();
       const range = parseRange(request.query as Record<string, unknown>);
       const decisions = await context.repository.listDecisions();
       response.json(
         decisions
-          .filter((decision) => decision.mode === mode && withinRange(decision.closedAt, range))
+          // registro sem modalidade é de antes de futuros: aquilo era spot
+          .filter(
+            (decision) =>
+              decision.mode === mode &&
+              (decision.market ?? 'SPOT') === market &&
+              withinRange(decision.closedAt, range),
+          )
           // registro gravado antes da autópsia existir recebe a dela agora: a
           // conta é pura e sai dos mesmos números que já estão guardados
           .map((decision) =>
@@ -442,10 +509,13 @@ export function tradingRoutes(context: ApiContext): Router {
   router.get(
     '/analytics/factors',
     asyncHandler(async (request, response) => {
-      const mode = context.settings.get().mode;
+      const { mode, market } = context.settings.get();
       const range = parseRange(request.query as Record<string, unknown>);
       const decisions = (await context.repository.listDecisions()).filter(
-        (decision) => decision.mode === mode && withinRange(decision.closedAt, range),
+        (decision) =>
+          decision.mode === mode &&
+          (decision.market ?? 'SPOT') === market &&
+          withinRange(decision.closedAt, range),
       );
       response.json({ total: decisions.length, factors: analyzeFactors(decisions) });
     }),
@@ -454,7 +524,7 @@ export function tradingRoutes(context: ApiContext): Router {
   router.get(
     '/performance',
     asyncHandler(async (request, response) => {
-      const mode = context.settings.get().mode;
+      const { mode, market } = context.settings.get();
       const range = parseRange(request.query as Record<string, unknown>);
       const [allTrades, setups] = await Promise.all([
         context.repository.listTrades(),
@@ -465,6 +535,7 @@ export function tradingRoutes(context: ApiContext): Router {
       const trades = allTrades.filter(
         (trade) =>
           trade.mode === mode &&
+          trade.market === market &&
           (trade.closedAt === null || withinRange(trade.closedAt, range)),
       );
       response.json(computePerformance(trades, setups));

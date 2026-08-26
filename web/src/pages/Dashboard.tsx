@@ -5,11 +5,14 @@ import { SymbolButton } from '../components/SymbolButton.tsx';
 import { RadarSkeleton } from '../components/Skeleton.tsx';
 import {
   SETUP_LABEL,
+  SIDE_LABEL,
   STATE_LABEL,
   changeTone,
   percent,
   price,
   scoreTone,
+  sideTone,
+  stateLabel,
   stateTone,
   usd,
 } from '../lib/format.ts';
@@ -194,15 +197,27 @@ function SetupRow({
       <div className="flex items-center gap-2">
         <span className="w-14 shrink-0 font-semibold">{setup.symbol.replace('USDT', '')}</span>
 
+        {/* a direção fica ANTES do estado: ela é o que decide se "quase lá"
+            quer dizer preço subindo ou preço caindo */}
+        <span
+          className={`rounded border px-1 py-0.5 text-[9px] font-bold ${sideTone(setup.side)}`}
+          title={setup.side === 'SELL' ? 'tese vendida — ganha na queda' : 'tese comprada'}
+        >
+          {SIDE_LABEL[setup.side]}
+        </span>
+
         {inTrade || bought ? (
           <span className="rounded border border-info/50 bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
             EM OPERAÇÃO
           </span>
         ) : (
           <span
-            className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${stateTone(setup.visualState)}`}
+            className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${stateTone(
+              setup.visualState,
+              setup.side,
+            )}`}
           >
-            {STATE_LABEL[setup.visualState]}
+            {stateLabel(setup.visualState, setup.side)}
           </span>
         )}
 
@@ -226,6 +241,7 @@ function SetupRow({
       <div className="flex items-center gap-3">
         <span className="w-14 shrink-0 text-[10px] text-bear tabular">{price(setup.stopLoss)}</span>
         <PriceLadder
+          side={setup.side}
           stop={setup.stopLoss}
           entryLow={setup.entryLow}
           entryHigh={setup.entryHigh}

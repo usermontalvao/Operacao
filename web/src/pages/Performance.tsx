@@ -169,6 +169,14 @@ export function Performance() {
                           note="posição aberta"
                           className="font-medium"
                         />
+                        {position.side === 'SELL' ? (
+                          <span className="ml-1.5 rounded border border-bear/40 bg-bear/10 px-1 py-px text-[9px] font-bold text-bear">
+                            VENDA
+                          </span>
+                        ) : null}
+                        {position.market === 'FUTURES' && position.leverage > 1 ? (
+                          <span className="ml-1 text-[10px] text-info">{position.leverage}x</span>
+                        ) : null}
                         {position.status === 'PENDING' ? (
                           <span className="ml-1.5 text-[10px] text-warn">aguardando</span>
                         ) : null}

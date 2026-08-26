@@ -69,7 +69,9 @@ export class SupabaseStore implements Repository {
   async loadSettings(): Promise<PersistedSettings | null> {
     const { data, error } = await this.db()
       .from('app_settings')
-      .select('mode, market, risk, scanner, auto_trade, guard, by_mode, by_market, updated_at')
+      .select(
+        'mode, market, futures_enabled, risk, scanner, auto_trade, guard, by_mode, by_market, updated_at',
+      )
       .eq('user_id', this.userId)
       .maybeSingle();
     if (error) throw new Error(settingsColumnHint(error.message));
@@ -79,9 +81,13 @@ export class SupabaseStore implements Repository {
     // do SettingsService converte as duas antigas; aqui só se escolhe qual
     // delas devolver.
     if (data.by_market) {
+      const market = (data.market as StoredSettings['market']) ?? 'SPOT';
       return {
         mode: data.mode as TradingMode,
-        market: (data.market as StoredSettings['market']) ?? 'SPOT',
+        market,
+        // linha gravada antes da coluna: quem já estava em futuros continua
+        // liberado, o resto nasce barrado — a mesma regra da normalização
+        futuresEnabled: (data.futures_enabled as boolean | null) ?? market === 'FUTURES',
         scanner: data.scanner as ScannerSettings,
         byMarket: data.by_market as StoredSettings['byMarket'],
         updatedAt: data.updated_at as string,
@@ -113,6 +119,7 @@ export class SupabaseStore implements Repository {
         user_id: this.userId,
         mode: settings.mode,
         market: settings.market,
+        futures_enabled: settings.futuresEnabled,
         scanner: settings.scanner,
         by_market: settings.byMarket,
         // by_mode continua espelhando o SPOT: uma volta atrás de versão

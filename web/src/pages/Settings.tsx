@@ -9,6 +9,8 @@ import { SymbolButton } from '../components/SymbolButton.tsx';
 import type {
   AutoTradeSettings,
   GuardSettings,
+  MarginMode,
+  MarketKind,
   ModeSettings,
   RiskSettings,
   TradingMode,
@@ -158,17 +160,101 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
     risk.paperCapitalCurrency === 'BRL'
       ? `${brl(risk.paperCapital)} — convertido para USDT pela cotação do par USDTBRL`
       : 'Valor em USDT';
+  const futuros = settings.market === 'FUTURES';
+  const contas = futuros
+    ? { producao: settings.binance.futuresProduction, teste: settings.binance.futuresTestnet }
+    : { producao: settings.binance.production, teste: settings.binance.testnet };
   const activeBinanceBalance =
     settings.mode === 'LIVE'
-      ? settings.binance.production.balance
+      ? contas.producao.balance
       : settings.mode === 'TESTNET'
-        ? settings.binance.testnet.balance
+        ? contas.teste.balance
         : null;
 
   return (
     <div className="space-y-5 pb-6">
       {error ? <p className="rounded-lg border border-bear/40 bg-bear/10 p-3 text-sm text-bear">{error}</p> : null}
       {message ? <p className="rounded-lg border border-bull/40 bg-bull/10 p-3 text-sm text-bull">{message}</p> : null}
+
+      <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Modalidade</h2>
+            <p className="mt-1 text-[11px] text-terminal-muted">
+              {settings.futuresEnabled
+                ? 'Futuros liberado — a modalidade pode ser escolhida abaixo.'
+                : 'Futuros barrado. O painel opera só spot: nenhuma tese vendida nasce e nenhuma ordem alavancada sai.'}
+            </p>
+          </div>
+          {/*
+            O interruptor geral vem antes da escolha, e não dentro dela, porque
+            é outra pergunta: "esta casa opera futuros?" não é "o que estou
+            olhando agora?". Barrado, o painel não é só uma tela escondida — o
+            servidor recusa a ordem alavancada mesmo que ela chegue por outro
+            caminho.
+          */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void run(
+                () => api.updateSettings({ futuresEnabled: !settings.futuresEnabled }),
+                settings.futuresEnabled
+                  ? 'Futuros barrado — o painel voltou para spot'
+                  : 'Futuros liberado',
+              )
+            }
+            className={`shrink-0 rounded-lg border px-3 py-2 text-[11px] font-bold ${
+              settings.futuresEnabled
+                ? 'border-info/60 bg-info/10 text-info'
+                : 'border-terminal-border text-terminal-muted'
+            }`}
+          >
+            {settings.futuresEnabled ? 'LIBERADO' : 'BARRADO'}
+          </button>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {(['SPOT', 'FUTURES'] as MarketKind[]).map((market) => {
+            const barrado = market === 'FUTURES' && !settings.futuresEnabled;
+            return (
+              <button
+                key={market}
+                type="button"
+                disabled={busy || barrado}
+                onClick={() =>
+                  void run(
+                    () => api.updateSettings({ market }),
+                    market === 'FUTURES' ? 'Futuros USD-M ativo' : 'Spot ativo',
+                  )
+                }
+                className={`rounded-xl border px-3 py-3 text-xs font-bold ${
+                  settings.market === market
+                    ? 'border-info/60 bg-info/10 text-info'
+                    : 'border-terminal-border text-terminal-muted'
+                } ${barrado ? 'opacity-40' : ''}`}
+              >
+                {market === 'SPOT' ? 'SPOT' : 'FUTUROS USD-M'}
+                <span className="mt-1 block text-[10px] font-normal opacity-70">
+                  {market === 'SPOT'
+                    ? 'compra a moeda, sem alavancagem'
+                    : barrado
+                      ? 'barrado no interruptor acima'
+                      : 'contrato perpétuo, alavancado, com venda a descoberto'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-terminal-muted">
+          A modalidade organiza o radar e os ajustes: cada uma tem carteira, risco, robô e disjuntor
+          próprios, e trocar aqui não leva junto o que foi ajustado na outra. O que ela NÃO esconde é
+          posição aberta — a aba Operações continua mostrando as duas modalidades juntas, porque
+          dinheiro exposto agora não pode depender de qual aba está selecionada.
+        </p>
+      </section>
+
+      {futuros ? <FuturosSection settings={settings} busy={busy} run={run} /> : null}
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
         <h2 className="text-sm font-semibold">Conta e modo de operação</h2>
@@ -196,9 +282,9 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
                 settings={settings.byMode?.[mode]}
                 balance={
                   mode === 'LIVE'
-                    ? settings.binance.production.balance
+                    ? contas.producao.balance
                     : mode === 'TESTNET'
-                      ? settings.binance.testnet.balance
+                      ? contas.teste.balance
                       : null
                 }
               />
@@ -208,26 +294,41 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
         <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
           <Info label="Ambiente ativo" value={settings.binance.activeEnvironment} />
           <Info
-            label="Chaves de produção"
-            value={settings.binance.production.credentialsConfigured ? 'configuradas' : 'ausentes'}
-            tone={settings.binance.production.credentialsConfigured ? 'text-bull' : 'text-terminal-muted'}
+            label={futuros ? 'Chaves de futuros (produção)' : 'Chaves de produção'}
+            value={contas.producao.credentialsConfigured ? 'configuradas' : 'ausentes'}
+            tone={contas.producao.credentialsConfigured ? 'text-bull' : 'text-terminal-muted'}
           />
           <Info
-            label="Chaves do testnet"
-            value={settings.binance.testnet.credentialsConfigured ? 'configuradas' : 'ausentes'}
-            tone={settings.binance.testnet.credentialsConfigured ? 'text-bull' : 'text-terminal-muted'}
+            label={futuros ? 'Chaves de futuros (testnet)' : 'Chaves do testnet'}
+            value={contas.teste.credentialsConfigured ? 'configuradas' : 'ausentes'}
+            tone={contas.teste.credentialsConfigured ? 'text-bull' : 'text-terminal-muted'}
           />
         </dl>
-        <p className="mt-3 text-[11px] leading-relaxed text-terminal-muted">
-          As chaves ficam apenas no arquivo <code>.env</code> do servidor — a interface nunca as recebe e
-          elas nunca aparecem em log. Para o testnet, gere um par em{' '}
-          <a className="text-info" href="https://testnet.binance.vision" target="_blank" rel="noreferrer">
-            testnet.binance.vision
-          </a>{' '}
-          e preencha <code>BINANCE_TESTNET_API_KEY</code> e <code>BINANCE_TESTNET_API_SECRET</code>.
-          Para consultar saldo, a permissão de leitura basta. Para o robô enviar ordens no LIVE,
-          habilite somente negociação Spot; mantenha saque desabilitado e use whitelist de IP.
-        </p>
+        {futuros ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-terminal-muted">
+            Futuros tem chaves próprias. Em produção, a chave do spot serve desde que futuros esteja
+            habilitado nela — ou preencha <code>BINANCE_FUTURES_API_KEY</code> e{' '}
+            <code>BINANCE_FUTURES_API_SECRET</code>. O testnet de futuros é OUTRO cadastro, em{' '}
+            <a className="text-info" href="https://testnet.binancefuture.com" target="_blank" rel="noreferrer">
+              testnet.binancefuture.com
+            </a>
+            : preencha <code>BINANCE_FUTURES_TESTNET_API_KEY</code> e{' '}
+            <code>BINANCE_FUTURES_TESTNET_API_SECRET</code>. A chave do testnet spot NÃO funciona lá.
+            A conta precisa estar em modo de posição única (one-way); em modo hedge o painel recusa a
+            ordem em vez de mandar sem proteção.
+          </p>
+        ) : (
+          <p className="mt-3 text-[11px] leading-relaxed text-terminal-muted">
+            As chaves ficam apenas no arquivo <code>.env</code> do servidor — a interface nunca as recebe e
+            elas nunca aparecem em log. Para o testnet, gere um par em{' '}
+            <a className="text-info" href="https://testnet.binance.vision" target="_blank" rel="noreferrer">
+              testnet.binance.vision
+            </a>{' '}
+            e preencha <code>BINANCE_TESTNET_API_KEY</code> e <code>BINANCE_TESTNET_API_SECRET</code>.
+            Para consultar saldo, a permissão de leitura basta. Para o robô enviar ordens no LIVE,
+            habilite somente negociação Spot; mantenha saque desabilitado e use whitelist de IP.
+          </p>
+        )}
       </section>
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
@@ -730,6 +831,170 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
  * ação rara, e um botão de sair no cabeçalho, ao lado do que liga o robô, é
  * clique errado esperando acontecer.
  */
+/**
+ * Os ajustes que só existem em futuros.
+ *
+ * Alavancagem NÃO é "quanto arriscar": o tamanho continua saindo do prejuízo
+ * no stop. Ela decide quanta margem a mesma posição prende — e, junto com o
+ * stop, onde fica a linha de liquidação. Por isso os dois campos moram lado a
+ * lado: mexer num sem olhar o outro é como o painel deixa de proteger.
+ */
+function FuturosSection({
+  settings,
+  busy,
+  run,
+}: {
+  settings: SettingsResponse;
+  busy: boolean;
+  run: (action: () => Promise<unknown>, message: string) => void;
+}) {
+  const futures = settings.futures;
+  return (
+    <section className="rounded-xl border border-info/40 bg-terminal-panel p-5">
+      <h2 className="text-sm font-semibold">
+        Futuros USD-M <EscopoDoModo mode={settings.mode} />
+      </h2>
+
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <label className="block text-xs">
+          <span className="text-terminal-muted">Alavancagem</span>
+          <div className="mt-1 flex items-center gap-3">
+            <input
+              type="range"
+              min={1}
+              max={futures.maxLeverage}
+              step={1}
+              value={futures.leverage}
+              disabled={busy}
+              onChange={(event) =>
+                run(
+                  () => api.updateSettings({ futures: { leverage: Number(event.target.value) } }),
+                  `Alavancagem ${event.target.value}x`,
+                )
+              }
+              className="w-full"
+            />
+            <span className="w-12 text-right font-mono text-sm font-bold text-info">
+              {futures.leverage}x
+            </span>
+          </div>
+          <span className="mt-1 block text-[10px] text-terminal-muted">
+            Com {futures.leverage}x, uma posição prende {Math.round(100 / futures.leverage)}% do valor
+            dela em margem. O risco por operação continua vindo do stop.
+          </span>
+        </label>
+
+        <label className="block text-xs">
+          <span className="text-terminal-muted">Teto de alavancagem</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            step={1}
+            defaultValue={futures.maxLeverage}
+            disabled={busy}
+            onBlur={(event) =>
+              run(
+                () => api.updateSettings({ futures: { maxLeverage: Number(event.target.value) } }),
+                'Teto de alavancagem salvo',
+              )
+            }
+            className="mt-1 w-full rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2 font-mono text-sm"
+          />
+          <span className="mt-1 block text-[10px] text-terminal-muted">
+            O painel não aceita mais que 10x. Alavancagem alta não aumenta o lucro esperado — encurta
+            a distância até a liquidação.
+          </span>
+        </label>
+
+        <label className="block text-xs">
+          <span className="text-terminal-muted">Tipo de margem</span>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            {(['ISOLATED', 'CROSSED'] as MarginMode[]).map((marginMode) => (
+              <button
+                key={marginMode}
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  run(
+                    () => api.updateSettings({ futures: { marginMode } }),
+                    marginMode === 'ISOLATED' ? 'Margem isolada' : 'Margem cruzada',
+                  )
+                }
+                className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${
+                  futures.marginMode === marginMode
+                    ? 'border-info/60 bg-info/10 text-info'
+                    : 'border-terminal-border text-terminal-muted'
+                }`}
+              >
+                {marginMode === 'ISOLATED' ? 'Isolada' : 'Cruzada'}
+              </button>
+            ))}
+          </div>
+          <span className="mt-1 block text-[10px] text-terminal-muted">
+            Isolada arrisca só a margem daquela posição. Cruzada usa a carteira inteira como
+            garantia: a liquidação fica bem mais longe, e quando ela chega leva tudo.
+          </span>
+        </label>
+
+        <label className="block text-xs">
+          <span className="text-terminal-muted">Folga mínima até a liquidação (%)</span>
+          <input
+            type="number"
+            min={0}
+            max={50}
+            step={0.5}
+            defaultValue={futures.minLiquidationBufferPercent}
+            disabled={busy}
+            onBlur={(event) =>
+              run(
+                () =>
+                  api.updateSettings({
+                    futures: { minLiquidationBufferPercent: Number(event.target.value) },
+                  }),
+                'Folga de liquidação salva',
+              )
+            }
+            className="mt-1 w-full rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2 font-mono text-sm"
+          />
+          <span className="mt-1 block text-[10px] text-terminal-muted">
+            Distância que o stop precisa ter da liquidação. Abaixo disso a ordem é recusada e o
+            painel diz qual alavancagem ainda serve.
+          </span>
+        </label>
+      </div>
+
+      <div className="mt-4 flex items-start justify-between gap-3 rounded-lg border border-terminal-border p-3">
+        <div>
+          <p className="text-xs font-semibold">Venda a descoberto</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-terminal-muted">
+            Libera as teses vendidas no radar e a execução delas. O ROBÔ continua só comprando: o
+            laboratório mediu apenas o lado comprado, e o lado de baixo é entrada manual até ter
+            treino e teste próprios.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            run(
+              () => api.updateSettings({ futures: { allowShort: !futures.allowShort } }),
+              futures.allowShort ? 'Venda a descoberto desligada' : 'Venda a descoberto liberada',
+            )
+          }
+          className={`shrink-0 rounded-lg border px-3 py-2 text-[11px] font-bold ${
+            futures.allowShort
+              ? 'border-bear/60 bg-bear/10 text-bear'
+              : 'border-terminal-border text-terminal-muted'
+          }`}
+        >
+          {futures.allowShort ? 'LIBERADA' : 'DESLIGADA'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function Acesso({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [sessao, setSessao] = useState<SessionState | null>(null);
   const [saindo, setSaindo] = useState(false);

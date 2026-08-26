@@ -7,7 +7,8 @@
  * ser lidas, testadas e conferidas sem subir servidor nenhum.
  */
 
-import type { BtcContextState, Trade, TradingMode } from '../types.ts';
+import type { BtcContextState, Side, Trade, TradingMode } from '../types.ts';
+import { gainPerUnit } from '../direction.ts';
 import type { SymbolVerdict } from '../news/types.ts';
 import type { CostSettings } from './costs.ts';
 import { round } from './riskReward.ts';
@@ -170,12 +171,21 @@ function investedIn(trade: Trade): number {
   return entry * trade.remainingQuantity;
 }
 
+/**
+ * Resultado em aberto, com o sinal da DIREÇÃO.
+ *
+ * `preço − entrada` só é lucro para quem está comprado. No vendido a mesma
+ * conta devolve o simétrico do resultado: uma posição ganhando entraria aqui
+ * como prejuízo, encolheria o patrimônio, inflaria o drawdown e acionaria o
+ * disjuntor no momento em que a operação estava dando certo. Por isso a
+ * diferença passa por `gainPerUnit`, que é a única definição de "a favor".
+ */
 function unrealizedIn(trade: Trade, prices: Record<string, number>): number {
   if (trade.status !== 'OPEN') return 0;
   const price = prices[trade.symbol];
   if (price === undefined || price <= 0) return 0;
   const entry = trade.averageFillPrice ?? trade.entryPrice;
-  return (price - entry) * trade.remainingQuantity;
+  return gainPerUnit(trade.side ?? 'BUY', entry, price) * trade.remainingQuantity;
 }
 
 /**
@@ -354,6 +364,12 @@ export interface EntryGateInput {
   /** R/R já líquido de taxa e escorregamento */
   netRiskReward: number;
   openTrades: Trade[];
+  /**
+   * Direção da entrada. Sem ela o porteiro só sabe travar compra: "BTC
+   * vendedor" bloquearia justamente a venda a descoberto, que é a operação
+   * que o mercado contra FAVORECE.
+   */
+  side?: Side;
   btcContext: BtcContextState | null;
   quoteVolume24h: number | null;
   /**
@@ -444,11 +460,23 @@ export function evaluateEntryGate(input: EntryGateInput): EntryGateResult {
     }
   }
 
-  if (input.btcContext === 'BTC_BEARISH') {
+  /*
+   * O mercado contra é o mercado contra ESTA direção.
+   *
+   * A trava nasceu quando só existia compra, e ali "contra" queria dizer BTC
+   * vendedor. Lida ao pé da letra em futuros, ela bloquearia a venda a
+   * descoberto exatamente no cenário que a sustenta, e deixaria passar a
+   * compra no BTC comprador esticado. O que o usuário ligou foi "não operar
+   * com o mercado contra" — quem é "contra" muda com o lado.
+   */
+  const against = input.side === 'SELL' ? 'BTC_BULLISH' : 'BTC_BEARISH';
+  if (input.btcContext === against) {
+    const entrada = input.side === 'SELL' ? 'venda' : 'compra';
+    const mercado = against === 'BTC_BULLISH' ? 'BTC comprador' : 'BTC vendedor';
     if (guard.blockWhenBtcBearish) {
-      blockers.push('BTC vendedor: compra nova bloqueada enquanto o mercado estiver contra');
+      blockers.push(`${mercado}: ${entrada} nova bloqueada enquanto o mercado estiver contra`);
     } else {
-      warnings.push('BTC vendedor — a probabilidade da compra piora com o mercado contra');
+      warnings.push(`${mercado} — a probabilidade da ${entrada} piora com o mercado contra`);
     }
   }
   if (input.btcContext === 'BTC_HIGH_VOLATILITY' && guard.highVolatilitySizeFactor < 1) {

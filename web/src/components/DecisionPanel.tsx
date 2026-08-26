@@ -17,6 +17,9 @@ const CODE_TONE: Record<string, string> = {
   PRICE_OUTSIDE_ENTRY_ZONE: 'warn',
   SETUP_STALE: 'warn',
   SETUP_EXPIRED: 'muted',
+  // não é falha nem pendência: é o desenho do sistema. O lado vendido é
+  // entrada manual até o laboratório medir o lado de baixo
+  SHORT_NOT_AUTOMATED: 'muted',
 };
 
 function toneFor(code: string): string {
@@ -33,7 +36,7 @@ export function DecisionBadge({ decision }: { decision: EntryDecision | undefine
   if (decision.allowed) {
     return (
       <span className="rounded border border-bull/50 bg-bull/10 px-1.5 py-0.5 text-[10px] font-semibold text-bull">
-        robô compraria
+        robô entraria
       </span>
     );
   }
@@ -63,6 +66,8 @@ function rotuloCurto(motivo: DecisionReason, decision: EntryDecision): string {
       return 'robô desligado';
     case 'STRATEGY_NOT_VALIDATED':
       return 'em observação';
+    case 'SHORT_NOT_AUTOMATED':
+      return 'venda: entrada manual';
     case 'SCORE_BELOW_VALIDATED_FLOOR':
     case 'SCORE_BELOW_CONFIGURED_MINIMUM':
       return 'score baixo';
@@ -102,7 +107,7 @@ export function DecisionPanel({ decision, entryLow, entryHigh, currentPrice }: D
     <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold">
-          {decision.allowed ? 'O robô compraria este setup' : 'Por que o robô não entrou'}
+          {decision.allowed ? 'O robô entraria neste setup' : 'Por que o robô não entrou'}
         </h3>
         <span className="text-[10px] text-terminal-muted">
           avaliado {new Date(decision.evaluatedAt).toLocaleTimeString('pt-BR')}

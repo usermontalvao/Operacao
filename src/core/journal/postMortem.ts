@@ -12,6 +12,9 @@
  * melhorou a expectativa). Por isso o texto diz "nesta operação".
  */
 
+import type { Side } from '../direction.ts';
+import { gainPerUnit } from '../direction.ts';
+
 export type PostMortemCode =
   | 'GANHOU'
   | 'LUCRO_DEVOLVIDO'
@@ -22,6 +25,14 @@ export type PostMortemCode =
   | 'ENCERRADA_A_MAO';
 
 export interface PostMortemInput {
+  /**
+   * Direção da operação. Ausente em registro gravado antes de futuros — e ali
+   * tudo era compra, então o padrão é o certo. No vendido o stop fica ACIMA
+   * da entrada: sem este campo, "risco até o stop" sairia negativo e todo o
+   * resto da autópsia (o quanto andou, o que teria salvado) viria com o sinal
+   * trocado.
+   */
+  side?: Side;
   entryPrice: number;
   stopLoss: number;
   target1: number;
@@ -46,8 +57,10 @@ export interface PostMortem {
 
 export function postMortemOf(input: PostMortemInput): PostMortem {
   const { entryPrice, stopLoss, target1 } = input;
-  const riskPercent = entryPrice > 0 ? ((entryPrice - stopLoss) / entryPrice) * 100 : 0;
-  const targetPercent = entryPrice > 0 ? ((target1 - entryPrice) / entryPrice) * 100 : 0;
+  const side = input.side ?? 'BUY';
+  // distâncias A FAVOR: as duas saem positivas nos dois lados
+  const riskPercent = entryPrice > 0 ? (gainPerUnit(side, stopLoss, entryPrice) / entryPrice) * 100 : 0;
+  const targetPercent = entryPrice > 0 ? (gainPerUnit(side, entryPrice, target1) / entryPrice) * 100 : 0;
   const mfe = input.maxFavorablePercent;
   const mae = input.maxAdversePercent;
   const result = input.realizedPnlPercent;

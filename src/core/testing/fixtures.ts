@@ -91,6 +91,17 @@ export function uptrendWithPullback(): number[] {
   return path;
 }
 
+/**
+ * O espelho de `uptrendWithPullback`: tendência de BAIXA com um repique no
+ * fim. Espelhar em torno de um valor (em vez de escrever outro caminho à mão)
+ * é de propósito — assim o teste do lado vendido mede a MESMA figura, e uma
+ * diferença de resultado entre os dois lados é diferença do motor, não do
+ * dado.
+ */
+export function downtrendWithRally(mirror = 260): number[] {
+  return uptrendWithPullback().map((value) => round(mirror - value));
+}
+
 /** Consolidação, rompimento com volume e reteste do nível rompido. */
 export function breakoutWithRetest(): number[] {
   const path: number[] = [];
@@ -136,6 +147,7 @@ export function defaultTestSettings(overrides: Partial<AppSettings> = {}): AppSe
   return {
     mode: 'PAPER',
     market: 'SPOT',
+    futuresEnabled: false,
     futures: {
       leverage: 3,
       maxLeverage: 10,

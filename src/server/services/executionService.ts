@@ -300,6 +300,7 @@ export class ExecutionService {
       quoteAmount: requested,
       netRiskReward: netRR,
       openTrades,
+      side,
       mode,
     });
 
@@ -314,6 +315,7 @@ export class ExecutionService {
             quoteAmount,
             netRiskReward: netRR,
             openTrades,
+            side,
             mode,
           })
         : firstGate;
@@ -486,6 +488,11 @@ export class ExecutionService {
     const policy = this.settings.forMode(mode, market);
     const blockers = [...input.sizingBlockers];
 
+    // o interruptor geral vem antes de tudo: barrado, nenhuma ordem
+    // alavancada sai nem por caminho interno que passe a modalidade na mão
+    if (market === 'FUTURES' && !settings.futuresEnabled) {
+      blockers.push('Futuros está barrado no painel — libere a modalidade nos ajustes');
+    }
     // a tese e a modalidade têm de ser a mesma coisa: um setup de futuros não
     // se executa em spot, e vender a descoberto em spot não existe
     if (setup.market !== market) {

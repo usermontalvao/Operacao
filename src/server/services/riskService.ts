@@ -1,4 +1,4 @@
-import type { BtcContextState, Trade, TradingMode } from '../../core/types.ts';
+import type { BtcContextState, Side, Trade, TradingMode } from '../../core/types.ts';
 import {
   computeRiskSnapshot,
   evaluateEntryGate,
@@ -73,6 +73,8 @@ export class RiskService {
     quoteAmount: number;
     netRiskReward: number;
     openTrades: Trade[];
+    /** direção da entrada; sem ela o porteiro julga tudo como compra */
+    side?: Side;
     /** sessão avaliada; cada modo tem o seu disjuntor */
     mode?: TradingMode;
   }): EntryGateResult {
@@ -84,6 +86,7 @@ export class RiskService {
       quoteAmount: input.quoteAmount,
       netRiskReward: input.netRiskReward,
       openTrades: input.openTrades,
+      side: input.side,
       btcContext: this.contextProvider(),
       quoteVolume24h: this.market.getSnapshot(input.symbol)?.quoteVolume24h ?? null,
       newsVerdict: this.newsProvider(input.symbol),

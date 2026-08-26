@@ -2,12 +2,17 @@ import { useState } from 'react';
 import type { EntryDecision, TradeSetup } from '../lib/types.ts';
 import {
   CLASSIFICATION_LABEL,
+  MARKET_LABEL,
   SETUP_LABEL,
-  STATE_LABEL,
+  SIDE_LABEL,
+  SIDE_VERB,
   distanceToEntry,
   percent,
   price,
   scoreTone,
+  sideButton,
+  sideTone,
+  stateLabel,
   stateTone,
 } from '../lib/format.ts';
 import { PriceChart } from './PriceChart.tsx';
@@ -35,6 +40,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
   const current = livePrice ?? setup.currentPrice;
   const distance = distanceToEntry(setup, current);
   const dead = setup.status === 'INVALIDATED' || setup.status === 'EXPIRED';
+  const vendida = setup.side === 'SELL';
 
   return (
     <div
@@ -47,12 +53,25 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
       >
         <header className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold">
-              {setup.symbol.replace('USDT', '')}
-              <span className="text-terminal-muted">/USDT</span>
+            <h2 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
+              <span>
+                {setup.symbol.replace('USDT', '')}
+                <span className="text-terminal-muted">/USDT</span>
+              </span>
+              {/* direção e modalidade no título: quem abre esta tela decide
+                  aqui, e decidir sem saber o lado é decidir outra coisa */}
+              <span
+                className={`rounded border px-2 py-0.5 text-xs font-bold ${sideTone(setup.side)}`}
+              >
+                {SIDE_LABEL[setup.side]}
+              </span>
+              <span className="rounded border border-terminal-border px-2 py-0.5 text-[10px] font-semibold tracking-wide text-terminal-muted">
+                {MARKET_LABEL[setup.market]}
+              </span>
             </h2>
             <p className="mt-0.5 text-sm text-terminal-muted">
               {SETUP_LABEL[setup.setupType]} · gatilho {setup.timeframe} · viés {setup.anchorTimeframe}
+              {vendida ? ' · ganha quando o preço cai' : ''}
             </p>
           </div>
           <button
@@ -151,9 +170,10 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
                 <span
                   className={`mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-semibold ${stateTone(
                     setup.visualState,
+                    setup.side,
                   )}`}
                 >
-                  {STATE_LABEL[setup.visualState]}
+                  {stateLabel(setup.visualState, setup.side)}
                 </span>
               </div>
             </div>
@@ -165,7 +185,11 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
                 tone="text-terminal-text"
                 wide
               />
-              <Field label="Invalidação" value={price(setup.stopLoss)} tone="text-bear" />
+              <Field
+                label={vendida ? 'Invalidação (acima)' : 'Invalidação'}
+                value={price(setup.stopLoss)}
+                tone="text-bear"
+              />
               <Field label="Risco / retorno" value={`1:${setup.riskReward.toFixed(1)}`} tone="text-terminal-text" />
               <Field label="Alvo 1" value={price(setup.target1)} tone="text-bull" />
               <Field label="Alvo 2" value={setup.target2 ? price(setup.target2) : '—'} tone="text-bull" />
@@ -192,22 +216,30 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
 
             <div className="space-y-2">
               {/*
-                Comprar de novo o que já está comprado dobraria o risco no mesmo
+                Entrar de novo no que já está aberto dobraria o risco no mesmo
                 ativo. O servidor recusa — mas o botão precisa dizer isso ANTES
                 do clique, não depois do erro.
+
+                O verbo e a cor saem do LADO. Um botão verde escrito COMPRAR
+                numa tese vendida é o pior erro possível desta tela: o usuário
+                confirma lendo o botão.
               */}
               <button
                 type="button"
                 onClick={() => onBuy(setup)}
                 disabled={dead || inTrade}
-                className="w-full rounded-xl bg-bull px-4 py-4 text-base font-bold text-black disabled:opacity-40"
+                className={`w-full rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
+                  setup.side,
+                )}`}
               >
-                {inTrade ? 'JÁ EM OPERAÇÃO' : 'COMPRAR SETUP'}
+                {inTrade
+                  ? 'JÁ EM OPERAÇÃO'
+                  : `${SIDE_VERB[setup.side].toUpperCase()} SETUP`}
               </button>
               {inTrade ? (
                 <p className="text-center text-[11px] text-terminal-muted">
                   Você já tem posição aberta em {setup.symbol.replace('USDT', '')}. Acompanhe na aba
-                  Carteira.
+                  Operações.
                 </p>
               ) : null}
               <div className="grid grid-cols-2 gap-2">

@@ -95,6 +95,7 @@ const futuresSchema = z.object({
 export const settingsUpdateSchema = z.object({
   mode: z.enum(['PAPER', 'TESTNET', 'LIVE']).optional(),
   market: z.enum(['SPOT', 'FUTURES']).optional(),
+  futuresEnabled: z.boolean().optional(),
   futures: futuresSchema.partial().optional(),
   risk: riskSchema.partial().optional(),
   scanner: scannerSchema.partial().optional(),
@@ -255,7 +256,10 @@ function defaultBuckets(market: MarketKind): Record<TradingMode, ModeSettings> {
 export function defaultStoredSettings(): StoredSettings {
   return {
     mode: config.mode,
-    market: config.market,
+    // futuros barrado até alguém liberar: quem só quer spot nunca esbarra
+    // numa tela de alavancagem, e quem quer futuros gira UM interruptor
+    market: config.futuresEnabled ? config.market : 'SPOT',
+    futuresEnabled: config.futuresEnabled,
     scanner: {
       watchlist: config.watchlist,
       triggerTimeframes: ['1h', '4h'],
@@ -275,10 +279,15 @@ export function defaultStoredSettings(): StoredSettings {
 
 /** Achata a modalidade e o modo pedidos — é assim que o resto do sistema enxerga tudo. */
 export function resolveSettings(stored: StoredSettings): AppSettings {
-  const bucket = stored.byMarket[stored.market][stored.mode];
+  // com o interruptor desligado a modalidade ativa é spot, aconteça o que
+  // acontecer com o que está gravado: é o que faz o barramento valer também
+  // para um arquivo antigo que ficou parado em FUTURES
+  const market = stored.futuresEnabled ? stored.market : 'SPOT';
+  const bucket = stored.byMarket[market][stored.mode];
   return {
     mode: stored.mode,
-    market: stored.market,
+    market,
+    futuresEnabled: stored.futuresEnabled,
     scanner: stored.scanner,
     risk: bucket.risk,
     autoTrade: bucket.autoTrade,
@@ -313,6 +322,17 @@ export function normalizeStoredSettings(value: PersistedSettings): StoredSetting
   const scanner = { ...base.scanner, ...value.scanner };
   const mode = value.mode ?? base.mode;
   const updatedAt = value.updatedAt ?? base.updatedAt;
+  /*
+   * Arquivo gravado antes do interruptor.
+   *
+   * Ele não tem o campo — e "não tem" não pode virar "barrado" para quem já
+   * estava em futuros: o painel voltaria sozinho para spot e a pessoa acharia
+   * que a modalidade sumiu. Quem estava lá continua liberado; quem estava em
+   * spot recebe barrado, que é o padrão novo.
+   */
+  const futuresEnabled =
+    (value as Partial<StoredSettings>).futuresEnabled ??
+    ((value as Partial<StoredSettings>).market === 'FUTURES' || base.futuresEnabled);
 
   const merge = (
     market: MarketKind,
@@ -338,6 +358,7 @@ export function normalizeStoredSettings(value: PersistedSettings): StoredSetting
     return {
       mode,
       market: value.market ?? base.market,
+      futuresEnabled,
       scanner,
       byMarket,
       updatedAt,
@@ -349,6 +370,7 @@ export function normalizeStoredSettings(value: PersistedSettings): StoredSetting
       mode,
       // arquivo sem modalidade é arquivo de antes dos futuros: era spot
       market: 'SPOT',
+      futuresEnabled,
       scanner,
       byMarket: { SPOT: merge('SPOT', value.byMode), FUTURES: merge('FUTURES', undefined) },
       updatedAt,
@@ -363,6 +385,7 @@ export function normalizeStoredSettings(value: PersistedSettings): StoredSetting
   return {
     mode,
     market: 'SPOT',
+    futuresEnabled,
     scanner,
     byMarket: { SPOT: spot, FUTURES: merge('FUTURES', undefined) },
     updatedAt,
@@ -432,7 +455,18 @@ export class SettingsService {
     options: { targetMode?: TradingMode; targetMarket?: MarketKind } = {},
   ): Promise<AppSettings> {
     const displayed = patch.mode ?? this.stored.mode;
-    const displayedMarket = patch.market ?? this.stored.market;
+    const futuresEnabled = patch.futuresEnabled ?? this.stored.futuresEnabled;
+    /*
+     * Barrar futuros também TIRA de futuros.
+     *
+     * Deixar o interruptor desligado com a tela em FUTURES seria o pior dos
+     * dois mundos: a modalidade barrada continuaria sendo a ativa, e o
+     * usuário veria uma tela alavancada que nenhuma ordem obedece. O
+     * `resolveSettings` já protege a leitura; aqui o que está gravado também
+     * volta para spot, senão o arquivo guardaria um estado impossível.
+     */
+    const pedido = patch.market ?? this.stored.market;
+    const displayedMarket: MarketKind = futuresEnabled ? pedido : 'SPOT';
     const target = options.targetMode ?? displayed;
     const targetMarket = options.targetMarket ?? displayedMarket;
     const current = this.stored.byMarket[targetMarket][target];
@@ -459,6 +493,7 @@ export class SettingsService {
     const next: StoredSettings = {
       mode: displayed,
       market: displayedMarket,
+      futuresEnabled,
       scanner: { ...this.stored.scanner, ...patch.scanner },
       byMarket: {
         ...this.stored.byMarket,

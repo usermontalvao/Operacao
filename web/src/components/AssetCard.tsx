@@ -1,5 +1,15 @@
 import type { AssetView, TradeSetup } from '../lib/types.ts';
-import { SETUP_LABEL, STATE_LABEL, changeTone, percent, price, scoreTone, stateTone } from '../lib/format.ts';
+import {
+  SETUP_LABEL,
+  SIDE_LABEL,
+  changeTone,
+  percent,
+  price,
+  scoreTone,
+  stateLabel,
+  stateTone,
+  sideTone,
+} from '../lib/format.ts';
 
 interface AssetCardProps {
   asset: AssetView;
@@ -22,7 +32,9 @@ export function AssetCard({ asset, livePrice, setup, onOpen }: AssetCardProps) {
     <article
       className={`rounded-xl border bg-terminal-panel p-3 transition ${
         setup && setup.visualState === 'COMPRAVEL'
-          ? 'border-bull/50 shadow-[0_0_0_1px_rgba(22,199,132,0.15)]'
+          ? setup.side === 'SELL'
+            ? 'border-bear/50 shadow-[0_0_0_1px_rgba(234,57,67,0.15)]'
+            : 'border-bull/50 shadow-[0_0_0_1px_rgba(22,199,132,0.15)]'
           : 'border-terminal-border'
       } ${clickable ? 'cursor-pointer hover:border-terminal-muted/60' : ''}`}
       onClick={() => (setup ? onOpen(setup) : undefined)}
@@ -67,8 +79,13 @@ export function AssetCard({ asset, livePrice, setup, onOpen }: AssetCardProps) {
           </span>
         ) : null}
         {setup ? (
-          <span className={`rounded border px-1.5 py-0.5 font-semibold ${stateTone(setup.visualState)}`}>
-            {STATE_LABEL[setup.visualState]}
+          <span
+            className={`rounded border px-1.5 py-0.5 font-semibold ${stateTone(
+              setup.visualState,
+              setup.side,
+            )}`}
+          >
+            {stateLabel(setup.visualState, setup.side)}
           </span>
         ) : null}
       </div>
@@ -76,7 +93,16 @@ export function AssetCard({ asset, livePrice, setup, onOpen }: AssetCardProps) {
       {setup ? (
         <div className="mt-3 border-t border-terminal-border pt-2 text-xs">
           <div className="flex items-center justify-between">
-            <span className="text-terminal-muted">{SETUP_LABEL[setup.setupType]} · {setup.timeframe}</span>
+            <span className="flex items-center gap-1.5 text-terminal-muted">
+              {/* a direção antes do nome do setup: é o que muda o significado
+                  de todos os números que vêm depois dela */}
+              <span
+                className={`rounded border px-1 py-px text-[9px] font-bold ${sideTone(setup.side)}`}
+              >
+                {SIDE_LABEL[setup.side]}
+              </span>
+              {SETUP_LABEL[setup.setupType]} · {setup.timeframe}
+            </span>
             <span className="tabular text-terminal-muted">R/R 1:{setup.riskReward.toFixed(1)}</span>
           </div>
           <div className="mt-1 tabular">

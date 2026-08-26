@@ -7,7 +7,16 @@ import type { Trade, TradeSetup, TradingMode } from '../lib/types.ts';
 import { PriceLadder } from '../components/PriceLadder.tsx';
 import { SymbolButton } from '../components/SymbolButton.tsx';
 import { useChartViewer } from '../lib/chartViewer.tsx';
-import { SETUP_LABEL, percent, price, usd } from '../lib/format.ts';
+import {
+  MARKET_LABEL,
+  SETUP_LABEL,
+  SIDE_LABEL,
+  leverageLabel,
+  percent,
+  price,
+  sideTone,
+  usd,
+} from '../lib/format.ts';
 
 type Position = EquityResponse['positions'][number];
 const REFRESH_MS = 5_000;
@@ -138,7 +147,10 @@ export function History() {
       {equity ? (
         <p className="text-[11px] text-terminal-muted">
           Mostrando apenas a {MODE_LABEL[equity.mode]}. Trocar de conta no topo troca todo o
-          histórico, o desempenho e as métricas junto.
+          histórico, o desempenho e as métricas junto. As posições ABERTAS e os totais acima
+          somam as duas modalidades — spot e futuros —, cada uma marcada na própria linha, porque
+          dinheiro exposto agora não depende de qual aba está selecionada. Já o histórico
+          encerrado e o desempenho são da modalidade em exibição ({MARKET_LABEL[equity.market]}).
         </p>
       ) : null}
 
@@ -219,7 +231,9 @@ export function History() {
                         className="font-semibold"
                       />
                       <span className="ml-1 text-[10px] text-terminal-muted">
-                        {SETUP_LABEL[trade.setupType]} · {trade.automatic ? 'robô' : 'manual'}
+                        {SIDE_LABEL[trade.side]} · {SETUP_LABEL[trade.setupType]} ·{' '}
+                        {trade.automatic ? 'robô' : 'manual'}
+                        {leverageLabel(trade.leverage) ? ` · ${leverageLabel(trade.leverage)}` : ''}
                       </span>
                     </Td>
                     <Td>
@@ -368,6 +382,7 @@ function PositionCard({
   const chart = useChartViewer();
   const pnlTone = (position.totalPnl ?? 0) >= 0 ? 'text-bull' : 'text-bear';
   const pending = position.status === 'PENDING';
+  const alavancagem = leverageLabel(position.leverage);
 
   return (
     <article className="border-t border-terminal-border px-3 py-2.5 first:border-t-0">
@@ -378,6 +393,26 @@ function PositionCard({
           note="posição aberta"
           className="w-14 shrink-0 font-semibold"
         />
+
+        {/*
+          Lado, modalidade e alavancagem na frente de tudo.
+
+          Esta lista mostra as DUAS modalidades ao mesmo tempo, de propósito:
+          posição aberta é dinheiro exposto agora, e escondê-la porque a tela
+          está em outra aba é como o usuário esquece que ela existe. O preço
+          disso é que cada linha tem de dizer de onde é.
+        */}
+        <span
+          className={`rounded border px-1 py-0.5 text-[9px] font-bold ${sideTone(position.side)}`}
+        >
+          {SIDE_LABEL[position.side]}
+        </span>
+        {position.market === 'FUTURES' ? (
+          <span className="rounded border border-info/40 bg-info/10 px-1 py-0.5 text-[9px] font-bold text-info">
+            {MARKET_LABEL.FUTURES}
+            {alavancagem ? ` ${alavancagem}` : ''}
+          </span>
+        ) : null}
 
         {pending ? (
           <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold text-warn">
@@ -420,6 +455,7 @@ function PositionCard({
         <span className="w-14 shrink-0 text-[10px] text-bear tabular">{price(position.stopLoss)}</span>
         <PriceLadder
           mode="liquid"
+          side={position.side}
           stop={position.stopLoss}
           entryLow={position.entryPrice}
           target={position.target1}
@@ -438,6 +474,24 @@ function PositionCard({
         ) : null}
         {position.distanceToStopPercent !== null ? (
           <span className="text-bear/80">stop {percent(position.distanceToStopPercent)}</span>
+        ) : null}
+        {/* a linha da corretora, quando existe: é a saída que não é sua, e
+            a distância até ela é o que decide se dá para respirar */}
+        {position.liquidationPrice !== null ? (
+          <span
+            className="font-semibold text-bear"
+            title={`a corretora liquida a posição em ${price(position.liquidationPrice)}`}
+          >
+            liquidação {price(position.liquidationPrice)}
+            {position.distanceToLiquidationPercent !== null
+              ? ` (${percent(position.distanceToLiquidationPercent)})`
+              : ''}
+          </span>
+        ) : null}
+        {position.market === 'FUTURES' && position.initialMargin > 0 ? (
+          <span title="saldo que a posição prende; o prejuízo continua sendo o do stop">
+            margem {usd(position.initialMargin)}
+          </span>
         ) : null}
       </div>
     </article>

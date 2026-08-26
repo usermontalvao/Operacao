@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type PreviewResponse } from '../lib/api.ts';
 import type { Trade, TradeSetup } from '../lib/types.ts';
-import { percent, price, quantity, usd, usdWithBrl } from '../lib/format.ts';
+import {
+  MARKET_LABEL,
+  SIDE_LABEL,
+  SIDE_VERB,
+  percent,
+  price,
+  quantity,
+  sideButton,
+  sideTone,
+  usd,
+  usdWithBrl,
+} from '../lib/format.ts';
 
 interface BuyModalProps {
   setup: TradeSetup;
@@ -14,9 +25,16 @@ const PERCENT_OPTIONS = [10, 25, 50];
 /**
  * Duas etapas obrigatórias: dimensionar e confirmar. O token devolvido no
  * preview é o que autoriza a ordem — se qualquer número mudar, o servidor
- * recusa e o usuário refaz. Nada é enviado antes do CONFIRMAR COMPRA.
+ * recusa e o usuário refaz. Nada é enviado antes do botão final.
+ *
+ * O lado atravessa a tela inteira: verbo, cor e a frase da confirmação saem
+ * dele. Em futuros entram três números que em spot não existem — alavancagem,
+ * margem prendida e o preço em que a corretora liquida a posição. O último é
+ * o mais importante da tela: é a saída que não é sua.
  */
 export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
+  const side = setup.side;
+  const verbo = SIDE_VERB[side];
   const [step, setStep] = useState<'SIZE' | 'CONFIRM'>('SIZE');
   const [amount, setAmount] = useState<number | null>(null);
   const [percentChoice, setPercentChoice] = useState<number | null>(25);
@@ -84,18 +102,27 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
         className="max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl border border-terminal-border bg-terminal-panel p-5 sm:rounded-2xl sm:p-6"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">
-            {step === 'SIZE' ? 'Comprar setup' : 'Confirmar operação'}
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            {step === 'SIZE' ? `${verbo} setup` : 'Confirmar operação'}
+            <span className={`rounded border px-2 py-0.5 text-[10px] font-bold ${sideTone(side)}`}>
+              {SIDE_LABEL[side]}
+            </span>
           </h2>
-          <span className="rounded border border-terminal-border px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-terminal-muted">
-            {preview?.mode ?? '—'}
+          <span className="flex shrink-0 items-center gap-1">
+            <span className="rounded border border-terminal-border px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-terminal-muted">
+              {MARKET_LABEL[preview?.market ?? setup.market]}
+            </span>
+            <span className="rounded border border-terminal-border px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-terminal-muted">
+              {preview?.mode ?? '—'}
+            </span>
           </span>
         </div>
 
         <div className="mt-1 text-sm text-terminal-muted">
           {setup.symbol.replace('USDT', '')}/USDT · entrada {price(preview?.entryPrice ?? setup.entryLow)} ·
           stop {price(setup.stopLoss)} · alvo {price(setup.target1)}
+          {preview && preview.leverage > 1 ? ` · ${preview.leverage}x` : ''}
         </div>
 
         {step === 'SIZE' ? (
@@ -159,6 +186,25 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
                   <Row label="Alvo 3" value={`${price(setup.target3)} · ${usd(preview.sizing.potentialProfitTarget3 ?? 0)}`} tone="text-bull" />
                 ) : null}
                 <Row label="Risco / retorno" value={`1:${preview.sizing.riskReward.toFixed(1)}`} />
+                {preview.leverage > 1 ? (
+                  <>
+                    <div className="my-1 border-t border-terminal-border" />
+                    <Row label="Alavancagem" value={`${preview.leverage}x`} />
+                    {/* a margem não é o risco: é o saldo que fica preso. O
+                        prejuízo continua sendo o do stop, e os dois números
+                        juntos evitam a leitura de que "só posso perder isso" */}
+                    <Row
+                      label="Margem prendida"
+                      value={usd(preview.margin)}
+                      tone="text-terminal-muted"
+                    />
+                    <Row
+                      label="Liquidação estimada"
+                      value={preview.liquidationPrice === null ? '—' : price(preview.liquidationPrice)}
+                      tone="text-bear"
+                    />
+                  </>
+                ) : null}
               </div>
             ) : null}
             </div>
@@ -169,7 +215,9 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
               type="button"
               disabled={!preview?.canExecute || loading}
               onClick={() => setStep('CONFIRM')}
-              className="mt-5 w-full rounded-xl bg-bull px-4 py-4 text-base font-bold text-black disabled:opacity-40"
+              className={`mt-5 w-full rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
+                side,
+              )}`}
             >
               {loading ? 'Calculando…' : 'Revisar operação'}
             </button>
@@ -179,7 +227,8 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
             <div className="mt-4 space-y-1.5 rounded-xl border border-warn/40 bg-warn/5 p-4 text-sm">
               <p className="text-xs uppercase tracking-wide text-warn">Confirmar operação</p>
               <p className="text-lg font-semibold">
-                Comprar {quantity(preview?.sizing.quantity ?? 0)} {setup.symbol.replace('USDT', '')}
+                {verbo} {quantity(preview?.sizing.quantity ?? 0)} {setup.symbol.replace('USDT', '')}
+                {preview && preview.leverage > 1 ? ` com ${preview.leverage}x` : ''}
               </p>
               <Row label="Entrada limite" value={price(preview?.entryPrice ?? 0)} />
               <Row
@@ -189,6 +238,16 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
               <Row label="Stop" value={price(setup.stopLoss)} tone="text-bear" />
               <Row label="Alvo 1" value={price(setup.target1)} tone="text-bull" />
               {setup.target2 ? <Row label="Alvo 2" value={price(setup.target2)} tone="text-bull" /> : null}
+              {preview && preview.leverage > 1 ? (
+                <>
+                  <Row label="Margem prendida" value={usd(preview.margin)} />
+                  <Row
+                    label="Liquidação estimada"
+                    value={preview.liquidationPrice === null ? '—' : price(preview.liquidationPrice)}
+                    tone="text-bear"
+                  />
+                </>
+              ) : null}
               <Row label="Modo" value={preview?.mode ?? '—'} />
             </div>
 
@@ -199,6 +258,9 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
             ) : (
               <p className="mt-2 text-xs text-warn">
                 Ordem real na Binance ({preview?.mode}): entrada limite com stop e alvo vinculados.
+                {preview && preview.leverage > 1
+                  ? ' Em futuros a proteção vai como duas ordens de redução, enviadas logo após a entrada preencher.'
+                  : ''}
               </p>
             )}
 
@@ -217,9 +279,11 @@ export function BuyModal({ setup, onClose, onExecuted }: BuyModalProps) {
                 type="button"
                 onClick={() => void confirm()}
                 disabled={sending || !preview?.canExecute}
-                className="rounded-xl bg-bull px-4 py-4 text-base font-bold text-black disabled:opacity-40"
+                className={`rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
+                  side,
+                )}`}
               >
-                {sending ? 'Enviando…' : 'CONFIRMAR COMPRA'}
+                {sending ? 'Enviando…' : `CONFIRMAR ${SIDE_LABEL[side]}`}
               </button>
             </div>
           </>

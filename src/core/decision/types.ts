@@ -15,6 +15,8 @@ export type DecisionCode =
   | 'MARKET_DATA_STALE'
   // estratégia e evidência
   | 'STRATEGY_NOT_VALIDATED'
+  /** tese vendida: o robô não opera o lado de baixo, só entrada manual */
+  | 'SHORT_NOT_AUTOMATED'
   | 'SCORE_BELOW_VALIDATED_FLOOR'
   | 'SCORE_BELOW_CONFIGURED_MINIMUM'
   | 'RISK_REWARD_BELOW_MINIMUM'
@@ -142,6 +144,7 @@ export function stageForCode(code: DecisionCode): FunnelStage {
     case 'ALLOWED':
       return 'APROVADO_PELO_RISCO';
     case 'STRATEGY_NOT_VALIDATED':
+    case 'SHORT_NOT_AUTOMATED':
       return 'DETECTADO';
     case 'SCORE_BELOW_VALIDATED_FLOOR':
     case 'SCORE_BELOW_CONFIGURED_MINIMUM':

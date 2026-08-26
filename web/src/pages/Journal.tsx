@@ -140,7 +140,14 @@ export function Journal() {
                       <Td className="font-medium">
                         <SymbolButton symbol={decision.symbol} note="operação encerrada" />
                       </Td>
-                      <Td className="text-[11px]">{decision.setupType}</Td>
+                      <Td className="text-[11px]">
+                        {decision.side === 'SELL' ? (
+                          <span className="mr-1 rounded border border-bear/40 bg-bear/10 px-1 py-px text-[9px] font-bold text-bear">
+                            VENDA
+                          </span>
+                        ) : null}
+                        {decision.setupType}
+                      </Td>
                       <Td className="text-[11px] text-terminal-muted">
                         {decision.automatic ? 'robô' : 'manual'}
                       </Td>

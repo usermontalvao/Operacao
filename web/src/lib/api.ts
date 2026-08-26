@@ -9,8 +9,10 @@ import type {
   EntryDecisionRecord,
   FactorPerformance,
   FunnelStage,
+  MarketKind,
   ModeSettings,
   PerformanceStats,
+  Side,
   Timeframe,
   Trade,
   TradeSetup,
@@ -19,12 +21,19 @@ import { announceSessionLost } from './auth.ts';
 
 export interface SettingsResponse extends AppSettings {
   store: string;
-  /** o que cada modo tem guardado — risco, robô e disjuntor são de cada conta */
+  /**
+   * O que cada conta tem guardado NA MODALIDADE EM EXIBIÇÃO — risco, robô e
+   * disjuntor são de cada conta, e agora também de cada modalidade.
+   */
   byMode: Record<AppSettings['mode'], ModeSettings>;
+  /** os dois conjuntos completos, para a tela comparar spot e futuros */
+  byMarket: Record<MarketKind, Record<AppSettings['mode'], ModeSettings>>;
   binance: {
-    activeEnvironment: 'production' | 'testnet';
+    activeEnvironment: 'production' | 'testnet' | 'futures-production' | 'futures-testnet';
     production: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
     testnet: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
+    futuresProduction: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
+    futuresTestnet: { credentialsConfigured: boolean; balance: BinanceBalanceSummary };
   };
   universe: {
     enabled: boolean;
@@ -119,6 +128,15 @@ export interface EquityResponse {
     protectiveStop: number | null;
     distanceToStopPercent: number | null;
     distanceToTargetPercent: number | null;
+    /** de qual modalidade é a posição — as duas aparecem na mesma lista */
+    market: MarketKind;
+    side: Side;
+    /** 1 em spot */
+    leverage: number;
+    /** margem prendida pela posição */
+    initialMargin: number;
+    liquidationPrice: number | null;
+    distanceToLiquidationPercent: number | null;
     feesPaid: number;
     automatic: boolean;
     setupType: string;
@@ -127,6 +145,8 @@ export interface EquityResponse {
   }>;
   brlRate: number | null;
   mode: AppSettings['mode'];
+  /** a modalidade dos TOTAIS; a lista de posições pode trazer as duas */
+  market: MarketKind;
   updatedAt: string;
 }
 
@@ -248,6 +268,16 @@ export interface SizingView {
 export interface PreviewResponse {
   setup: TradeSetup;
   mode: AppSettings['mode'];
+  /** modalidade e lado aprovados — mudar qualquer um invalida o token */
+  market: MarketKind;
+  side: Side;
+  /** 1 em spot */
+  leverage: number;
+  /** o que a posição prende de saldo (notional ÷ alavancagem) */
+  margin: number;
+  liquidationPrice: number | null;
+  /** maior alavancagem que ainda deixa a liquidação atrás do stop */
+  safeLeverage: number | null;
   entryPrice: number;
   currentPrice: number;
   capital: number;

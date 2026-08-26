@@ -6,6 +6,7 @@ import {
   breakoutWithWeakRetest,
   candlesFromPath,
   defaultTestSettings,
+  downtrendWithRally,
   uptrendWithPullback,
 } from '../testing/fixtures.ts';
 import { evaluateMarketContext } from './marketContextEngine.ts';
@@ -201,4 +202,67 @@ test('a confirmação do reteste é declarada nos motivos do setup', () => {
     setup.reasons.some((reason) => reason.includes('Fechamento de volta acima')),
     `os motivos precisam dizer o que confirmou: ${setup.reasons.join(' | ')}`,
   );
+});
+
+test('em futuros com venda liberada, a mesma figura invertida vira um setup VENDIDO', () => {
+  const candles = candlesFromPath(downtrendWithRally());
+  const analysis = analysisFrom('XRPUSDT', candles, ['15m', '1h', '4h', '1d']);
+  const futuros = defaultTestSettings({
+    market: 'FUTURES',
+    futures: {
+      leverage: 3,
+      maxLeverage: 10,
+      marginMode: 'ISOLATED',
+      allowShort: true,
+      minLiquidationBufferPercent: 1.5,
+    },
+  });
+
+  const setups = generateSetups({ analysis, context: null, settings: futuros, now: NOW, makeId });
+  const vendido = setups.find((item) => item.side === 'SELL');
+
+  assert.ok(vendido, 'esperava pelo menos uma tese vendida na tendência de baixa');
+  assert.equal(vendido.market, 'FUTURES');
+  assert.ok(vendido.stopLoss > vendido.entryHigh, 'vendido: o stop fica ACIMA da entrada');
+  assert.ok(vendido.target1 < vendido.entryLow, 'vendido: o alvo fica ABAIXO da entrada');
+  assert.ok(vendido.riskReward >= 1.8, `R/R veio ${vendido.riskReward}`);
+  assert.ok(vendido.reasons.length >= 3, 'todo setup precisa explicar por que existe');
+});
+
+test('a mesma tendência de baixa NÃO gera tese vendida em spot', () => {
+  const candles = candlesFromPath(downtrendWithRally());
+  const analysis = analysisFrom('XRPUSDT', candles, ['15m', '1h', '4h', '1d']);
+
+  // spot: não existe posição vendida, e mostrar no radar o que não dá para
+  // executar dali é convite a tentar executar por fora
+  const setups = generateSetups({
+    analysis,
+    context: null,
+    settings: defaultTestSettings(),
+    now: NOW,
+    makeId,
+  });
+  assert.equal(setups.filter((item) => item.side === 'SELL').length, 0);
+});
+
+test('o radar de futuros com venda desligada volta a ser só de compra', () => {
+  const candles = candlesFromPath(downtrendWithRally());
+  const analysis = analysisFrom('XRPUSDT', candles, ['15m', '1h', '4h', '1d']);
+  const setups = generateSetups({
+    analysis,
+    context: null,
+    settings: defaultTestSettings({
+      market: 'FUTURES',
+      futures: {
+        leverage: 3,
+        maxLeverage: 10,
+        marginMode: 'ISOLATED',
+        allowShort: false,
+        minLiquidationBufferPercent: 1.5,
+      },
+    }),
+    now: NOW,
+    makeId,
+  });
+  assert.equal(setups.filter((item) => item.side === 'SELL').length, 0);
 });

@@ -164,6 +164,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
     <div className="min-h-full pb-20 sm:pb-6">
       <Header
         mode={live.snapshot?.mode ?? 'PAPER'}
+        market={live.snapshot?.settings.market ?? 'SPOT'}
         balance={live.balance}
         liveEquity={liveEquity}
         switchingMode={switchingMode}
@@ -172,8 +173,6 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
         connection={live.connection}
         streamConnected={live.streamConnected}
         carregando={live.carregando}
-        context={live.context}
-        activeSetups={setups.filter((setup) => setup.ignoredAt === null).length}
         autoTradeOn={live.snapshot?.settings.autoTrade.enabled ?? false}
         robotBusy={robotBusy}
         onToggleRobot={() => void toggleRobot()}
@@ -188,8 +187,6 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
             counts={{ HISTORICO: live.trades.length }}
           />
         }
-        watchedSymbols={live.snapshot?.settings.scanner.watchlist.length ?? 0}
-        universe={live.snapshot?.universe ?? null}
         userLabel={userLabel}
         onLogout={() => void sair()}
       />

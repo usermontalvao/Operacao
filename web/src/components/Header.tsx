@@ -1,26 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ConnectionState, MarketContext, TradingMode } from '../lib/types.ts';
+import type { ConnectionState, MarketKind, TradingMode } from '../lib/types.ts';
 import type { AccountBalanceResponse } from '../lib/api.ts';
 import { brl, quantity, usd } from '../lib/format.ts';
 import { Marca } from './Marca.tsx';
 import type { LiveEquity } from '../lib/equity.ts';
 
-const CONTEXT_LABEL: Record<string, string> = {
-  BTC_BULLISH: 'BTC comprador',
-  BTC_NEUTRAL: 'BTC neutro',
-  BTC_BEARISH: 'BTC vendedor',
-  BTC_HIGH_VOLATILITY: 'BTC volátil',
-};
-
-const CONTEXT_TONE: Record<string, string> = {
-  BTC_BULLISH: 'text-bull border-bull/40 bg-bull/10',
-  BTC_NEUTRAL: 'text-terminal-muted border-terminal-border bg-terminal-panel-soft',
-  BTC_BEARISH: 'text-bear border-bear/40 bg-bear/10',
-  BTC_HIGH_VOLATILITY: 'text-warn border-warn/40 bg-warn/10',
-};
-
 interface HeaderProps {
   mode: TradingMode;
+  /** modalidade ativa; só aparece quando é futuros — spot é o silêncio */
+  market: MarketKind;
   balance: AccountBalanceResponse | null;
   /** patrimônio recalculado a cada tique de preço */
   liveEquity: LiveEquity;
@@ -31,8 +19,6 @@ interface HeaderProps {
   streamConnected: boolean;
   /** a primeira leitura ainda não voltou — o topo não sabe de nada ainda */
   carregando: boolean;
-  context: MarketContext | null;
-  activeSetups: number;
   autoTradeOn: boolean;
   robotBusy: boolean;
   onToggleRobot: () => void;
@@ -41,8 +27,6 @@ interface HeaderProps {
   resumesAt: string | null;
   /** as abas de navegação, renderizadas dentro do cabeçalho no monitor */
   tabs: React.ReactNode;
-  watchedSymbols: number;
-  universe: { enabled: boolean; liquid: number; cursor: number } | null;
   /** quem está logado; null enquanto a sessão não foi lida */
   userLabel: string | null;
   onLogout: () => void;
@@ -51,6 +35,7 @@ interface HeaderProps {
 export function Header(props: HeaderProps) {
   const {
     mode,
+    market,
     balance,
     liveEquity,
     switchingMode,
@@ -59,16 +44,12 @@ export function Header(props: HeaderProps) {
     connection,
     streamConnected,
     carregando,
-    context,
-    activeSetups,
     autoTradeOn,
     robotBusy,
     onToggleRobot,
     halted,
     resumesAt,
     tabs,
-    watchedSymbols,
-    universe,
     userLabel,
     onLogout,
   } = props;
@@ -89,10 +70,16 @@ export function Header(props: HeaderProps) {
           : 'OFFLINE';
   const connectionTone =
     connectionLabel === 'LIVE'
-      ? 'text-bull border-bull/40 bg-bull/10 ring-live'
+      ? 'text-bull border-bull/25 bg-bull/[0.07]'
       : connectionLabel === 'RECONECTANDO' || connectionLabel === 'CONECTANDO'
-        ? 'text-warn border-warn/40 bg-warn/10'
-        : 'text-bear border-bear/40 bg-bear/10';
+        ? 'text-warn border-warn/25 bg-warn/[0.07]'
+        : 'text-bear border-bear/25 bg-bear/[0.07]';
+  const connectionDot =
+    connectionLabel === 'LIVE'
+      ? 'bg-bull shadow-[0_0_10px_rgba(22,199,132,0.7)]'
+      : connectionLabel === 'RECONECTANDO' || connectionLabel === 'CONECTANDO'
+        ? 'bg-warn'
+        : 'bg-bear';
   const demoSelected = mode !== 'LIVE';
 
   // o saldo do topo é o patrimônio AGORA, com as posições marcadas a mercado —
@@ -128,16 +115,25 @@ export function Header(props: HeaderProps) {
     liveEquity.unrealized > 0 ? 'text-bull' : liveEquity.unrealized < 0 ? 'text-bear' : 'text-terminal-muted';
 
   return (
-    <header className="sticky top-0 z-30 border-b border-terminal-border bg-terminal-bg/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Marca tamanho={26} />
-            <span className="text-lg font-semibold tracking-tight">Crypto Hunter</span>
+    <header className="app-header sticky top-0 z-30 border-b border-white/[0.07] bg-terminal-bg/90 backdrop-blur-xl">
+      <div className="mx-auto max-w-6xl px-4">
+        <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 py-2 lg:grid-cols-[1fr_auto_1fr] lg:gap-x-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.18)]">
+              <Marca tamanho={28} />
+            </div>
+            <div className="min-w-0 leading-none">
+              <span className="block truncate text-[15px] font-semibold tracking-[-0.02em] text-white sm:text-base">
+                Crypto Hunter
+              </span>
+              <span className="mt-1.5 hidden text-[9px] font-semibold uppercase tracking-[0.2em] text-terminal-muted sm:block">
+                Terminal de operações
+              </span>
+            </div>
           </div>
 
-          <div className="order-3 flex w-full items-center justify-between gap-2 rounded-xl border border-terminal-border bg-terminal-panel p-1.5 sm:order-none sm:w-auto sm:justify-start">
-            <div className="flex rounded-lg bg-terminal-bg p-0.5">
+          <div className="order-3 col-span-2 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-1 shadow-[0_10px_26px_rgba(0,0,0,0.16)] lg:order-none lg:col-span-1 lg:justify-start">
+            <div className="flex shrink-0 rounded-lg border border-white/[0.05] bg-black/25 p-0.5">
               <AccountButton
                 label="DEMO"
                 active={demoSelected}
@@ -152,24 +148,42 @@ export function Header(props: HeaderProps) {
                 onClick={() => onModeChange('LIVE')}
               />
             </div>
-            <div className="flex items-center gap-2 border-l border-terminal-border pl-2.5 pr-1">
-              <div className="text-right tabular leading-tight">
-                <div className="text-sm font-bold">{balanceLabel}</div>
-                <div className="text-[10px] text-terminal-muted">
-                  {balanceInBrl ?? (mode === 'LIVE' ? 'conta real' : 'conta demo')}
+            {/*
+              Em futuros, o topo diz. Alavancado, a mesma tela com os mesmos
+              botões tem outra consequência — e o lugar onde o usuário olha
+              para saber "onde eu estou" é aqui, não os ajustes.
+            */}
+            {market === 'FUTURES' ? (
+              <span
+                className="shrink-0 rounded-lg border border-info/40 bg-info/10 px-2 py-1 text-[9px] font-bold tracking-[0.14em] text-info"
+                title="modalidade ativa: futuros USD-M"
+              >
+                FUTUROS
+              </span>
+            ) : null}
+            <div className="flex min-w-0 items-center gap-3 border-l border-white/[0.07] pl-3 pr-1">
+              <div className="min-w-0 text-left tabular leading-tight">
+                <div className="mb-0.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-terminal-muted">
+                  Patrimônio
+                </div>
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <span className="truncate text-sm font-semibold tracking-[-0.01em] text-white">{balanceLabel}</span>
+                  <span className="hidden shrink-0 text-[9px] text-terminal-muted sm:inline">
+                    {balanceInBrl ?? (mode === 'LIVE' ? 'conta real' : 'conta demo')}
+                  </span>
                 </div>
               </div>
 
               {openState !== 'nenhuma' ? (
                 <div
-                  className={`shrink-0 rounded-md border px-1.5 py-1 text-right leading-tight tabular ${
+                  className={`shrink-0 rounded-lg border px-2 py-1 text-right leading-tight tabular ${
                     openState === 'carregando'
-                      ? 'border-terminal-border bg-terminal-bg text-terminal-muted'
+                      ? 'border-white/[0.07] bg-black/20 text-terminal-muted'
                       : liveEquity.unrealized > 0
-                        ? 'border-bull/30 bg-bull/10'
+                        ? 'border-bull/20 bg-bull/[0.07]'
                         : liveEquity.unrealized < 0
-                          ? 'border-bear/30 bg-bear/10'
-                          : 'border-terminal-border bg-terminal-bg'
+                          ? 'border-bear/20 bg-bear/[0.07]'
+                          : 'border-white/[0.07] bg-black/20'
                   }`}
                   title={`${liveEquity.positions} posição(ões) em aberto`}
                 >
@@ -184,7 +198,7 @@ export function Header(props: HeaderProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2 lg:min-w-0">
             {/*
               O distintivo do robô é um botão, não um enfeite. Quem percebe que
               algo está errado precisa de um clique até parar — não de uma
@@ -205,16 +219,28 @@ export function Header(props: HeaderProps) {
                     ? 'Clique para desligar o robô'
                     : 'Clique para ligar o robô'
               }
-              className={`rounded border px-2 py-0.5 text-[10px] font-bold tracking-wider transition disabled:opacity-50 ${
+              className={`group flex h-8 items-center gap-2 rounded-lg border px-2.5 text-[9px] font-bold tracking-[0.13em] transition-all duration-200 disabled:opacity-50 sm:px-3 ${
                 carregando
-                  ? 'border-terminal-border bg-terminal-panel-soft text-terminal-muted'
+                  ? 'border-white/[0.07] bg-white/[0.035] text-terminal-muted'
                   : halted
-                  ? 'border-warn/50 bg-warn/10 text-warn'
+                  ? 'border-warn/25 bg-warn/[0.07] text-warn'
                   : autoTradeOn
-                    ? 'border-bull/50 bg-bull/10 text-bull hover:bg-bull/20'
-                    : 'border-terminal-border bg-terminal-panel-soft text-terminal-muted hover:text-terminal-text'
+                    ? 'border-bull/25 bg-bull/[0.07] text-bull hover:border-bull/40 hover:bg-bull/10'
+                    : 'border-white/[0.07] bg-white/[0.035] text-terminal-muted hover:border-white/[0.13] hover:text-terminal-text'
               }`}
             >
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 rounded-full ${
+                  carregando || robotBusy
+                    ? 'bg-terminal-muted'
+                    : resumesAt || halted
+                      ? 'bg-warn'
+                      : autoTradeOn
+                        ? 'bg-bull shadow-[0_0_8px_rgba(22,199,132,0.55)]'
+                        : 'bg-terminal-muted/60'
+                }`}
+              />
               {carregando
                 ? 'ROBÔ ···'
                 : robotBusy
@@ -227,7 +253,10 @@ export function Header(props: HeaderProps) {
                         ? 'ROBÔ ON'
                         : 'ROBÔ OFF'}
             </button>
-            <span className={`rounded border px-2 py-0.5 text-[10px] font-bold tracking-wider ${connectionTone}`}>
+            <span
+              className={`flex h-8 items-center gap-2 rounded-lg border px-2.5 text-[9px] font-bold tracking-[0.13em] sm:px-3 ${connectionTone}`}
+            >
+              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${connectionDot}`} />
               {connectionLabel}
             </span>
             <AccountMenu userLabel={userLabel} onLogout={onLogout} />
@@ -240,38 +269,8 @@ export function Header(props: HeaderProps) {
           </p>
         ) : null}
 
-        <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center justify-center border-t border-white/[0.055]">
           {tabs}
-          {/*
-            min-w-0 é obrigatório: sem ele um filho com overflow-x recusa-se a
-            encolher dentro do flex e empurra a página inteira para o lado.
-          */}
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-3 overflow-x-auto text-xs tabular [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {context ? (
-            <span
-              className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-semibold ${
-                CONTEXT_TONE[context.state] ?? CONTEXT_TONE.BTC_NEUTRAL
-              }`}
-              title={context.reasons.join(' · ')}
-            >
-              {CONTEXT_LABEL[context.state] ?? context.state}
-              <span className="ml-1 opacity-70">
-                {context.scoreModifier > 0 ? '+' : ''}
-                {context.scoreModifier}
-              </span>
-            </span>
-          ) : null}
-          <span className="hidden shrink-0 rounded border border-terminal-border bg-terminal-panel-soft px-2 py-0.5 text-[10px] text-terminal-muted lg:inline">
-            {activeSetups} setup{activeSetups === 1 ? '' : 's'} na tela
-          </span>
-          <span
-            className="hidden shrink-0 rounded border border-terminal-border bg-terminal-panel-soft px-2 py-0.5 text-[10px] text-terminal-muted xl:inline"
-            title="pares acompanhados ao vivo · varredura do mercado"
-          >
-            {watchedSymbols} ao vivo
-            {universe?.enabled ? ` · ${universe.cursor}/${universe.liquid} varridos` : ''}
-          </span>
-          </div>
         </div>
       </div>
     </header>
@@ -310,7 +309,7 @@ function AccountMenu({ userLabel, onLogout }: { userLabel: string | null; onLogo
         aria-haspopup="menu"
         aria-expanded={open}
         title={userLabel ?? 'Conta'}
-        className="flex h-6 w-6 items-center justify-center rounded-full border border-terminal-border bg-terminal-panel-soft text-[10px] font-bold text-terminal-muted transition hover:border-terminal-muted hover:text-terminal-text"
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.035] text-[10px] font-semibold text-terminal-muted transition-all duration-200 hover:border-white/[0.15] hover:bg-white/[0.06] hover:text-white"
       >
         {inicial}
       </button>
@@ -320,11 +319,11 @@ function AccountMenu({ userLabel, onLogout }: { userLabel: string | null; onLogo
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden="true" />
           <div
             role="menu"
-            className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-lg border border-terminal-border bg-terminal-panel shadow-xl"
+            className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-xl border border-white/[0.08] bg-terminal-panel/95 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           >
-            <div className="border-b border-terminal-border px-3 py-2">
-              <div className="text-[9px] uppercase tracking-wide text-terminal-muted">Entrou como</div>
-              <div className="truncate text-xs font-medium" title={userLabel ?? undefined}>
+            <div className="border-b border-white/[0.07] px-4 py-3">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-terminal-muted">Entrou como</div>
+              <div className="mt-1 truncate text-xs font-medium text-white" title={userLabel ?? undefined}>
                 {userLabel ?? '—'}
               </div>
             </div>
@@ -336,7 +335,7 @@ function AccountMenu({ userLabel, onLogout }: { userLabel: string | null; onLogo
                 setOpen(false);
                 onLogout();
               }}
-              className="w-full px-3 py-2 text-left text-xs text-bear transition hover:bg-bear/10"
+              className="w-full px-4 py-3 text-left text-xs font-medium text-bear transition hover:bg-bear/10"
             >
               Sair do painel
             </button>
@@ -366,12 +365,12 @@ function AccountButton({
       aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-md px-3 py-1 text-[10px] font-bold tracking-wider transition disabled:opacity-50 ${
+      className={`min-w-14 rounded-md px-3 py-1.5 text-[9px] font-bold tracking-[0.14em] transition-all duration-200 disabled:opacity-50 ${
         active
           ? danger
-            ? 'bg-bear/15 text-bear'
-            : 'bg-bull/15 text-bull'
-          : 'text-terminal-muted hover:text-terminal-text'
+            ? 'bg-bear/15 text-bear shadow-[inset_0_0_0_1px_rgba(234,57,67,0.12)]'
+            : 'bg-white/[0.08] text-white shadow-[0_4px_12px_rgba(0,0,0,0.2)]'
+          : 'text-terminal-muted hover:bg-white/[0.035] hover:text-terminal-text'
       }`}
     >
       {label}

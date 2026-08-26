@@ -21,7 +21,11 @@
 -- ---------------------------------------------------------------------------
 alter table if exists public.app_settings
   add column if not exists market text not null default 'SPOT',
+  add column if not exists futures_enabled boolean not null default false,
   add column if not exists by_market jsonb;
+
+comment on column public.app_settings.futures_enabled is
+  'interruptor geral da modalidade: barrado, nenhuma tese vendida nasce e nenhuma ordem alavancada sai, em conta nenhuma. Nasce desligado — quem já operava spot não ganha futuros por atualizar';
 
 do $$
 begin
@@ -118,4 +122,5 @@ alter table if exists public.exchange_connections
 -- alter table public.trade_setups drop constraint if exists trade_setups_side_check;
 -- alter table public.trade_setups add constraint trade_setups_side_check check (side = 'BUY');
 -- alter table public.trade_setups drop column if exists market;
--- alter table public.app_settings drop column if exists market, drop column if exists by_market;
+-- alter table public.app_settings drop column if exists market, drop column if exists by_market,
+--   drop column if exists futures_enabled;

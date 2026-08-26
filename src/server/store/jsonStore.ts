@@ -25,6 +25,20 @@ interface Collections {
 }
 
 /**
+ * Arquivo gravado antes de existirem direção e modalidade.
+ *
+ * Tudo o que está no disco de antes de futuros é compra em spot — mas o campo
+ * simplesmente não está lá, e `undefined` não é `'BUY'`: a conta do resultado
+ * multiplicaria por um sinal que não existe. Carimbar na leitura resolve num
+ * lugar só, do jeito que a tabela do Supabase já fazia; o campo vira
+ * definitivo na primeira regravação da linha.
+ */
+function comDirecao<T extends { side?: unknown; market?: unknown }>(registro: T): T {
+  if (registro.side !== undefined && registro.market !== undefined) return registro;
+  return { ...registro, side: registro.side ?? 'BUY', market: registro.market ?? 'SPOT' };
+}
+
+/**
  * Persistência local em arquivo. Escrita atômica (tmp + rename) e com atraso,
  * para não gravar o arquivo inteiro a cada tick de preço.
  */
@@ -49,8 +63,8 @@ export class JsonStore implements Repository {
   async init(): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     this.data.settings = await this.read<PersistedSettings | null>('settings', null);
-    this.data.setups = await this.read<TradeSetup[]>('setups', []);
-    this.data.trades = await this.read<Trade[]>('trades', []);
+    this.data.setups = (await this.read<TradeSetup[]>('setups', [])).map(comDirecao);
+    this.data.trades = (await this.read<Trade[]>('trades', [])).map(comDirecao);
     this.data.alerts = await this.read<AlertRecord[]>('alerts', []);
     this.data.audit = await this.read<AuditEntry[]>('audit', []);
     this.data.decisions = await this.read<DecisionRecord[]>('decisions', []);

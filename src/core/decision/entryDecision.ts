@@ -57,6 +57,24 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
   const price = input.currentPrice ?? setup.currentPrice;
   const distance = distanceToEntryPercent(price, setup.entryLow, setup.entryHigh);
 
+  /*
+   * O robô não opera vendido.
+   *
+   * A recusa já existia na execução, mas chegava tarde demais para a tela: o
+   * painel dizia "o robô compraria este setup" numa tese de VENDA e só depois
+   * a ordem era negada, num registro de auditoria que ninguém abre. O motivo
+   * mora aqui porque é aqui que a decisão vira texto, funil e diário.
+   */
+  if (setup.side === 'SELL') {
+    blockers.push(
+      reason(
+        'SHORT_NOT_AUTOMATED',
+        'automationPolicy',
+        'O robô não opera vendido: o laboratório mediu apenas o lado comprado. Esta tese é entrada manual',
+      ),
+    );
+  }
+
   // --- plataforma -----------------------------------------------------------
   if (!input.persistenceAvailable) {
     blockers.push(

@@ -158,6 +158,13 @@ export interface AppConfig {
   mode: TradingMode;
   /** modalidade com que o servidor sobe, antes de ler o que está gravado */
   market: MarketKind;
+  /**
+   * Semente do interruptor geral dos futuros, usada só quando ainda não há
+   * nada gravado. Quem nunca pediu futuros (TRADING_MARKET ausente ou SPOT)
+   * recebe o painel com a modalidade barrada; a partir daí quem manda é o
+   * interruptor da tela, que fica no disco.
+   */
+  futuresEnabled: boolean;
   store: 'json' | 'supabase';
   dataDir: string;
   supabase: { url: string; serviceRoleKey: string; anonKey: string; ownerId: string } | null;
@@ -241,6 +248,7 @@ export const config: AppConfig = {
   host: parsed.HOST,
   mode: parsed.TRADING_MODE,
   market: parsed.TRADING_MARKET,
+  futuresEnabled: parsed.TRADING_MARKET === 'FUTURES',
   store: supabaseReady ? 'supabase' : 'json',
   dataDir: parsed.DATA_DIR,
   supabase: supabaseReady

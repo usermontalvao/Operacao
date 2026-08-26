@@ -430,3 +430,74 @@ test('posição de ontem não conta o lucro aberto duas vezes no patrimônio', (
   assert.equal(snapshot.equity, 1100);
   assert.equal(snapshot.dailyUnrealizedPnl, 0, 'posição de ontem não é resultado de hoje');
 });
+
+test('a posição VENDIDA que está ganhando aumenta o patrimônio, não o contrário', () => {
+  // vendida a 100, preço agora em 90: dez de lucro por unidade, 10 unidades
+  const trade = makeTrade({
+    side: 'SELL',
+    market: 'FUTURES',
+    status: 'OPEN',
+    closedAt: null,
+    outcome: 'OPEN',
+    openedAt: '2026-08-25T10:00:00.000Z',
+    symbol: 'ARBUSDT',
+    entryPrice: 100,
+    averageFillPrice: 100,
+    stopLoss: 105,
+    target1: 90,
+    filledQuantity: 10,
+    remainingQuantity: 10,
+    notional: 1000,
+    realizedPnl: 0,
+  });
+
+  const snapshot = computeRiskSnapshot({
+    trades: [trade],
+    mode: 'PAPER',
+    capital: 1000,
+    dailyLossLimitPercent: 5,
+    guard: { ...DEFAULT_GUARD },
+    prices: { ARBUSDT: 90 },
+    now: new Date('2026-08-25T12:00:00.000Z'),
+  });
+
+  // com o sinal trocado daria 900, o drawdown apareceria do nada e o
+  // disjuntor poderia desligar a operação que estava dando certo
+  assert.equal(snapshot.dailyUnrealizedPnl, 100);
+  assert.equal(snapshot.equity, 1100);
+  assert.equal(snapshot.drawdownPercent, 0);
+});
+
+test('mercado contra é do LADO: BTC vendedor não barra venda a descoberto', () => {
+  const snapshot = computeRiskSnapshot({
+    trades: [],
+    mode: 'PAPER',
+    capital: 1000,
+    dailyLossLimitPercent: 5,
+    guard: DEFAULT_GUARD,
+    prices: {},
+    now: new Date('2026-08-25T12:00:00.000Z'),
+  });
+  const base = {
+    snapshot,
+    guard: DEFAULT_GUARD,
+    symbol: 'SOLUSDT',
+    quoteAmount: 50,
+    netRiskReward: 3,
+    openTrades: [],
+    quoteVolume24h: 50_000_000,
+    now: new Date('2026-08-25T12:00:00.000Z'),
+  };
+
+  const vendaComBtcCaindo = evaluateEntryGate({ ...base, side: 'SELL', btcContext: 'BTC_BEARISH' });
+  assert.equal(vendaComBtcCaindo.allowed, true, 'o mercado caindo é o cenário da venda');
+
+  const vendaComBtcSubindo = evaluateEntryGate({ ...base, side: 'SELL', btcContext: 'BTC_BULLISH' });
+  assert.equal(vendaComBtcSubindo.allowed, false);
+  assert.match(vendaComBtcSubindo.blockers.join(' '), /BTC comprador/);
+
+  // e a compra continua exatamente como era
+  const compra = evaluateEntryGate({ ...base, side: 'BUY', btcContext: 'BTC_BEARISH' });
+  assert.equal(compra.allowed, false);
+  assert.match(compra.blockers.join(' '), /BTC vendedor/);
+});

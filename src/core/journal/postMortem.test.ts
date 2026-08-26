@@ -61,3 +61,25 @@ test('quem ganhou também é lido — o diário não é só de derrota', () => {
   assert.equal(report.code, 'GANHOU');
   assert.deepEqual(report.couldHaveSaved, []);
 });
+
+test('a autópsia da VENDIDA mede as distâncias no sentido certo', () => {
+  // espelho exato da ZAMA: stop acima, alvo abaixo, mesmos percentuais
+  const vendida = postMortemOf({
+    side: 'SELL',
+    entryPrice: 0.05635,
+    stopLoss: 0.05734996,
+    target1: 0.05224,
+    maxFavorablePercent: 6.19,
+    maxAdversePercent: -1.93,
+    realizedPnlPercent: -2.12,
+    outcome: 'STOP',
+    durationMinutes: 184,
+  });
+
+  // sem a direção, "risco até o stop" sairia −1,77% e o diagnóstico inteiro
+  // desandaria: nenhum contrafactual apareceria, porque todos exigem risco > 0
+  assert.equal(vendida.code, 'LUCRO_DEVOLVIDO');
+  assert.match(vendida.facts.join(' '), /Risco de 1[.,]77%/);
+  assert.ok(!vendida.facts.join(' ').includes('-1,77'), 'nenhuma distância pode sair negativa');
+  assert.match(vendida.couldHaveSaved.join(' '), /empate/);
+});

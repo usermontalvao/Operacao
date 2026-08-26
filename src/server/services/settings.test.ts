@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 import type { LegacySettings } from '../../core/types.ts';
 import { JsonStore } from '../store/jsonStore.ts';
-import { SettingsService, normalizeStoredSettings } from './settingsService.ts';
+import {
+  SettingsService,
+  defaultStoredSettings,
+  normalizeStoredSettings,
+} from './settingsService.ts';
 
 async function servico() {
   const directory = await mkdtemp(join(tmpdir(), 'hunter-settings-'));
@@ -137,4 +141,55 @@ test('desligar o robô desarma a conta real só do modo mexido', async () => {
   } finally {
     await cleanup();
   }
+});
+
+test('futuros nasce barrado e o interruptor é quem libera a modalidade', async () => {
+  const { settings, cleanup } = await servico();
+  try {
+    assert.equal(settings.get().futuresEnabled, false);
+    assert.equal(settings.get().market, 'SPOT');
+
+    // pedir a modalidade com o interruptor desligado não muda nada: o painel
+    // não pode ficar em futuros enquanto futuros está barrado
+    const barrado = await settings.update({ market: 'FUTURES' });
+    assert.equal(barrado.market, 'SPOT');
+
+    const liberado = await settings.update({ futuresEnabled: true, market: 'FUTURES' });
+    assert.equal(liberado.market, 'FUTURES');
+    assert.equal(liberado.futuresEnabled, true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('barrar futuros com a tela em futuros devolve o painel para spot', async () => {
+  const { settings, repository, cleanup } = await servico();
+  try {
+    await settings.update({ futuresEnabled: true, market: 'FUTURES' });
+    const depois = await settings.update({ futuresEnabled: false });
+    assert.equal(depois.market, 'SPOT');
+
+    // e o disco não guarda o estado impossível: reiniciar não volta a futuros
+    const gravado = await repository.loadSettings();
+    assert.equal((gravado as { market?: string }).market, 'SPOT');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('quem já operava futuros não é barrado por uma atualização', () => {
+  // o arquivo da versão anterior: já tem os baldes por modalidade, ainda não
+  // tem o interruptor. Barrar quem estava em futuros seria a modalidade sumir
+  // sozinha depois de uma atualização
+  const anterior = { ...defaultStoredSettings(), market: 'FUTURES' as const };
+  delete (anterior as { futuresEnabled?: boolean }).futuresEnabled;
+
+  const antigo = normalizeStoredSettings(anterior);
+  assert.equal(antigo.futuresEnabled, true);
+  assert.equal(antigo.market, 'FUTURES');
+
+  // e quem estava em spot continua barrado — atualizar não liga nada sozinho
+  const emSpot = { ...defaultStoredSettings(), market: 'SPOT' as const };
+  delete (emSpot as { futuresEnabled?: boolean }).futuresEnabled;
+  assert.equal(normalizeStoredSettings(emSpot).futuresEnabled, false);
 });

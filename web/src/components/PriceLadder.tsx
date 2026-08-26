@@ -1,6 +1,14 @@
+import type { Side } from '../lib/types.ts';
 import { price as formatPrice } from '../lib/format.ts';
 
 interface PriceLadderProps {
+  /**
+   * Direção da tese. Ela vira a régua ao contrário: no vendido o stop está
+   * ACIMA da entrada e o alvo abaixo. Sem isto as faixas somem (largura
+   * negativa) e a barra que enche nem desenha — `alvo − stop` fica negativo.
+   * A figura é sempre a mesma: morre à esquerda, paga à direita.
+   */
+  side?: Side;
   stop: number;
   entryLow: number;
   /** ausente = entrada em preço único, não em zona */
@@ -27,6 +35,7 @@ interface PriceLadderProps {
  * três telas diferentes precisa reconhecer a mesma figura em todas.
  */
 export function PriceLadder({
+  side = 'BUY',
   stop,
   entryLow,
   entryHigh,
@@ -37,7 +46,14 @@ export function PriceLadder({
 }: PriceLadderProps) {
   if (mode === 'liquid') {
     return (
-      <LiquidBar stop={stop} entry={entryLow} target={target} current={current} labels={labels} />
+      <LiquidBar
+        side={side}
+        stop={stop}
+        entry={entryLow}
+        target={target}
+        current={current}
+        labels={labels}
+      />
     );
   }
 
@@ -54,15 +70,21 @@ export function PriceLadder({
   const padding = span * 0.06;
   const from = low - padding;
   const to = top + padding;
-  const at = (value: number): number => ((value - from) / (to - from)) * 100;
+  // no vendido a régua é espelhada: o preço continua sendo o eixo, mas ele
+  // corre para a esquerda. Assim "andar para a direita" é sempre ganhar
+  const short = side === 'SELL';
+  const at = (value: number): number => {
+    const position = ((value - from) / (to - from)) * 100;
+    return short ? 100 - position : position;
+  };
 
   const stopAt = at(stop);
-  const entryLowAt = at(entryLow);
-  const entryHighAt = at(high);
+  const entryLowAt = short ? at(high) : at(entryLow);
+  const entryHighAt = short ? at(entryLow) : at(high);
   const targetAt = at(target);
   const currentAt = current === null ? null : at(current);
-  const beyondTarget = current !== null && current >= target;
-  const beyondStop = current !== null && current <= stop;
+  const beyondTarget = current !== null && (short ? current <= target : current >= target);
+  const beyondStop = current !== null && (short ? current >= stop : current <= stop);
 
   return (
     <div className="w-full">
@@ -131,22 +153,28 @@ const SCALE = 'linear-gradient(90deg, var(--color-bear) 0%, #d9822b 42%, var(--c
  * importa para decidir se continua na operação.
  */
 function LiquidBar({
+  side,
   stop,
   entry,
   target,
   current,
   labels,
 }: {
+  side: Side;
   stop: number;
   entry: number;
   target: number;
   current: number | null;
   labels: boolean;
 }) {
-  const span = target - stop;
+  // a distância percorrida A FAVOR, que nos dois lados vai de 0 no stop a
+  // 100 no alvo. Medida crua, no vendido, o vão daria negativo e a barra
+  // simplesmente não apareceria
+  const direction = side === 'SELL' ? -1 : 1;
+  const span = (target - stop) * direction;
   if (!Number.isFinite(span) || span <= 0) return null;
 
-  const ratio = (value: number): number => ((value - stop) / span) * 100;
+  const ratio = (value: number): number => (((value - stop) * direction) / span) * 100;
   const clamp = (value: number): number => Math.min(Math.max(value, 0), 100);
 
   const raw = current === null ? ratio(entry) : ratio(current);

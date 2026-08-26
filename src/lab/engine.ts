@@ -26,6 +26,7 @@ export function labSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     mode: 'PAPER',
     market: 'SPOT',
+    futuresEnabled: false,
     futures: {
       leverage: 3,
       maxLeverage: 10,

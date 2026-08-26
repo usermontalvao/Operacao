@@ -453,6 +453,15 @@ export interface AppSettings extends ModeSettings {
   mode: TradingMode;
   /** modalidade ativa: spot ou futuros USD-M */
   market: MarketKind;
+  /**
+   * Interruptor geral dos futuros — o de fora de tudo.
+   *
+   * Barrado, a modalidade não pode ser escolhida, nenhuma tese vendida nasce
+   * e nenhuma ordem alavancada sai, em conta nenhuma. Não é preferência de
+   * conta como o resto: é a decisão de que esta casa opera futuros ou não, e
+   * por isso mora fora dos baldes, ao lado da watchlist.
+   */
+  futuresEnabled: boolean;
   scanner: ScannerSettings;
   updatedAt: string;
 }
@@ -467,6 +476,8 @@ export interface AppSettings extends ModeSettings {
 export interface StoredSettings {
   mode: TradingMode;
   market: MarketKind;
+  /** interruptor geral dos futuros; nasce desligado */
+  futuresEnabled: boolean;
   scanner: ScannerSettings;
   /**
    * Um conjunto por MODALIDADE e por conta. Spot e futuros não podem
@@ -645,6 +656,9 @@ export interface DecisionRecord {
   setupId: string;
   symbol: string;
   mode: TradingMode;
+  /** direção e modalidade da operação; ausentes em registro anterior a futuros */
+  side?: Side;
+  market?: MarketKind;
   setupType: SetupType;
   timeframe: Timeframe;
   anchorTimeframe: Timeframe;

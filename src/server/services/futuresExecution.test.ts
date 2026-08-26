@@ -1,0 +1,281 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import type { SymbolFilters, Trade, TradeSetup } from '../../core/types.ts';
+import { EventBus } from '../events.ts';
+import { JsonStore } from '../store/jsonStore.ts';
+import { AuditService } from './auditService.ts';
+import { ExecutionService } from './executionService.ts';
+import type { MarketDataService } from './marketDataService.ts';
+import { PaperTradingEngine } from './paperTradingEngine.ts';
+import { RiskService } from './riskService.ts';
+import { SettingsService } from './settingsService.ts';
+
+const FILTERS: SymbolFilters = {
+  symbol: 'XRPUSDT',
+  baseAsset: 'XRP',
+  quoteAsset: 'USDT',
+  status: 'TRADING',
+  tickSize: 0.0001,
+  stepSize: 0.1,
+  minQty: 0.1,
+  maxQty: 9222449,
+  minNotional: 5,
+  applyMinToMarket: true,
+  baseAssetPrecision: 8,
+  quotePrecision: 8,
+  isSpotTradingAllowed: true,
+  ocoAllowed: false,
+  market: 'FUTURES',
+  maxLeverage: 20,
+};
+
+/** Uma tese VENDIDA: stop acima da entrada, alvos abaixo. */
+function makeShortSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
+  return {
+    id: 'setup-xrp-short',
+    symbol: 'XRPUSDT',
+    side: 'SELL',
+    market: 'FUTURES',
+    timeframe: '4h',
+    anchorTimeframe: '1d',
+    setupType: 'PULLBACK',
+    currentPrice: 1.43,
+    entryLow: 1.42,
+    entryHigh: 1.45,
+    stopLoss: 1.49,
+    target1: 1.34,
+    target2: 1.28,
+    target3: 1.22,
+    riskReward: 2.1,
+    score: 84,
+    classification: 'SETUP_FORTE',
+    scoreBreakdown: { total: 84, classification: 'SETUP_FORTE', components: [], penalties: [] },
+    reasons: ['Resistência rejeitada no 4H'],
+    btcContext: 'BTC_BEARISH',
+    status: 'ACTIVE',
+    visualState: 'COMPRAVEL',
+    extended: false,
+    extensionReasons: [],
+    evidence: {
+      rsi14: 55,
+      atrPercent: 1.8,
+      relativeVolume: 1.3,
+      macdHistogram: -0.002,
+      distanceToEma20InAtr: 0.4,
+      triggerTrend: 'DOWN',
+      anchorTrend: 'DOWN',
+      anchorStructure: 'LH_LL',
+      levelQuality: 0.8,
+      volumeConfirmation: true,
+      momentumTurning: true,
+      btcScoreModifier: -5,
+    },
+    fingerprint: 'XRPUSDT:PULLBACK:4h:1.45:S',
+    invalidationNote: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    ignoredAt: null,
+    ...overrides,
+  };
+}
+
+async function harness(price = 1.43) {
+  const directory = await mkdtemp(join(tmpdir(), 'hunter-fut-'));
+  const repository = new JsonStore(directory);
+  await repository.init();
+  const settings = new SettingsService(repository);
+  await settings.load();
+  await settings.update({
+    // o interruptor geral vem primeiro: sem ele a modalidade nem é aceita
+    futuresEnabled: true,
+    market: 'FUTURES',
+    risk: { paperCapital: 1000, paperCapitalCurrency: 'USDT' },
+    futures: { leverage: 3, allowShort: true },
+    guard: { minNetRiskReward: 1, lossCooldownMinutes: 0, maxDailyTrades: 50 },
+  });
+  const bus = new EventBus();
+  const audit = new AuditService(repository);
+  const paper = new PaperTradingEngine(repository, bus, audit, settings);
+  let currentPrice = price;
+  const market = {
+    getPrice: () => currentPrice,
+    getSnapshot: () => ({ quoteVolume24h: 500_000_000 }),
+  } as unknown as MarketDataService;
+  const risk = new RiskService(repository, settings, market);
+  const execution = new ExecutionService(repository, settings, market, paper, audit, bus, risk, {
+    loadFilters: async () => FILTERS,
+    loadUsdtBalance: async () => ({ free: 1000, locked: 0 }),
+    loadBrlRate: async () => 5.16,
+  });
+  return {
+    repository,
+    settings,
+    paper,
+    audit,
+    execution,
+    setPrice: (value: number) => {
+      currentPrice = value;
+    },
+    cleanup: () => rm(directory, { recursive: true, force: true }),
+  };
+}
+
+test('o preview de uma venda alavancada mostra margem e liquidação', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  const setup = makeShortSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+
+  assert.equal(preview.market, 'FUTURES');
+  assert.equal(preview.side, 'SELL');
+  assert.equal(preview.leverage, 3);
+  assert.equal(preview.canExecute, true, preview.blockers.join(' | '));
+
+  // a margem é o notional dividido pela alavancagem — não o notional
+  assert.ok(preview.margin < preview.sizing.notional);
+  assert.ok(Math.abs(preview.margin - preview.sizing.notional / 3) < 0.02);
+
+  // vendido: a liquidação fica ACIMA da entrada, e depois do stop
+  assert.ok(preview.liquidationPrice !== null);
+  assert.ok((preview.liquidationPrice as number) > preview.entryPrice);
+  assert.ok((preview.liquidationPrice as number) > setup.stopLoss, 'o stop precisa vir antes');
+
+  // o risco no stop continua sendo o orçamento de 1% do patrimônio
+  assert.ok(preview.riskSizing.riskPercentOfEquity <= 1.01);
+});
+
+test('venda a descoberto é recusada em spot e quando não está liberada', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const setup = makeShortSetup();
+
+  await context.settings.update({ futures: { allowShort: false } });
+  const bloqueado = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  assert.equal(bloqueado.canExecute, false);
+  assert.ok(bloqueado.blockers.some((item) => /não está liberada/i.test(item)));
+
+  await context.settings.update({ futures: { allowShort: true }, market: 'SPOT' });
+  const emSpot = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  assert.equal(emSpot.canExecute, false);
+  assert.ok(emSpot.blockers.some((item) => /só existe em futuros/i.test(item)));
+});
+
+test('alavancagem que coloca a liquidação antes do stop é bloqueio, com o máximo seguro junto', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  // stop a ~4% da entrada com 10x: a corretora liquidaria por volta de -9,5%…
+  // o suficiente para o teste é que o painel recuse e diga qual serve
+  await context.settings.update({ futures: { leverage: 10, maxLeverage: 10 } });
+
+  const setup = makeShortSetup({ stopLoss: 1.62, target1: 1.2 });
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+
+  assert.equal(preview.canExecute, false);
+  assert.ok(preview.blockers.some((item) => /liquidação/i.test(item)), preview.blockers.join(' | '));
+  assert.ok(preview.safeLeverage !== null && (preview.safeLeverage as number) < 10);
+});
+
+test('a demo vendida ganha quando o preço cai, e a margem volta para o caixa', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+
+  const setup = makeShortSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'venda-demo',
+    },
+    setup,
+  );
+
+  assert.equal(trade.market, 'FUTURES');
+  assert.equal(trade.side, 'SELL');
+  assert.equal(trade.leverage, 3);
+  assert.equal(trade.status, 'OPEN', 'o preço já está na zona: preenche na hora');
+  assert.ok(trade.initialMargin > 0 && trade.initialMargin < trade.notional);
+
+  // caiu até o alvo 1: metade da posição sai com lucro
+  context.setPrice(1.34);
+  await context.paper.onPrice('XRPUSDT', 1.34);
+  const parcial = context.paper.getTrade(trade.id) as Trade;
+  assert.ok(parcial.realizedPnl > 0, `vendido deveria ganhar na queda: ${parcial.realizedPnl}`);
+  assert.ok(parcial.remainingQuantity < trade.filledQuantity);
+
+  // e a excursão favorável é medida para baixo
+  assert.ok(parcial.maxFavorablePercent > 0);
+});
+
+test('a demo vendida perde quando o preço sobe até o stop', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+
+  const setup = makeShortSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'venda-stop',
+    },
+    setup,
+  );
+
+  context.setPrice(1.5);
+  await context.paper.onPrice('XRPUSDT', 1.5);
+  const fechada = context.paper.getTrade(trade.id) ?? (await context.repository.listTrades()).find(
+    (item) => item.id === trade.id,
+  );
+
+  assert.ok(fechada);
+  assert.equal(fechada?.status, 'CLOSED');
+  assert.equal(fechada?.outcome, 'STOP');
+  assert.ok((fechada?.realizedPnl ?? 0) < 0);
+  // o prejuízo fica na ordem do orçamento de risco, não da margem inteira
+  assert.ok(Math.abs(fechada?.realizedPnl ?? 0) < (fechada?.initialMargin ?? 0));
+});
+
+test('o robô não opera vendido — o laboratório mediu só a compra', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({
+    autoTrade: { enabled: true, minimumScore: 90 },
+  });
+
+  const setup = makeShortSetup({ setupType: 'MOMENTUM_BURST', score: 95, target2: null, target3: null });
+  const trade = await context.execution.executeAutomatic(setup, 'PAPER');
+  assert.equal(trade, null);
+
+  const audit = await context.audit.list(20);
+  const recusa = audit.find((entry) => entry.action === 'AUTO_TRADE_SKIPPED');
+  assert.ok(recusa, 'a recusa precisa deixar rastro');
+  assert.match(JSON.stringify(recusa?.detail ?? {}), /vendida/i);
+});
+
+test('a carteira de papel de futuros é separada da de spot', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  const setup = makeShortSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 300 }, setup);
+  await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'carteira-separada',
+    },
+    setup,
+  );
+
+  const futuros = await context.execution.getCapital('PAPER', 'FUTURES');
+  const spot = await context.execution.getCapital('PAPER', 'SPOT');
+
+  assert.ok(futuros.available < spot.available, 'a margem presa é da conta de futuros');
+  assert.equal(spot.available, spot.capital, 'a demo de spot continua intacta');
+});
