@@ -19,6 +19,19 @@ import {
 } from '../lib/format.ts';
 
 type Position = EquityResponse['positions'][number];
+
+/**
+ * O que a posição realmente prende do caixa.
+ *
+ * Em futuros é a MARGEM: uma ordem de 96,69 USDT em 3x prende 32,23, e foi
+ * isso que a carteira descontou. Somar o nocional mostrava um dinheiro preso
+ * que não estava preso, e a conta não fechava com o saldo logo acima.
+ */
+function capitalPreso(position: Position): number {
+  return position.market === 'FUTURES' && position.initialMargin > 0
+    ? position.initialMargin
+    : position.invested;
+}
 const REFRESH_MS = 5_000;
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -131,14 +144,7 @@ export function History() {
   const totalPnlPercent = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
   const totalReserved = positions
     .filter((position) => position.status === 'PENDING')
-    .reduce(
-      (total, position) =>
-        total +
-        (position.market === 'FUTURES' && position.initialMargin > 0
-          ? position.initialMargin
-          : position.invested),
-      0,
-    );
+    .reduce((total, position) => total + capitalPreso(position), 0);
 
   if (primeiraVez) return <PageSkeleton blocos={3} />;
 
@@ -426,8 +432,20 @@ function PositionCard({
         ) : null}
 
         {pending ? (
-          <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold text-warn">
+          <span
+            className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold text-warn"
+            title={
+              position.distanceToEntryPercent === null
+                ? 'ordem no livro, esperando o preço'
+                : `a entrada aciona quando o preço ${
+                    position.distanceToEntryPercent < 0 ? 'cair' : 'subir'
+                  } ${Math.abs(position.distanceToEntryPercent).toFixed(2)}%`
+            }
+          >
             AGUARDANDO
+            {position.distanceToEntryPercent !== null
+              ? ` · falta ${Math.abs(position.distanceToEntryPercent).toFixed(2)}%`
+              : ''}
           </span>
         ) : position.protectiveStop != null ? (
           <span className="rounded border border-bull/40 bg-bull/10 px-1.5 py-0.5 text-[10px] font-semibold text-bull">
@@ -436,7 +454,18 @@ function PositionCard({
         ) : null}
 
         <span className="hidden text-[11px] text-terminal-muted sm:inline">
-          {position.automatic ? 'robô' : 'manual'} · {usd(position.invested)}
+          {position.automatic ? 'robô' : 'manual'} · {usd(capitalPreso(position))}
+          {/*
+            Ordem pendente prende capital e ocupa o teto de exposição enquanto
+            espera — é ela que barra a próxima compra. Dizer até quando é a
+            diferença entre "esquecida no livro" e "esperando de propósito".
+          */}
+          {pending && position.expiresAt
+            ? ` · até ${new Date(position.expiresAt).toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}`
+            : ''}
         </span>
 
         <span className="ml-auto flex items-center gap-3">

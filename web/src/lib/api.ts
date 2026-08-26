@@ -133,6 +133,10 @@ export interface EquityResponse {
     /** de qual modalidade é a posição — as duas aparecem na mesma lista */
     market: MarketKind;
     side: Side;
+    /** quanto o preço precisa andar até acionar a entrada; só em pendente */
+    distanceToEntryPercent: number | null;
+    /** quando a tese que gerou a ordem expira — a pendente morre com ela */
+    expiresAt: string | null;
     /** 1 em spot */
     leverage: number;
     /** margem prendida pela posição */

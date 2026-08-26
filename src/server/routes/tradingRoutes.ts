@@ -449,6 +449,23 @@ export function tradingRoutes(context: ApiContext): Router {
             // as duas modalidades aparecem juntas na mesma lista
             market: trade.market ?? 'SPOT',
             side: trade.side ?? 'BUY',
+            /*
+             * Quanto falta para a ordem acionar, e até quando ela espera.
+             *
+             * "AGUARDANDO" sem mais nada não diz se falta um passo ou uma
+             * queda inteira — e a ordem prende capital e ocupa o teto de
+             * exposição enquanto espera, o que barra a PRÓXIMA compra. Com o
+             * número na tela dá para decidir entre esperar e cancelar.
+             */
+            distanceToEntryPercent:
+              trade.status === 'PENDING' && currentPrice !== null && currentPrice > 0
+                ? round(((entryPrice - currentPrice) / currentPrice) * 100, 2)
+                : null,
+            // a ordem pendente morre junto com a tese que a gerou
+            expiresAt:
+              trade.status === 'PENDING'
+                ? context.scanner.getSetup(trade.setupId)?.expiresAt ?? null
+                : null,
             leverage: trade.leverage ?? 1,
             initialMargin: trade.initialMargin ?? 0,
             liquidationPrice: trade.liquidationPrice ?? null,
