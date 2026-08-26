@@ -20,6 +20,8 @@ const CODE_TONE: Record<string, string> = {
   // não é falha nem pendência: é o desenho do sistema. O lado vendido é
   // entrada manual até o laboratório medir o lado de baixo
   SHORT_NOT_AUTOMATED: 'muted',
+  // idem: não é pendência, é o desenho. O laboratório mediu spot
+  MARKET_NOT_VALIDATED: 'muted',
 };
 
 function toneFor(code: string): string {
@@ -67,7 +69,9 @@ function rotuloCurto(motivo: DecisionReason, decision: EntryDecision): string {
     case 'STRATEGY_NOT_VALIDATED':
       return 'em observação';
     case 'SHORT_NOT_AUTOMATED':
-      return 'venda: entrada manual';
+      return 'venda: manual';
+    case 'MARKET_NOT_VALIDATED':
+      return 'futuros: manual';
     case 'SCORE_BELOW_VALIDATED_FLOOR':
     case 'SCORE_BELOW_CONFIGURED_MINIMUM':
       return 'score baixo';

@@ -70,6 +70,51 @@ export class ScannerService {
     this.audit = audit;
   }
 
+  /**
+   * Uma tese por (ativo, tipo, timeframe, lado, modalidade).
+   *
+   * A fingerprint é o que casa a tese de uma varredura com a da anterior — e
+   * ela mudou quando futuros entrou (passou a incluir a modalidade). Toda
+   * tese gravada ANTES disso deixou de casar com a que a varredura gera
+   * agora: as duas ficaram vivas ao mesmo tempo, com ids diferentes, e o
+   * radar passou a mostrar ONT, WIF e JASMY duas vezes. Duas linhas idênticas
+   * não são duas oportunidades — são a mesma, contada em dobro, num painel
+   * cujo trabalho é dizer quantas existem.
+   *
+   * Roda na carga porque é ali que o passado entra. A mais recente vence: ela
+   * tem o preço e o score de agora.
+   */
+  private deduplicar(): void {
+    const porTese = new Map<string, TradeSetup>();
+    const descartar: TradeSetup[] = [];
+
+    for (const setup of this.setups.values()) {
+      const chave = [
+        setup.symbol,
+        setup.setupType,
+        setup.timeframe,
+        setup.side ?? 'BUY',
+        setup.market ?? 'SPOT',
+      ].join(':');
+      const anterior = porTese.get(chave);
+      if (!anterior) {
+        porTese.set(chave, setup);
+        continue;
+      }
+      const maisNova =
+        new Date(setup.updatedAt).getTime() >= new Date(anterior.updatedAt).getTime()
+          ? setup
+          : anterior;
+      descartar.push(maisNova === setup ? anterior : setup);
+      porTese.set(chave, maisNova);
+    }
+
+    for (const setup of descartar) this.setups.delete(setup.id);
+    if (descartar.length > 0) {
+      logger.info('Teses repetidas removidas do radar na carga', { removidas: descartar.length });
+    }
+  }
+
   /** O robô só entra em cena depois de montado — e só nas contas de teste. */
   setAutoTrader(autoTrader: AutoTrader): void {
     this.autoTrader = autoTrader;
@@ -92,6 +137,8 @@ export class ScannerService {
         this.rememberRetired(setup);
       }
     }
+
+    this.deduplicar();
 
     this.market.on('price', ({ symbol, price }: { symbol: string; price: number }) => {
       this.bus.queuePrice(symbol, price);

@@ -305,6 +305,26 @@ function RobotSwitch({
   busy: boolean;
   onToggle: (market: MarketKind, enabled: boolean) => void;
 }) {
+  /*
+    Em futuros o robô não entra — e dizer "ROBÔ LIGADO" ali seria mentira.
+
+    A expectativa positiva foi medida em histórico de spot; enquanto a coluna
+    for alimentada por candle de spot, nenhuma entrada automática sai daqui.
+    Um interruptor verde e pulsando sobre uma coluna em que nada acontece é
+    pior que um interruptor apagado: ele promete vigilância que não existe.
+  */
+  if (market === 'FUTURES') {
+    return (
+      <span
+        title="A automação foi medida em histórico de spot. Futuros tem candle próprio, basis, funding e liquidação — até o laboratório medir esse mercado, a entrada aqui é manual."
+        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-terminal-border px-2 py-1 text-[10px] font-bold tracking-wide text-terminal-muted"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-terminal-muted" />
+        SÓ MANUAL
+      </span>
+    );
+  }
+
   const travado = robot.enabled && robot.liveDenial !== null;
   const tom = travado
     ? 'border-warn/50 bg-warn/10 text-warn'

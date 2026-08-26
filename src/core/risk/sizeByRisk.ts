@@ -201,9 +201,14 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
   // O passo do lote entra POR ÚLTIMO e sempre para baixo. Arredondar para cima
   // aqui devolveria uma posição que arrisca mais do que o orçamento aprovado —
   // silenciosamente, e justo no limite, que é onde importa.
+  //
+  // Ele quantiza a ordem, mas não é a regra econômica que escolheu o tamanho.
+  // Se o usuário pediu 10% e a Binance só aceita décimos da moeda, continua
+  // sendo o valor pedido que limitou a posição; trocar `boundBy` por
+  // EXCHANGE_STEP fazia o painel afirmar o contrário em praticamente toda
+  // ordem arredondada.
   if (input.stepSize !== undefined && input.stepSize > 0) {
     const stepped = roundDownToStep(quantity, input.stepSize);
-    if (stepped < quantity) boundBy = stepped <= 0 ? boundBy : 'EXCHANGE_STEP';
     quantity = stepped;
     allowedByLimit.EXCHANGE_STEP = stepped;
   }

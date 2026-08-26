@@ -305,3 +305,32 @@ test('a MESMA tese comprada existe nas duas modalidades, e não se funde numa s�
   assert.equal(compradoSpot.stopLoss, compradoFuturos.stopLoss);
   assert.equal(compradoSpot.target1, compradoFuturos.target1);
 });
+
+test('o R/R do radar acompanha o preço — a conta do nascimento não fica congelada', () => {
+  const setups = generateSetups({
+    analysis: pullbackAnalysis(),
+    context: null,
+    settings: defaultTestSettings(),
+    now: NOW,
+    makeId,
+  });
+  const setup = setups[0];
+  assert.ok(setup);
+
+  // preço sobe para dentro da zona, encostando no topo dela: o alvo fica mais
+  // perto e o stop mais longe, então o R/R TEM de encolher
+  const noTopoDaZona = applyPriceUpdate(setup, setup.entryHigh, NOW);
+  assert.ok(
+    noTopoDaZona.riskReward < setup.riskReward,
+    `esperava R/R menor no topo da zona: ${setup.riskReward} -> ${noTopoDaZona.riskReward}`,
+  );
+
+  // e na base da zona ele é melhor que a conta do nascimento (meio da zona)
+  const naBase = applyPriceUpdate(setup, setup.entryLow, NOW);
+  assert.ok(naBase.riskReward > noTopoDaZona.riskReward);
+
+  // o número tem de bater com a conta feita à mão no mesmo preço
+  const esperado =
+    (setup.target1 - setup.entryHigh) / (setup.entryHigh - setup.stopLoss);
+  assert.ok(Math.abs(noTopoDaZona.riskReward - esperado) < 0.05);
+});

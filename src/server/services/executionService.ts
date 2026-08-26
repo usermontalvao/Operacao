@@ -487,7 +487,9 @@ export class ExecutionService {
     if (strategyRejection !== null) {
       // "compra automática" numa tese de VENDA é a frase contradizendo o
       // próprio aviso; o que está bloqueado é a ENTRADA do robô, dos dois lados
-      warnings.push(`O robô não entra sozinho nesta tese: ${strategyRejection}. A ordem manual segue liberada`);
+      warnings.push(
+        `O robô não entra sozinho nesta tese: ${strategyRejection}. Isso não bloqueia a ordem manual por si só; as demais travas de risco continuam valendo`,
+      );
     }
     if (setup.extended) {
       warnings.push('Setup marcado como ESTICADO — o preço já se afastou do ponto de invalidação');
@@ -516,7 +518,7 @@ export class ExecutionService {
       filters,
       filterErrors,
       blockers,
-      warnings,
+      warnings: [...new Set(warnings)],
       netRiskReward: netRR,
       canExecute,
       confirmationToken: expiresAt

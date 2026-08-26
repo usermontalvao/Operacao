@@ -309,6 +309,21 @@ export function applyPriceUpdate(setup: TradeSetup, price: number, now: Date): T
     return updated;
   }
 
+  /*
+   * O R/R acompanha o preço.
+   *
+   * Ele era calculado uma vez, no nascimento da tese, e ficava lá. O preço
+   * anda: a mesma ONT valia 1:2,7 com entrada em 0,05199 e vale 1:1,6 depois
+   * de subir para 0,052715, porque o alvo ficou mais perto e o stop mais
+   * longe. O radar mostrava 2,7, o modal (que calcula no preço da ordem)
+   * mostrava 1,6, e o painel recusava a ordem — três números para a mesma
+   * pergunta.
+   *
+   * A entrada usada é a mesma da ordem: o preço de agora, preso à zona.
+   */
+  const entrada = Math.min(Math.max(price, setup.entryLow), setup.entryHigh);
+  updated.riskReward = computeRiskReward(entrada, setup.stopLoss, setup.target1, setup.side);
+
   updated.visualState = resolveVisualState(updated, price);
   return updated;
 }

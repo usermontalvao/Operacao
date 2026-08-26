@@ -3,6 +3,7 @@ import { api, type PreviewResponse } from '../lib/api.ts';
 import type { Trade, TradeSetup } from '../lib/types.ts';
 import {
   MARKET_LABEL,
+  SETUP_LABEL,
   SIDE_LABEL,
   SIDE_VERB,
   percent,
@@ -21,6 +22,20 @@ interface BuyModalProps {
 }
 
 const PERCENT_OPTIONS = [10, 25, 50];
+
+/**
+ * As estratégias que o laboratório reprovou.
+ *
+ * Espelha `VALIDATED_AUTOMATIC_SETUP_TYPES` do servidor pelo avesso: tudo que
+ * não é MOMENTUM_BURST mediu expectativa negativa em treino e teste. Elas
+ * continuam no radar para pesquisa e para entrada manual consciente — mas
+ * "consciente" exige que a tela diga, e até agora ela não dizia.
+ */
+const OBSERVACIONAL = new Set<TradeSetup['setupType']>([
+  'PULLBACK',
+  'BREAKOUT_RETEST',
+  'SUPPORT_REVERSAL',
+]);
 
 /**
  * Duas etapas obrigatórias: dimensionar e confirmar. O token devolvido no
@@ -156,6 +171,32 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
           {setup.symbol.replace('USDT', '')}/USDT · entrada {price(preview?.entryPrice ?? setup.entryLow)} ·
           stop {price(setup.stopLoss)} · alvo {price(setup.target1)}
           {preview && preview.leverage > 1 ? ` · ${preview.leverage}x` : ''}
+        </div>
+
+        {/*
+          Qual ESTRATÉGIA é esta.
+
+          É o dado que mais separa uma operação boa de uma ruim neste sistema —
+          das quatro medidas, só uma manteve expectativa positiva no treino e
+          no teste — e era o único que não estava na tela de decisão. O usuário
+          via score, R/R e alvos, todos números de aparência técnica, sem saber
+          que estava olhando uma família que o laboratório já reprovou.
+        */}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+          <span
+            className={`rounded border px-2 py-0.5 font-semibold ${
+              OBSERVACIONAL.has(setup.setupType)
+                ? 'border-warn/40 bg-warn/10 text-warn'
+                : 'border-bull/40 bg-bull/10 text-bull'
+            }`}
+          >
+            {SETUP_LABEL[setup.setupType]}
+          </span>
+          <span className="text-terminal-muted">
+            {OBSERVACIONAL.has(setup.setupType)
+              ? 'estratégia observacional — expectativa NEGATIVA no treino e no teste do laboratório'
+              : 'única estratégia com expectativa positiva medida no treino e no teste'}
+          </span>
         </div>
 
         {step === 'SIZE' ? (
@@ -318,11 +359,22 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
               type="button"
               disabled={!preview?.canExecute || loading}
               onClick={() => setStep('CONFIRM')}
+              title={
+                preview && !preview.canExecute
+                  ? [...preview.blockers, ...preview.filterErrors].join(' · ')
+                  : undefined
+              }
               className={`mt-5 w-full rounded-xl px-4 py-4 text-base font-bold disabled:opacity-40 ${sideButton(
                 side,
               )}`}
             >
-              {loading ? 'Calculando…' : 'Revisar operação'}
+              {loading
+                ? 'Calculando…'
+                : preview && !preview.canExecute
+                  ? preview.blockers.some((item) => item.includes('R/R líquido'))
+                    ? 'Bloqueada: R/R líquido abaixo do mínimo'
+                    : 'Operação bloqueada'
+                  : 'Revisar operação'}
             </button>
           </>
         ) : (
@@ -422,8 +474,11 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: stri
 }
 
 function Messages({ preview, error }: { preview: PreviewResponse | null; error: string | null }) {
-  const blockers = [...(preview?.blockers ?? []), ...(preview?.filterErrors ?? [])];
-  const warnings = [...(preview?.warnings ?? []), ...(preview?.sizing.warnings ?? [])];
+  const blockers = [...new Set([...(preview?.blockers ?? []), ...(preview?.filterErrors ?? [])])];
+  // `preview.warnings` já é a lista consolidada pelo servidor e contém os
+  // avisos do dimensionamento. Somar `sizing.warnings` novamente fazia a
+  // mesma frase aparecer duas vezes no modal.
+  const warnings = [...new Set(preview?.warnings ?? [])];
   return (
     <>
       {error ? <p className="mt-3 rounded border border-bear/40 bg-bear/10 p-2 text-xs text-bear">{error}</p> : null}

@@ -383,6 +383,40 @@ test('o R/R do preview é o do preço de AGORA, não o de quando a tese nasceu',
   assert.ok(preview.netRiskReward < preview.sizing.riskReward);
 });
 
+test('R/R manual abaixo do mínimo explica a trava sem prometer que a ordem está liberada', async (t) => {
+  const context = await harness(0.052715);
+  t.after(context.cleanup);
+  await context.settings.update({ guard: { minNetRiskReward: 1.8 } });
+
+  const setup = makeShortSetup({
+    side: 'BUY',
+    currentPrice: 0.052715,
+    entryLow: 0.0515,
+    entryHigh: 0.0535,
+    stopLoss: 0.050257,
+    target1: 0.05667,
+    target2: 0.05887,
+    target3: 0.065,
+  });
+  const preview = await context.execution.preview(
+    { setupId: setup.id, percentOfCapital: 10, leverage: 3 },
+    setup,
+  );
+
+  assert.equal(preview.canExecute, false);
+  assert.ok(preview.blockers.some((item) => /R\/R líquido.+abaixo do mínimo/i.test(item)));
+  assert.ok(
+    preview.warnings.some((item) => /demais travas de risco continuam valendo/i.test(item)),
+  );
+  assert.ok(!preview.warnings.some((item) => /ordem manual segue liberada/i.test(item)));
+  assert.equal(new Set(preview.warnings).size, preview.warnings.length, 'avisos não podem se repetir');
+  assert.ok(
+    preview.warnings.some((item) => /valor pedido/i.test(item)),
+    '10% escolhido pelo usuário, e não o arredondamento do lote, limita a posição',
+  );
+  assert.ok(!preview.warnings.some((item) => /passo de lote/i.test(item)));
+});
+
 test('dá para encerrar uma posição de futuros com a tela em spot', async (t) => {
   const context = await harness(1.43);
   t.after(context.cleanup);

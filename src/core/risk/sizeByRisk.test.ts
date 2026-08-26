@@ -176,7 +176,12 @@ test('pedido pequeno manda quando cabe dentro do risco', () => {
     entryPrice: 100,
     stopLoss: 90,
     requestedQuote: 200,
+    stepSize: 0.03,
   });
-  assert.equal(resultado.boundBy, 'REQUESTED');
+  assert.equal(
+    resultado.boundBy,
+    'REQUESTED',
+    'o arredondamento do lote não pode esconder a regra que realmente limitou o tamanho',
+  );
   assert.ok(resultado.notional <= 200.01);
 });
