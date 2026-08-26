@@ -138,7 +138,9 @@ export function Dashboard(props: DashboardProps) {
               filledCount === 0 ? 'text-warn' : openPnl >= 0 ? 'text-bull' : 'text-bear'
             }`}
           >
-            {filledCount === 0 ? 'sem posição' : usd(openPnl)}
+            {/* mesma regra da carteira: o espaço é do resultado, e ordem que
+                não preencheu não tem resultado — tem espera */}
+            {filledCount === 0 ? 'ainda não entrou' : usd(openPnl)}
           </span>
         </button>
       ) : null}

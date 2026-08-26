@@ -469,8 +469,22 @@ function PositionCard({
         </span>
 
         <span className="ml-auto flex items-center gap-3">
-          <span className={`text-sm font-semibold tabular ${pending ? 'text-warn' : pnlTone}`}>
-            {pending ? 'sem posição' : position.totalPnl === null ? '—' : usd(position.totalPnl)}
+          {/*
+            Este espaço é o do RESULTADO. Numa ordem que ainda não preencheu
+            não existe resultado — e "sem posição", escrito ali, lia-se como
+            uma contradição: a linha mostra uma ordem de 241,50 e, ao lado, a
+            frase que parece dizer que não há nada. O que falta não é posição,
+            é a ENTRADA: a ordem está no livro, esperando o preço.
+          */}
+          <span
+            className={`text-sm font-semibold tabular ${pending ? 'text-warn' : pnlTone}`}
+            title={
+              pending
+                ? 'a ordem está no livro; enquanto não preencher não há posição nem resultado'
+                : undefined
+            }
+          >
+            {pending ? 'ainda não entrou' : position.totalPnl === null ? '—' : usd(position.totalPnl)}
           </span>
           <span className={`w-14 text-right text-[11px] tabular ${pnlTone}`}>
             {position.pnlPercent === null ? '' : percent(position.pnlPercent)}
