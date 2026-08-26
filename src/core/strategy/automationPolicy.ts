@@ -1,3 +1,4 @@
+import type { Side } from '../direction.ts';
 import type { SetupType } from '../types.ts';
 
 /**
@@ -16,9 +17,22 @@ const validated = new Set<SetupType>(VALIDATED_AUTOMATIC_SETUP_TYPES);
 export interface AutomaticStrategyCandidate {
   setupType: SetupType;
   score: number;
+  /** ausente = comprado, que é o único lado medido */
+  side?: Side;
 }
 
 export function automaticStrategyRejectionReason(setup: AutomaticStrategyCandidate): string | null {
+  /*
+   * O lado vendido existe no radar e pode ser executado à mão em futuros, mas
+   * NÃO pelo robô. Os números que autorizam a automação — treino e teste, duas
+   * janelas, custos nas duas pontas — foram medidos só na compra. Espelhar o
+   * código de um detector não espelha a expectativa dele: ligar o robô no lado
+   * de baixo seria colocar em produção uma estratégia que ninguém mediu, e o
+   * fato de a mecânica ser simétrica não é evidência de que o resultado é.
+   */
+  if (setup.side === 'SELL') {
+    return 'tese vendida: o laboratório só mediu o lado comprado, então a venda a descoberto é entrada manual';
+  }
   if (!validated.has(setup.setupType)) {
     return `${setup.setupType} está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST`;
   }

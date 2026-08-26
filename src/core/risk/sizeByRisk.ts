@@ -1,3 +1,4 @@
+import { type Side, gainPerUnit } from '../direction.ts';
 import type { CostSettings } from './costs.ts';
 import { netPnl, stopFillPrice } from './costs.ts';
 import { roundDownToStep } from './filters.ts';
@@ -42,6 +43,17 @@ export interface RiskSizingInput {
   sizeFactor?: number;
   /** passo de lote da corretora, quando conhecido */
   stepSize?: number;
+  /** lado da posição; ausente = comprado */
+  side?: Side;
+  /**
+   * Alavancagem do contrato (1 = spot).
+   *
+   * Ela NÃO muda o orçamento de risco: o tamanho continua saindo do prejuízo
+   * no stop. O que a alavancagem muda é quanto saldo aquele tamanho consome —
+   * e, por isso, quanto o saldo deixa comprar. Tratá-la como permissão para
+   * arriscar mais seria trocar a régua justamente onde ela mais importa.
+   */
+  leverage?: number;
 }
 
 export interface RiskSizingResult {
@@ -68,6 +80,10 @@ export interface RiskSizingResult {
   /** true quando não há quantidade possível respeitando o risco */
   blocked: boolean;
   blockReason: string | null;
+  /** alavancagem considerada (1 em spot) */
+  leverage: number;
+  /** saldo que a posição prende como margem: notional ÷ alavancagem */
+  marginRequired: number;
 }
 
 const LIMIT_ORDER: readonly SizingLimit[] = [
@@ -90,8 +106,10 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     costs,
   } = input;
   const sizeFactor = clamp01(input.sizeFactor ?? 1);
+  const side = input.side ?? 'BUY';
+  const leverage = normalizeLeverage(input.leverage);
 
-  const stopFill = stopFillPrice(stopLoss, costs);
+  const stopFill = stopFillPrice(stopLoss, costs, side);
   // uma unidade comprada a entryPrice e vendida no preenchimento do stop; o
   // sinal negativo transforma "resultado" em "prejuízo". Reaproveitar netPnl
   // aqui é de propósito: é a MESMA função que o backtest e o PAPER usam para
@@ -102,12 +120,14 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     exitPrice: stopFill,
     quantity: 1,
     feePercent: costs.feePercent,
+    side,
   });
-  const grossPerUnitLoss = entryPrice - stopLoss;
+  const grossPerUnitLoss = -gainPerUnit(side, entryPrice, stopLoss);
   // perUnitLoss nunca é menor que grossPerUnitLoss: as duas corretagens SOMAM
-  // ao prejuízo, jamais o compensam. Por isso a única guarda necessária é
-  // stopLoss < entryPrice, verificada logo abaixo — um stop curto não gera
-  // risco negativo, gera posição grande, e quem segura isso é maxPositionPercent.
+  // ao prejuízo, jamais o compensam. Por isso a única guarda necessária é o
+  // stop estar do lado perdedor da entrada (grossPerUnitLoss > 0), verificada
+  // logo abaixo — um stop curto não gera risco negativo, gera posição grande,
+  // e quem segura isso é maxPositionPercent.
 
   const empty = (reason: string): RiskSizingResult => ({
     quantity: 0,
@@ -129,21 +149,36 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     },
     blocked: true,
     blockReason: reason,
+    leverage,
+    marginRequired: 0,
   });
 
   if (entryPrice <= 0) return empty('Preço de entrada inválido');
-  if (stopLoss <= 0 || stopLoss >= entryPrice) return empty('Stop precisa ficar abaixo da entrada');
+  if (stopLoss <= 0 || grossPerUnitLoss <= 0) {
+    return empty(
+      side === 'SELL'
+        ? 'Stop precisa ficar acima da entrada'
+        : 'Stop precisa ficar abaixo da entrada',
+    );
+  }
   if (equity <= 0) return empty('Sem patrimônio de referência para calcular o risco');
   if (riskPerTradePercent <= 0) return empty('Risco por operação está zerado nas configurações');
 
   const riskBudget = equity * (riskPerTradePercent / 100);
 
+  // Com alavancagem, os dois limites que falam de SALDO passam a falar de
+  // margem: o percentual do capital é quanto do patrimônio fica preso na
+  // posição, e o saldo disponível compra `leverage` vezes mais notional. O
+  // teto absoluto por ordem continua sendo notional puro — ele existe para
+  // limitar o tamanho da aposta, não a margem dela.
   const allowedByLimit: Record<SizingLimit, number> = {
     RISK_BUDGET: riskBudget / perUnitLoss,
     MAX_POSITION_PERCENT:
-      maxPositionPercent > 0 ? (equity * (maxPositionPercent / 100)) / entryPrice : Infinity,
+      maxPositionPercent > 0
+        ? (equity * (maxPositionPercent / 100) * leverage) / entryPrice
+        : Infinity,
     MAX_NOTIONAL: maxNotional > 0 ? maxNotional / entryPrice : Infinity,
-    AVAILABLE_BALANCE: available > 0 ? available / entryPrice : 0,
+    AVAILABLE_BALANCE: available > 0 ? (available * leverage) / entryPrice : 0,
     REQUESTED:
       input.requestedQuote !== undefined && input.requestedQuote > 0
         ? input.requestedQuote / entryPrice
@@ -184,6 +219,8 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
   return {
     quantity: round8(quantity),
     notional: round2(quantity * entryPrice),
+    leverage,
+    marginRequired: round2((quantity * entryPrice) / leverage),
     perUnitLoss: round8(perUnitLoss),
     grossPerUnitLoss: round8(grossPerUnitLoss),
     riskAmount: round2(riskAmount),
@@ -195,6 +232,12 @@ export function sizeByRisk(input: RiskSizingInput): RiskSizingResult {
     blocked: false,
     blockReason: null,
   };
+}
+
+/** Alavancagem sempre ≥ 1: zero ou negativa viraria divisão por zero na margem. */
+function normalizeLeverage(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value < 1) return 1;
+  return value;
 }
 
 function clamp01(value: number): number {

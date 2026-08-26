@@ -4,7 +4,7 @@ import { computeIndicators } from '../../core/engines/indicatorEngine.ts';
 import { computeStructure } from '../../core/engines/structureEngine.ts';
 import { anchorFor } from '../../core/engines/setupEngine.ts';
 import type { RawKline } from '../binance/rest.ts';
-import { getKlines, getTickers, listSpotSymbols, parseKline } from '../binance/rest.ts';
+import { getKlines, getTickers, listTradableSymbols, parseKline } from '../binance/rest.ts';
 import { logger } from '../logger.ts';
 import type { ScannerService } from './scannerService.ts';
 import type { SettingsService } from './settingsService.ts';
@@ -132,7 +132,7 @@ export class UniverseService {
   /** Lista os pares e corta os ilíquidos — ruído não vira oportunidade. */
   private async loadUniverse(): Promise<void> {
     const settings = this.settings.get();
-    this.symbols = await listSpotSymbols('USDT');
+    this.symbols = await listTradableSymbols('USDT');
 
     const tickers = await getTickers(this.symbols.map((item) => item.symbol));
     this.volumes.clear();

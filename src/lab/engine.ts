@@ -25,6 +25,14 @@ export interface Dataset {
 export function labSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     mode: 'PAPER',
+    market: 'SPOT',
+    futures: {
+      leverage: 3,
+      maxLeverage: 10,
+      marginMode: 'ISOLATED',
+      allowShort: false,
+      minLiquidationBufferPercent: 1.5,
+    },
     risk: {
       paperCapital: 5000,
       paperCapitalCurrency: 'BRL',

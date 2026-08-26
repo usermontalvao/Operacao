@@ -1,4 +1,11 @@
-import type { AppSettings, Trade, TradeFill } from '../../core/types.ts';
+import type { AppSettings, MarketKind, Trade, TradeFill } from '../../core/types.ts';
+import {
+  excursionPercent,
+  isFavorable,
+  reachedTarget,
+  stopBreached,
+} from '../../core/direction.ts';
+import { liquidationPrice } from '../../core/risk/futures.ts';
 import { buildExitPlan, NO_FILTERS, SCALE_OUT } from '../../core/execution/exitPlan.ts';
 import { migrateTrade } from '../../core/execution/tradeMigration.ts';
 import { round } from '../../core/risk/index.ts';
@@ -107,6 +114,11 @@ export class PaperTradingEngine {
     }
   }
 
+  /** Operações de papel abertas numa modalidade — a demo de cada mercado. */
+  getOpenTradesIn(market: MarketKind): Trade[] {
+    return [...this.open.values()].filter((trade) => trade.market === market);
+  }
+
   /**
    * Encerramento a mercado — o botão "encerrar agora" da tela e o pânico.
    * Sai pelo preço de mercado com escorregamento e paga a taxa, como sairia
@@ -133,7 +145,7 @@ export class PaperTradingEngine {
 
     if (trade.status !== 'OPEN' || trade.remainingQuantity <= 0) return trade;
 
-    const exitPrice = marketExitPrice(price, costs);
+    const exitPrice = marketExitPrice(price, costs, trade.side);
     this.closePortion(trade, 'MANUAL', exitPrice, trade.remainingQuantity);
     trade.outcome = 'MANUAL';
     trade.closeReason = reason;
@@ -158,7 +170,9 @@ export class PaperTradingEngine {
     let changed = false;
 
     if (trade.status === 'PENDING') {
-      if (price > trade.entryPrice) return;
+      // a ordem limitada só preenche quando o preço chega nela: caindo até a
+      // entrada no comprado, subindo até ela no vendido
+      if (isFavorable(trade.side, price, trade.entryPrice)) return;
       // ordem limitada preenche no preço combinado, nunca melhor: assumir
       // preenchimento no fundo do pavio é o otimismo que quebra o backtest
       const fillPrice = trade.entryPrice;
@@ -169,6 +183,17 @@ export class PaperTradingEngine {
       trade.notional = round(fillPrice * trade.requestedQuantity, 2);
       trade.feesPaid = round(feeFor(fillPrice, trade.requestedQuantity, costs.feePercent), 6);
       trade.highWaterPrice = fillPrice;
+      // a liquidação estimada nasce com a posição: em papel ela existe para
+      // que a demo de futuros possa perder do mesmo jeito que a conta real
+      if (trade.market === 'FUTURES') {
+        trade.liquidationPrice = liquidationPrice({
+          side: trade.side,
+          entryPrice: fillPrice,
+          quantity: trade.requestedQuantity,
+          leverage: trade.leverage,
+          marginMode: trade.marginMode ?? 'ISOLATED',
+        });
+      }
       trade.fills.push(fill('ENTRY', fillPrice, trade.requestedQuantity));
       changed = true;
       await this.audit.record({
@@ -184,12 +209,13 @@ export class PaperTradingEngine {
     const entry = trade.averageFillPrice ?? trade.entryPrice;
     if (entry <= 0) return;
 
-    if (trade.highWaterPrice === null || price > trade.highWaterPrice) {
+    // "topo" é o preço mais favorável já visto — o fundo, quando se está vendido
+    if (trade.highWaterPrice === null || isFavorable(trade.side, price, trade.highWaterPrice)) {
       trade.highWaterPrice = price;
       changed = true;
     }
 
-    const excursion = ((price - entry) / entry) * 100;
+    const excursion = excursionPercent(trade.side, entry, price);
     if (excursion > trade.maxFavorablePercent) {
       trade.maxFavorablePercent = round(excursion, 2);
       changed = true;
@@ -202,8 +228,46 @@ export class PaperTradingEngine {
     // proteção antes de qualquer saída: o stop que subiu pode ser o que executa
     if (await this.moveProtectiveStop(trade, price)) changed = true;
 
-    if (price <= trade.stopLoss && trade.remainingQuantity > 0) {
-      const exitPrice = stopFillPrice(trade.stopLoss, costs);
+    /*
+     * A liquidação vem ANTES do stop, sempre.
+     *
+     * Numa posição alavancada a corretora não espera o stop: quando a margem
+     * acaba, ela fecha. Simular o stop primeiro produziria uma demo em que
+     * nenhuma posição é liquidada — exatamente o erro que a demo existe para
+     * não deixar acontecer.
+     */
+    if (
+      trade.market === 'FUTURES' &&
+      trade.liquidationPrice !== null &&
+      trade.remainingQuantity > 0 &&
+      stopBreached(trade.side, price, trade.liquidationPrice)
+    ) {
+      this.closePortion(trade, 'STOP', trade.liquidationPrice, trade.remainingQuantity);
+      trade.outcome = 'STOP';
+      trade.closeReason = `LIQUIDADA pela corretora em ${trade.liquidationPrice.toPrecision(6)} — a margem acabou antes do stop`;
+      trade.status = 'CLOSED';
+      trade.remainingQuantity = 0;
+      trade.closedAt = new Date().toISOString();
+      await this.audit.record({
+        action: 'PAPER_TRADE_LIQUIDATED',
+        mode: trade.mode,
+        symbol: trade.symbol,
+        setupId: trade.setupId,
+        tradeId: trade.id,
+        detail: {
+          preco: trade.liquidationPrice,
+          alavancagem: trade.leverage,
+          margem: trade.initialMargin,
+          pnl: trade.realizedPnl,
+        },
+      });
+      await this.persist(trade);
+      if (this.onClosed) await this.onClosed(trade);
+      return;
+    }
+
+    if (stopBreached(trade.side, price, trade.stopLoss) && trade.remainingQuantity > 0) {
+      const exitPrice = stopFillPrice(trade.stopLoss, costs, trade.side);
       const hadTarget = trade.fills.some((item) => item.kind.startsWith('TARGET'));
       this.closePortion(trade, 'STOP', exitPrice, trade.remainingQuantity);
       trade.outcome = 'STOP';
@@ -226,7 +290,7 @@ export class PaperTradingEngine {
       });
       const last = plan.tranches[plan.tranches.length - 1];
       for (const tranche of plan.tranches) {
-        if (price < tranche.price) continue;
+        if (!reachedTarget(trade.side, price, tranche.price)) continue;
         if (trade.fills.some((item) => item.kind === tranche.kind)) continue;
         const quantity =
           tranche === last
@@ -257,7 +321,12 @@ export class PaperTradingEngine {
     ) {
       const openFor = Date.now() - new Date(trade.openedAt).getTime();
       if (openFor >= costs.timeStopHours * 3_600_000) {
-        this.closePortion(trade, 'MANUAL', marketExitPrice(price, costs), trade.remainingQuantity);
+        this.closePortion(
+          trade,
+          'MANUAL',
+          marketExitPrice(price, costs, trade.side),
+          trade.remainingQuantity,
+        );
         trade.outcome = 'MANUAL';
         trade.closeReason = `Saída temporal: ${costs.timeStopHours}h sem alcançar o alvo 1`;
         changed = true;
@@ -301,6 +370,7 @@ export class PaperTradingEngine {
         highWaterPrice: trade.highWaterPrice ?? price,
         currentPrice: price,
         target1Filled: trade.fills.some((item) => item.kind === 'TARGET1'),
+        side: trade.side,
       },
       {
         breakevenAfterTarget1: guard.breakevenAfterTarget1,
@@ -333,7 +403,8 @@ export class PaperTradingEngine {
     const feePercent = this.guard().feePercent;
     trade.remainingQuantity = round(trade.remainingQuantity - amount, 10);
     trade.realizedPnl = round(
-      trade.realizedPnl + netPnl({ entryPrice: entry, exitPrice: price, quantity: amount, feePercent }),
+      trade.realizedPnl +
+        netPnl({ entryPrice: entry, exitPrice: price, quantity: amount, feePercent, side: trade.side }),
       2,
     );
     // a taxa da entrada foi cobrada inteira no preenchimento; aqui entra só a da venda
@@ -363,17 +434,31 @@ function fill(kind: TradeFill['kind'], price: number, quantity: number): TradeFi
  * Capital disponível no modo papel: aporte inicial + resultado − o que está
  * parado nas posições. O investido usa a quantidade que ainda resta, não o
  * valor original — depois de uma saída parcial, metade do dinheiro já voltou.
+ *
+ * Em futuros o que fica parado é a MARGEM, não o notional: uma posição de 300
+ * USDT com 3x prende 100. Contar o notional inteiro faria a demo alavancada
+ * ficar sem caixa na primeira operação e nunca abrir a segunda — uma demo que
+ * não se parece com a conta que ela simula.
+ *
+ * A modalidade separa as carteiras: a demo de spot e a de futuros são contas
+ * diferentes, com capital próprio, como já acontece entre PAPER e LIVE.
  */
-export function paperBalance(trades: Trade[], capital: number): PaperBalance {
+export function paperBalance(
+  trades: Trade[],
+  capital: number,
+  market: MarketKind = 'SPOT',
+): PaperBalance {
   let realizedPnl = 0;
   let invested = 0;
+  const committed = (trade: Trade, value: number): number =>
+    trade.market === 'FUTURES' && trade.leverage > 1 ? value / trade.leverage : value;
   for (const trade of trades) {
-    if (trade.mode !== 'PAPER') continue;
+    if (trade.mode !== 'PAPER' || trade.market !== market) continue;
     if (trade.status === 'CLOSED') realizedPnl += trade.realizedPnl;
-    if (trade.status === 'PENDING') invested += trade.notional;
+    if (trade.status === 'PENDING') invested += committed(trade, trade.notional);
     if (trade.status === 'OPEN') {
       const entry = trade.averageFillPrice ?? trade.entryPrice;
-      invested += entry * trade.remainingQuantity;
+      invested += committed(trade, entry * trade.remainingQuantity);
       // o resultado já realizado de uma saída parcial volta para o caixa
       realizedPnl += trade.realizedPnl;
     }

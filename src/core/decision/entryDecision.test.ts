@@ -25,6 +25,7 @@ function setup(overrides: Partial<TradeSetup> = {}): TradeSetup {
     id: 'setup-1',
     symbol: 'BMTUSDT',
     side: 'BUY',
+    market: 'SPOT',
     timeframe: '1h',
     anchorTimeframe: '1d',
     setupType: 'MOMENTUM_BURST',

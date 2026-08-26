@@ -7,8 +7,17 @@
  * Todo P&L do sistema passa por aqui e já sai líquido.
  */
 
+import { type Side, directionOf, gainPerUnit } from '../direction.ts';
+
 /** Taxa spot padrão da Binance por lado, em percentual. */
 export const DEFAULT_FEE_PERCENT = 0.1;
+
+/**
+ * Taxa de futuros USD-M (taker). Metade da spot: o contrato é mais barato de
+ * negociar, e cobrar a taxa do spot em futuros reprovaria operação que na
+ * prática paga menos.
+ */
+export const DEFAULT_FUTURES_FEE_PERCENT = 0.05;
 
 export interface CostSettings {
   /** taxa por lado, em % do valor negociado (0,1 = 0,1%) */
@@ -37,15 +46,16 @@ export function feeFor(price: number, quantity: number, feePercent: number): num
 
 /**
  * Preço em que o stop realmente preenche. O gatilho é onde a ordem acorda;
- * o preenchimento sai abaixo porque o livro já andou.
+ * o preenchimento sai PIOR porque o livro já andou — abaixo do gatilho para
+ * quem está comprado, acima dele para quem está vendido.
  */
-export function stopFillPrice(stopLoss: number, costs: CostSettings): number {
-  return stopLoss * (1 - factor(costs.stopSlippagePercent));
+export function stopFillPrice(stopLoss: number, costs: CostSettings, side: Side = 'BUY'): number {
+  return stopLoss * (1 - directionOf(side) * factor(costs.stopSlippagePercent));
 }
 
 /** Preço de uma saída a mercado (fechamento manual, pânico, stop de proteção). */
-export function marketExitPrice(price: number, costs: CostSettings): number {
-  return price * (1 - factor(costs.exitSlippagePercent));
+export function marketExitPrice(price: number, costs: CostSettings, side: Side = 'BUY'): number {
+  return price * (1 - directionOf(side) * factor(costs.exitSlippagePercent));
 }
 
 /**
@@ -57,10 +67,11 @@ export function netPnl(input: {
   exitPrice: number;
   quantity: number;
   feePercent: number;
+  side?: Side;
 }): number {
   const { entryPrice, exitPrice, quantity, feePercent } = input;
   if (quantity <= 0) return 0;
-  const gross = (exitPrice - entryPrice) * quantity;
+  const gross = gainPerUnit(input.side ?? 'BUY', entryPrice, exitPrice) * quantity;
   const fees = feeFor(entryPrice, quantity, feePercent) + feeFor(exitPrice, quantity, feePercent);
   return gross - fees;
 }
@@ -81,9 +92,12 @@ export function roundTripFee(input: {
  * É para cá que o stop vai quando o sistema protege o capital: no preço de
  * entrada puro a operação ainda fecharia no vermelho.
  */
-export function breakevenPrice(entryPrice: number, feePercent: number): number {
+export function breakevenPrice(entryPrice: number, feePercent: number, side: Side = 'BUY'): number {
   const fee = factor(feePercent);
   if (fee >= 1) return entryPrice;
+  // vendido empata ABAIXO da entrada: as duas taxas saem do mesmo lugar, mas
+  // o lucro dele vem da queda
+  if (side === 'SELL') return (entryPrice * (1 - fee)) / (1 + fee);
   return (entryPrice * (1 + fee)) / (1 - fee);
 }
 
@@ -96,14 +110,18 @@ export function netRiskReward(input: {
   stopLoss: number;
   target: number;
   costs: CostSettings;
+  side?: Side;
 }): number {
   const { entryPrice, stopLoss, target, costs } = input;
+  const side = input.side ?? 'BUY';
   if (entryPrice <= 0 || stopLoss <= 0 || target <= 0) return 0;
-  if (stopLoss >= entryPrice || target <= entryPrice) return 0;
+  // stop do lado errado da entrada não é operação apertada, é operação inválida
+  if (gainPerUnit(side, entryPrice, stopLoss) >= 0) return 0;
+  if (gainPerUnit(side, entryPrice, target) <= 0) return 0;
 
-  const stopFill = stopFillPrice(stopLoss, costs);
-  const risk = -netPnl({ entryPrice, exitPrice: stopFill, quantity: 1, feePercent: costs.feePercent });
-  const reward = netPnl({ entryPrice, exitPrice: target, quantity: 1, feePercent: costs.feePercent });
+  const stopFill = stopFillPrice(stopLoss, costs, side);
+  const risk = -netPnl({ entryPrice, exitPrice: stopFill, quantity: 1, feePercent: costs.feePercent, side });
+  const reward = netPnl({ entryPrice, exitPrice: target, quantity: 1, feePercent: costs.feePercent, side });
   if (risk <= 0 || reward <= 0) return 0;
   return Math.round((reward / risk) * 100) / 100;
 }

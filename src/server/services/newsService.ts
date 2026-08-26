@@ -2,7 +2,7 @@ import type { SymbolFilters } from '../../core/types.ts';
 import { stateEventsFrom, transitionEventsFrom } from '../../core/news/exchangeState.ts';
 import { isActive, mergeEvents, verdictFor } from '../../core/news/rules.ts';
 import type { MarketEvent, SymbolVerdict } from '../../core/news/types.ts';
-import { listSpotPairsWithState } from '../binance/rest.ts';
+import { listPairsWithState } from '../binance/rest.ts';
 import { logger } from '../logger.ts';
 
 const TICK_MS = 5 * 60 * 1000;
@@ -38,7 +38,7 @@ export class NewsService {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
-  constructor(fetchPairs: PairStateFetcher = () => listSpotPairsWithState('USDT')) {
+  constructor(fetchPairs: PairStateFetcher = () => listPairsWithState('USDT')) {
     this.fetchPairs = fetchPairs;
   }
 

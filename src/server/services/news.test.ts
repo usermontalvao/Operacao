@@ -21,6 +21,7 @@ function pair(symbol: string, overrides: Partial<SymbolFilters> = {}): SymbolFil
     quotePrecision: 8,
     isSpotTradingAllowed: true,
     ocoAllowed: true,
+    market: 'SPOT',
     ...overrides,
   };
 }

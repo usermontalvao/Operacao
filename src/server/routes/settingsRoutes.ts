@@ -13,8 +13,10 @@ import {
   getUsdtBrlRate,
   setActiveEnvironment,
 } from '../binance/rest.ts';
+import { getFuturesBalances } from '../binance/futures.ts';
 import { logger } from '../logger.ts';
 import { describeSettingsIssue, settingsUpdateSchema } from '../services/settingsService.ts';
+import { missingCredentialsMessage } from '../services/executionService.ts';
 import { buildCuratedWatchlist } from '../services/curatedWatchlist.ts';
 import { withBitcoin } from '../services/focus.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
@@ -35,6 +37,15 @@ async function readUsdtBalance(environment: BinanceEnvironment): Promise<UsdtBal
     return { status: 'NOT_CONFIGURED', total: null, available: null, locked: null };
   }
   try {
+    // futuros tem carteira própria: o saldo do spot não abre posição nenhuma
+    // ali, e mostrar um pelo outro faria a tela prometer margem que não existe
+    if (ENVIRONMENTS[environment].market === 'FUTURES') {
+      const balances = await getFuturesBalances();
+      const usdt = balances.find((balance) => balance.asset === 'USDT');
+      const total = usdt?.walletBalance ?? 0;
+      const available = usdt?.availableBalance ?? 0;
+      return { status: 'AVAILABLE', total, available, locked: Math.max(total - available, 0) };
+    }
     const balances = await getAccountBalances(environment);
     const usdt = balances.find((balance) => balance.asset === 'USDT');
     const available = usdt?.free ?? 0;
@@ -57,11 +68,14 @@ export function settingsRoutes(context: ApiContext): Router {
     asyncHandler(async (_request, response) => {
       // São retratos somente de leitura. Informar o ambiente diretamente evita
       // trocar o feed de mercado do robô só para desenhar os cartões da tela.
-      const [brlRate, productionBalance, testnetBalance] = await Promise.all([
-        getUsdtBrlRate(),
-        readUsdtBalance('production'),
-        readUsdtBalance('testnet'),
-      ]);
+      const [brlRate, productionBalance, testnetBalance, futuresBalance, futuresTestnetBalance] =
+        await Promise.all([
+          getUsdtBrlRate(),
+          readUsdtBalance('production'),
+          readUsdtBalance('testnet'),
+          readUsdtBalance('futures-production'),
+          readUsdtBalance('futures-testnet'),
+        ]);
       response.json({
         ...context.settings.get(),
         binance: {
@@ -75,10 +89,19 @@ export function settingsRoutes(context: ApiContext): Router {
             credentialsConfigured: ENVIRONMENTS.testnet.hasCredentials,
             balance: { ...testnetBalance, brlRate },
           },
+          futuresProduction: {
+            credentialsConfigured: ENVIRONMENTS['futures-production'].hasCredentials,
+            balance: { ...futuresBalance, brlRate },
+          },
+          futuresTestnet: {
+            credentialsConfigured: ENVIRONMENTS['futures-testnet'].hasCredentials,
+            balance: { ...futuresTestnetBalance, brlRate },
+          },
         },
         // a tela mostra o que cada modo tem guardado: trocar de conta não pode
         // ser uma surpresa ("eu tinha desligado o robô" era o robô do outro modo)
-        byMode: context.settings.all().byMode,
+        byMode: context.settings.buckets(),
+        byMarket: context.settings.all().byMarket,
         universe: context.universe.getStatus(),
         store: config.store,
       });
@@ -93,23 +116,33 @@ export function settingsRoutes(context: ApiContext): Router {
         response.status(400).json({ error: describeSettingsIssue(parsed.error) });
         return;
       }
+      const previous = context.settings.get();
       const nextMode = parsed.data.mode;
-      if (nextMode && nextMode !== 'PAPER' && !environmentForMode(nextMode).hasCredentials) {
-        response.status(400).json({
-          error:
-            nextMode === 'LIVE'
-              ? 'Configure BINANCE_API_KEY e BINANCE_API_SECRET no arquivo .env antes de ativar o modo real'
-              : 'Configure BINANCE_TESTNET_API_KEY e BINANCE_TESTNET_API_SECRET no arquivo .env antes de usar o testnet',
-        });
+      const nextMarket = parsed.data.market ?? previous.market;
+      if (
+        nextMode &&
+        nextMode !== 'PAPER' &&
+        !environmentForMode(nextMode, nextMarket).hasCredentials
+      ) {
+        response.status(400).json({ error: missingCredentialsMessage(nextMode, nextMarket) });
+        return;
+      }
+      // trocar de modalidade com a conta já em TESTNET/LIVE exige as chaves
+      // daquela modalidade: sem isso a tela mudaria e a primeira ordem falharia
+      if (
+        parsed.data.market &&
+        previous.mode !== 'PAPER' &&
+        !environmentForMode(previous.mode, parsed.data.market).hasCredentials
+      ) {
+        response.status(400).json({ error: missingCredentialsMessage(previous.mode, parsed.data.market) });
         return;
       }
 
-      const previous = context.settings.get();
       const updated = await context.settings.update(parsed.data);
 
       // trocar de ambiente troca o mercado inteiro: recomeça dados e streams
-      const previousEnvironment = environmentForMode(previous.mode).name;
-      const nextEnvironment = environmentForMode(updated.mode).name;
+      const previousEnvironment = environmentForMode(previous.mode, previous.market).name;
+      const nextEnvironment = environmentForMode(updated.mode, updated.market).name;
       if (previousEnvironment !== nextEnvironment) {
         setActiveEnvironment(nextEnvironment);
         context.universe.reset();
@@ -132,6 +165,13 @@ export function settingsRoutes(context: ApiContext): Router {
           detail: { from: previous.mode, to: updated.mode, environment: nextEnvironment },
         });
       }
+      if (parsed.data.market && parsed.data.market !== previous.market) {
+        await context.audit.record({
+          action: 'MARKET_CHANGED',
+          mode: updated.mode,
+          detail: { de: previous.market, para: updated.market, ambiente: nextEnvironment },
+        });
+      }
       context.bus.broadcast({ type: 'settings', payload: updated });
       response.json(updated);
     }),
@@ -149,7 +189,9 @@ export function settingsRoutes(context: ApiContext): Router {
       const filters = await getSymbolFilters([symbol]).catch(() => null);
       const entry = filters?.get(symbol);
       if (!entry || entry.status !== 'TRADING' || !entry.isSpotTradingAllowed) {
-        response.status(400).json({ error: `${symbol} não está disponível para spot na Binance` });
+        response.status(400).json({
+          error: `${symbol} não está disponível para ${context.settings.get().market === 'FUTURES' ? 'futuros' : 'spot'} na Binance`,
+        });
         return;
       }
       const current = context.settings.get().scanner.watchlist;

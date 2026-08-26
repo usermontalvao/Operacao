@@ -1,4 +1,4 @@
-import { getTickers, listSpotSymbols } from '../binance/rest.ts';
+import { getTickers, listTradableSymbols } from '../binance/rest.ts';
 import { logger } from '../logger.ts';
 
 /** Stablecoins e tokens alavancados não servem para este tipo de setup. */
@@ -24,7 +24,7 @@ export async function buildCuratedWatchlist(options: CuratedOptions = {}): Promi
   const limit = options.limit ?? 30;
   const minVolume = options.minQuoteVolume24h ?? 20_000_000;
 
-  const universe = await listSpotSymbols('USDT');
+  const universe = await listTradableSymbols('USDT');
   const eligible = universe.filter(
     (item) => !EXCLUDED_BASES.has(item.baseAsset) && !LEVERAGED.test(item.baseAsset),
   );

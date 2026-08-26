@@ -22,6 +22,15 @@ export interface OrderExecutionEvent {
   commission: number;
   commissionAsset: string | null;
   transactionTime: number;
+  /** só futuros: a ordem apenas reduz posição (alvo, stop, saída manual) */
+  reduceOnly?: boolean;
+  /** só futuros: resultado realizado desta execução, direto da corretora */
+  realizedProfit?: number;
+}
+
+/** Lê o evento de execução venha ele do spot ou de futuros. */
+export function parseOrderEvent(raw: unknown): OrderExecutionEvent | null {
+  return parseExecutionReport(raw) ?? parseFuturesOrderUpdate(raw);
 }
 
 function num(value: unknown): number {
@@ -47,6 +56,53 @@ export function averageFillPrice(event: OrderExecutionEvent): number | null {
 /** A ordem acabou: não haverá mais preenchimento nela. */
 export function isTerminal(status: string): boolean {
   return status === 'FILLED' || status === 'CANCELED' || status === 'REJECTED' || status === 'EXPIRED';
+}
+
+/**
+ * Execução em FUTUROS.
+ *
+ * A corretora manda `ORDER_TRADE_UPDATE` com a ordem aninhada em `o`, e não
+ * um `executionReport` plano. Também não existe `Z` (valor acumulado): o que
+ * vem é `ap`, o preço médio da posição — o valor financeiro é reconstruído a
+ * partir dele. Ler o evento errado não dá erro: dá silêncio, e silêncio aqui
+ * é posição preenchida que o sistema não sabe que abriu.
+ */
+export function parseFuturesOrderUpdate(raw: unknown): OrderExecutionEvent | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const envelope = raw as Record<string, unknown>;
+  if (envelope['e'] !== 'ORDER_TRADE_UPDATE') return null;
+  const data = envelope['o'];
+  if (typeof data !== 'object' || data === null) return null;
+  const order = data as Record<string, unknown>;
+
+  const symbol = typeof order['s'] === 'string' ? order['s'] : null;
+  const side = order['S'] === 'BUY' || order['S'] === 'SELL' ? order['S'] : null;
+  if (!symbol || !side) return null;
+
+  const cumulativeFilled = num(order['z']);
+  const averagePrice = num(order['ap']);
+
+  return {
+    eventTime: num(envelope['E']),
+    symbol,
+    clientOrderId: typeof order['c'] === 'string' ? order['c'] : '',
+    orderId: num(order['i']),
+    orderListId: 0,
+    side,
+    orderType: typeof order['o'] === 'string' ? order['o'] : 'UNKNOWN',
+    status: typeof order['X'] === 'string' ? order['X'] : 'UNKNOWN',
+    executionType: typeof order['x'] === 'string' ? order['x'] : 'UNKNOWN',
+    lastFilledQuantity: num(order['l']),
+    cumulativeFilledQuantity: cumulativeFilled,
+    lastFilledPrice: num(order['L']),
+    // reconstruído: preço médio × quantidade acumulada
+    cumulativeQuoteQuantity: averagePrice > 0 ? averagePrice * cumulativeFilled : 0,
+    commission: num(order['n']),
+    commissionAsset: typeof order['N'] === 'string' ? order['N'] : null,
+    transactionTime: num(order['T']),
+    reduceOnly: order['R'] === true,
+    realizedProfit: num(order['rp']),
+  };
 }
 
 export function parseExecutionReport(raw: unknown): OrderExecutionEvent | null {

@@ -6,8 +6,10 @@ import type { PostMortem } from './journal/postMortem.ts';
  */
 
 import type { GuardSettings } from './risk/governor.ts';
+import type { MarketKind, Side } from './direction.ts';
 
 export type { GuardSettings };
+export type { MarketKind, Side } from './direction.ts';
 import type { EntryDecision } from './decision/types.ts';
 export type {
   DecisionCode,
@@ -137,10 +139,14 @@ export interface StructureSnapshot {
   nearestSupport: PriceLevel | null;
   nearestResistance: PriceLevel | null;
   breakout: BreakoutInfo | null;
+  /** perda de suporte confirmada — o espelho do rompimento, para as teses vendidas */
+  breakdown: BreakoutInfo | null;
   /** true quando as últimas barras couberem numa faixa estreita em relação ao ATR */
   consolidating: boolean;
   /** distância percentual do topo recente (quanto o preço já corrigiu) */
   pullbackPercent: number | null;
+  /** distância percentual do fundo recente (quanto o preço já repicou) */
+  bouncePercent: number | null;
   recentHigh: number;
   recentLow: number;
 }
@@ -241,7 +247,13 @@ export interface SetupEvidence {
 export interface TradeSetup {
   id: string;
   symbol: string;
-  side: 'BUY';
+  /**
+   * Direção da tese. Em spot só existe compra; em futuros o mesmo detector
+   * tem espelho vendido, e é este campo que diz qual dos dois está na tela.
+   */
+  side: Side;
+  /** onde a tese pode ser executada: spot compra a moeda, futuros o contrato */
+  market: MarketKind;
   timeframe: Timeframe;
   /** timeframe que define o viés (4h ou 1d) */
   anchorTimeframe: Timeframe;
@@ -276,6 +288,7 @@ export interface TradeSetup {
 /** Resultado bruto de um detector, antes do score e da persistência. */
 export interface SetupCandidate {
   symbol: string;
+  side: Side;
   timeframe: Timeframe;
   anchorTimeframe: Timeframe;
   setupType: SetupType;
@@ -319,9 +332,40 @@ export interface SymbolFilters {
   quotePrecision: number;
   isSpotTradingAllowed: boolean;
   ocoAllowed: boolean;
+  /** de qual mercado vieram estes filtros — os dois têm passos diferentes */
+  market: MarketKind;
+  /** teto de alavancagem que a corretora aceita no par (só futuros) */
+  maxLeverage?: number;
 }
 
 export type TradingMode = 'PAPER' | 'TESTNET' | 'LIVE';
+
+/** Margem isolada prende só o que a posição usa; cruzada usa a carteira toda. */
+export type MarginMode = 'ISOLATED' | 'CROSSED';
+
+/**
+ * Ajustes que só existem em futuros.
+ *
+ * Ficam junto do risco de cada conta porque é isso que eles são: alavancagem
+ * é quanta margem a mesma tese prende, não quanto ela arrisca. O tamanho
+ * continua saindo do prejuízo no stop.
+ */
+export interface FuturesSettings {
+  /** alavancagem enviada à corretora antes de cada entrada */
+  leverage: number;
+  /** teto que o painel aceita, independentemente do que a corretora permite */
+  maxLeverage: number;
+  marginMode: MarginMode;
+  /** libera as teses vendidas — sem isto o painel opera futuros só comprado */
+  allowShort: boolean;
+  /**
+   * Folga mínima entre o stop e o preço de liquidação, em % do preço de
+   * entrada. Stop depois da liquidação é stop que nunca executa: quem fecha a
+   * posição é a corretora, pelo preço dela, e o prejuízo deixa de ser o
+   * planejado.
+   */
+  minLiquidationBufferPercent: number;
+}
 
 export interface RiskSettings {
   /** capital de referência usado no modo PAPER */
@@ -397,6 +441,8 @@ export interface ModeSettings {
   autoTrade: AutoTradeSettings;
   /** custos reais de execução e disjuntor de risco */
   guard: GuardSettings;
+  /** só usado quando o mercado é FUTURES; em spot fica parado e inofensivo */
+  futures: FuturesSettings;
 }
 
 /**
@@ -405,6 +451,8 @@ export interface ModeSettings {
  */
 export interface AppSettings extends ModeSettings {
   mode: TradingMode;
+  /** modalidade ativa: spot ou futuros USD-M */
+  market: MarketKind;
   scanner: ScannerSettings;
   updatedAt: string;
 }
@@ -418,8 +466,27 @@ export interface AppSettings extends ModeSettings {
  */
 export interface StoredSettings {
   mode: TradingMode;
+  market: MarketKind;
   scanner: ScannerSettings;
-  byMode: Record<TradingMode, ModeSettings>;
+  /**
+   * Um conjunto por MODALIDADE e por conta. Spot e futuros não podem
+   * compartilhar risco: a mesma frase "1% por operação" tem consequência
+   * diferente quando a posição é alavancada, e herdar o robô ligado do spot
+   * ao entrar em futuros repetiria, de outro jeito, o problema que a
+   * separação por conta já resolveu.
+   */
+  byMarket: Record<MarketKind, Record<TradingMode, ModeSettings>>;
+  updatedAt: string;
+}
+
+/**
+ * Formato gravado entre a separação por conta e a chegada dos futuros: um
+ * conjunto por conta, sem modalidade. Vira o balde do SPOT na conversão.
+ */
+export interface LegacyByModeSettings {
+  mode: TradingMode;
+  scanner: ScannerSettings;
+  byMode: Record<TradingMode, Partial<ModeSettings>>;
   updatedAt: string;
 }
 
@@ -429,6 +496,7 @@ export interface StoredSettings {
  */
 export interface LegacySettings {
   mode: TradingMode;
+  market?: MarketKind;
   risk: RiskSettings;
   scanner: ScannerSettings;
   autoTrade: AutoTradeSettings;
@@ -437,7 +505,7 @@ export interface LegacySettings {
 }
 
 /** o que o repositório devolve: pode ser qualquer um dos dois formatos */
-export type PersistedSettings = StoredSettings | LegacySettings;
+export type PersistedSettings = StoredSettings | LegacyByModeSettings | LegacySettings;
 
 export interface PositionSizing {
   quantity: number;
@@ -462,7 +530,9 @@ export interface Trade {
   automatic?: boolean;
   symbol: string;
   mode: TradingMode;
-  side: 'BUY';
+  /** spot ou futuros — decide para qual corretora a ordem foi e como ela fecha */
+  market: MarketKind;
+  side: Side;
   setupType: SetupType;
   timeframe: Timeframe;
   score: number;
@@ -490,6 +560,17 @@ export interface Trade {
   highWaterPrice: number | null;
   /** stop em vigor depois da proteção automática, quando houve */
   protectiveStop: number | null;
+  /** alavancagem usada; 1 em spot */
+  leverage: number;
+  /** margem prendida pela posição (notional ÷ alavancagem) */
+  initialMargin: number;
+  marginMode?: MarginMode;
+  /**
+   * Preço em que a corretora liquida a posição, estimado na abertura. Só
+   * futuros. Serve para a tela mostrar a distância até ele e para a auditoria
+   * saber, depois, se o stop estava do lado certo dessa linha.
+   */
+  liquidationPrice: number | null;
   /** por que a operação encerrou, quando não foi alvo nem stop */
   closeReason: string | null;
   fills: TradeFill[];

@@ -1,4 +1,4 @@
-import type { SymbolFilters } from '../../core/types.ts';
+import type { MarketKind, SymbolFilters } from '../../core/types.ts';
 import {
   ENVIRONMENTS,
   readCredentials,
@@ -89,13 +89,45 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   return payload as T;
 }
 
+/**
+ * Os mesmos dados, endereços diferentes. Spot fala /api/v3 e futuros /fapi/v1;
+ * o resto da leitura de mercado é idêntico, então o único lugar que precisa
+ * saber da diferença é esta tabela.
+ */
+const PATHS: Record<MarketKind, Record<'ping' | 'time' | 'klines' | 'ticker24h' | 'exchangeInfo', string>> = {
+  SPOT: {
+    ping: '/api/v3/ping',
+    time: '/api/v3/time',
+    klines: '/api/v3/klines',
+    ticker24h: '/api/v3/ticker/24hr',
+    exchangeInfo: '/api/v3/exchangeInfo',
+  },
+  FUTURES: {
+    ping: '/fapi/v1/ping',
+    time: '/fapi/v1/time',
+    klines: '/fapi/v1/klines',
+    ticker24h: '/fapi/v1/ticker/24hr',
+    exchangeInfo: '/fapi/v1/exchangeInfo',
+  },
+};
+
+function endpoint(key: keyof (typeof PATHS)['SPOT']): string {
+  return PATHS[active.market][key];
+}
+
 function publicUrl(path: string, params: Record<string, string | number | undefined> = {}): string {
   const query = buildQuery(params);
   return `${active.marketRestBase}${path}${query ? `?${query}` : ''}`;
 }
 
-/** Chamada assinada. Só existe caminho para cá com credenciais configuradas. */
-async function signedRequest<T>(
+/**
+ * Chamada assinada. Só existe caminho para cá com credenciais configuradas.
+ *
+ * Exportada para que o módulo de futuros use exatamente o mesmo assinador, o
+ * mesmo controle de ritmo e o mesmo ajuste de relógio: uma segunda cópia
+ * disso é uma segunda chance de assinar errado.
+ */
+export async function signedRequest<T>(
   method: 'GET' | 'POST' | 'DELETE',
   path: string,
   params: Record<string, string | number | boolean | undefined> = {},
@@ -120,7 +152,7 @@ async function signedRequest<T>(
 
 export async function ping(): Promise<boolean> {
   try {
-    await request(publicUrl('/api/v3/ping'));
+    await request(publicUrl(endpoint('ping')));
     return true;
   } catch (error) {
     logger.warn('Binance indisponível', { error: (error as Error).message });
@@ -131,7 +163,7 @@ export async function ping(): Promise<boolean> {
 /** Sincroniza o relógio: assinatura fora da janela é recusada com -1021. */
 export async function syncClock(): Promise<number> {
   const before = Date.now();
-  const result = await request<{ serverTime: number }>(publicUrl('/api/v3/time'));
+  const result = await request<{ serverTime: number }>(publicUrl(endpoint('time')));
   const latency = (Date.now() - before) / 2;
   clockOffsetMs = Math.round(result.serverTime - (before + latency));
   if (Math.abs(clockOffsetMs) > 1000) {
@@ -149,7 +181,7 @@ export async function getKlines(
   interval: string,
   limit = 300,
 ): Promise<RawKline[]> {
-  return request<RawKline[]>(publicUrl('/api/v3/klines', { symbol, interval, limit }));
+  return request<RawKline[]>(publicUrl(endpoint('klines'), { symbol, interval, limit }));
 }
 
 export interface Ticker24h {
@@ -191,15 +223,17 @@ const TICKER_URL_LIMIT = 80;
 export async function getTickers(symbols: string[]): Promise<Ticker24h[]> {
   if (symbols.length === 0) return [];
 
-  if (symbols.length > TICKER_URL_LIMIT) {
+  // futuros não aceita a lista `symbols` no ticker: ou um par, ou o mercado
+  // inteiro. Pedir a lista ali devolve 400, então o caminho é sempre o geral.
+  if (symbols.length > TICKER_URL_LIMIT || active.market === 'FUTURES') {
     // uma chamada só para o mercado inteiro e filtragem local sai mais barato
-    const all = await request<Ticker24h[]>(publicUrl('/api/v3/ticker/24hr'));
+    const all = await request<Ticker24h[]>(publicUrl(endpoint('ticker24h')));
     const wanted = new Set(symbols);
     return all.filter((ticker) => wanted.has(ticker.symbol));
   }
 
   const list = JSON.stringify(symbols);
-  return request<Ticker24h[]>(publicUrl('/api/v3/ticker/24hr', { symbols: list }));
+  return request<Ticker24h[]>(publicUrl(endpoint('ticker24h'), { symbols: list }));
 }
 
 interface ExchangeInfoResponse {
@@ -208,13 +242,18 @@ interface ExchangeInfoResponse {
     status: string;
     baseAsset: string;
     quoteAsset: string;
-    baseAssetPrecision: number;
-    quotePrecision: number;
-    isSpotTradingAllowed: boolean;
+    baseAssetPrecision?: number;
+    quotePrecision?: number;
+    isSpotTradingAllowed?: boolean;
     otoAllowed?: boolean;
     ocoAllowed?: boolean;
     filters: Array<Record<string, string>>;
     permissionSets?: string[][];
+    /** só futuros: PERPETUAL, CURRENT_QUARTER… */
+    contractType?: string;
+    /** só futuros: casas decimais aceitas em preço e quantidade */
+    pricePrecision?: number;
+    quantityPrecision?: number;
   }>;
 }
 
@@ -238,34 +277,20 @@ export async function getSymbolFilters(symbols: string[]): Promise<Map<string, S
   }
   if (missing.length === 0) return result;
 
+  // spot filtra a consulta pelos pares pedidos; futuros não aceita o parâmetro
+  // `symbols` e devolve o mercado inteiro — o cache logo abaixo é o que
+  // impede que isso vire uma chamada pesada por par
   const info = await request<ExchangeInfoResponse>(
-    publicUrl('/api/v3/exchangeInfo', { symbols: JSON.stringify(missing) }),
+    active.market === 'FUTURES'
+      ? publicUrl(endpoint('exchangeInfo'))
+      : publicUrl(endpoint('exchangeInfo'), { symbols: JSON.stringify(missing) }),
   );
 
+  const wanted = new Set(missing);
   for (const entry of info.symbols) {
-    const filters = new Map(entry.filters.map((filter) => [filter.filterType as string, filter]));
-    const lotSize = filters.get('LOT_SIZE');
-    const priceFilter = filters.get('PRICE_FILTER');
-    const notional = filters.get('NOTIONAL') ?? filters.get('MIN_NOTIONAL');
-
-    const value: SymbolFilters = {
-      symbol: entry.symbol,
-      baseAsset: entry.baseAsset,
-      quoteAsset: entry.quoteAsset,
-      status: entry.status,
-      tickSize: Number(priceFilter?.tickSize ?? '0.00000001'),
-      stepSize: Number(lotSize?.stepSize ?? '0.00000001'),
-      minQty: Number(lotSize?.minQty ?? '0'),
-      maxQty: Number(lotSize?.maxQty ?? '0'),
-      minNotional: Number(notional?.minNotional ?? notional?.notional ?? '0'),
-      applyMinToMarket: (notional?.applyMinToMarket ?? 'true') !== 'false',
-      baseAssetPrecision: entry.baseAssetPrecision,
-      quotePrecision: entry.quotePrecision,
-      isSpotTradingAllowed: entry.isSpotTradingAllowed,
-      ocoAllowed: entry.ocoAllowed ?? true,
-    };
+    const value = toFilters(entry);
     exchangeInfoCache.set(cacheKey(entry.symbol), { value, fetchedAt: now });
-    result.set(entry.symbol, value);
+    if (wanted.has(entry.symbol)) result.set(entry.symbol, value);
   }
   return result;
 }
@@ -276,43 +301,73 @@ function cacheKey(symbol: string): string {
 
 function toFilters(entry: ExchangeInfoResponse['symbols'][number]): SymbolFilters {
   const filters = new Map(entry.filters.map((filter) => [filter.filterType as string, filter]));
-  const lotSize = filters.get('LOT_SIZE');
   const priceFilter = filters.get('PRICE_FILTER');
   const notional = filters.get('NOTIONAL') ?? filters.get('MIN_NOTIONAL');
+  const futures = active.market === 'FUTURES';
+  // em futuros o lote que vale para ordem a mercado é o MARKET_LOT_SIZE, que
+  // costuma ser mais restrito que o LOT_SIZE do livro
+  const lotSize = futures
+    ? filters.get('MARKET_LOT_SIZE') ?? filters.get('LOT_SIZE')
+    : filters.get('LOT_SIZE');
+  const bookLot = filters.get('LOT_SIZE');
   return {
     symbol: entry.symbol,
     baseAsset: entry.baseAsset,
     quoteAsset: entry.quoteAsset,
     status: entry.status,
     tickSize: Number(priceFilter?.tickSize ?? '0.00000001'),
-    stepSize: Number(lotSize?.stepSize ?? '0.00000001'),
-    minQty: Number(lotSize?.minQty ?? '0'),
-    maxQty: Number(lotSize?.maxQty ?? '0'),
+    stepSize: Number(lotSize?.stepSize ?? bookLot?.stepSize ?? '0.00000001'),
+    minQty: Number(lotSize?.minQty ?? bookLot?.minQty ?? '0'),
+    maxQty: Number(lotSize?.maxQty ?? bookLot?.maxQty ?? '0'),
     minNotional: Number(notional?.minNotional ?? notional?.notional ?? '0'),
-    applyMinToMarket: (notional?.applyMinToMarket ?? 'true') !== 'false',
-    baseAssetPrecision: entry.baseAssetPrecision,
-    quotePrecision: entry.quotePrecision,
-    isSpotTradingAllowed: entry.isSpotTradingAllowed,
-    ocoAllowed: entry.ocoAllowed ?? true,
+    // futuros exige o mínimo também na ordem a mercado, e não declara a flag
+    applyMinToMarket: futures ? true : (notional?.applyMinToMarket ?? 'true') !== 'false',
+    baseAssetPrecision: entry.baseAssetPrecision ?? entry.quantityPrecision ?? 8,
+    quotePrecision: entry.quotePrecision ?? entry.pricePrecision ?? 8,
+    // em futuros não existe "negociação spot": o que vale é o contrato estar
+    // negociando, e é isso que o campo passa a significar
+    isSpotTradingAllowed: futures ? entry.status === 'TRADING' : entry.isSpotTradingAllowed ?? false,
+    // futuros não tem OCO; a proteção é montada com duas ordens reduceOnly
+    ocoAllowed: futures ? false : entry.ocoAllowed ?? true,
+    market: active.market,
   };
 }
 
 /**
- * Todos os pares spot de uma moeda de cotação. É a base do modo "universo":
- * uma chamada de exchangeInfo (peso 20) por ambiente, cacheada por 12h,
- * alimenta a varredura de centenas de ativos.
+ * exchangeInfo da modalidade ativa. Em spot dá para pedir só a permissão SPOT;
+ * em futuros o endpoint não filtra nada e devolve todos os contratos.
  */
-export async function listSpotSymbols(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
+async function fetchExchangeInfo(): Promise<ExchangeInfoResponse> {
+  return request<ExchangeInfoResponse>(
+    active.market === 'FUTURES'
+      ? publicUrl(endpoint('exchangeInfo'))
+      : publicUrl(endpoint('exchangeInfo'), { permissions: 'SPOT' }),
+  );
+}
+
+/** O par é negociável AGORA na modalidade ativa. */
+function isTradable(entry: ExchangeInfoResponse['symbols'][number]): boolean {
+  if (entry.status !== 'TRADING') return false;
+  if (active.market === 'FUTURES') {
+    // só perpétuo: contrato com vencimento tem rolagem, e o motor não sabe rolar
+    return entry.contractType === 'PERPETUAL';
+  }
+  return entry.isSpotTradingAllowed === true;
+}
+
+/**
+ * Todos os pares negociáveis de uma moeda de cotação na modalidade ativa. É a
+ * base do modo "universo": uma chamada de exchangeInfo (peso 20) por
+ * ambiente, cacheada por 12h, alimenta a varredura de centenas de ativos.
+ */
+export async function listTradableSymbols(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
   const key = `${active.name}:${quoteAsset}`;
   const cached = universeCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < EXCHANGE_INFO_TTL_MS) return cached.symbols;
 
-  const info = await request<ExchangeInfoResponse>(publicUrl('/api/v3/exchangeInfo', { permissions: 'SPOT' }));
+  const info = await fetchExchangeInfo();
   const symbols = info.symbols
-    .filter(
-      (entry) =>
-        entry.status === 'TRADING' && entry.isSpotTradingAllowed && entry.quoteAsset === quoteAsset,
-    )
+    .filter((entry) => isTradable(entry) && entry.quoteAsset === quoteAsset)
     .map(toFilters);
 
   universeCache.set(key, { symbols, fetchedAt: Date.now() });
@@ -325,17 +380,17 @@ export async function listSpotSymbols(quoteAsset = 'USDT'): Promise<SymbolFilter
  * Todos os pares de uma moeda de cotação COM o estado que a corretora declara,
  * inclusive os que não estão negociando.
  *
- * `listSpotSymbols` corta quem não é TRADING — é o que a varredura quer. O
+ * `listTradableSymbols` corta quem não é TRADING — é o que a varredura quer. O
  * monitor quer o contrário: é justamente o par suspenso que precisa aparecer,
  * porque sumir da lista e estar parado são notícias diferentes, e sem esta
  * leitura as duas ficariam indistinguíveis.
  */
-export async function listSpotPairsWithState(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
+export async function listPairsWithState(quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
   const key = `${active.name}:${quoteAsset}:all`;
   const cached = pairStateCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < PAIR_STATE_TTL_MS) return cached.symbols;
 
-  const info = await request<ExchangeInfoResponse>(publicUrl('/api/v3/exchangeInfo', { permissions: 'SPOT' }));
+  const info = await fetchExchangeInfo();
   const symbols = info.symbols.filter((entry) => entry.quoteAsset === quoteAsset).map(toFilters);
   pairStateCache.set(key, { symbols, fetchedAt: Date.now() });
   return symbols;
@@ -344,7 +399,7 @@ export async function listSpotPairsWithState(quoteAsset = 'USDT'): Promise<Symbo
 /** Busca pares por texto — usado pelo "+ Adicionar ativo" da watchlist. */
 export async function searchSymbols(term: string, quoteAsset = 'USDT'): Promise<SymbolFilters[]> {
   const needle = term.trim().toUpperCase();
-  const universe = await listSpotSymbols(quoteAsset);
+  const universe = await listTradableSymbols(quoteAsset);
   return universe
     .filter((entry) => entry.baseAsset.includes(needle) || entry.symbol.includes(needle))
     .sort((a, b) => a.symbol.length - b.symbol.length)

@@ -69,18 +69,29 @@ export class SupabaseStore implements Repository {
   async loadSettings(): Promise<PersistedSettings | null> {
     const { data, error } = await this.db()
       .from('app_settings')
-      .select('mode, risk, scanner, auto_trade, guard, by_mode, updated_at')
+      .select('mode, market, risk, scanner, auto_trade, guard, by_mode, by_market, updated_at')
       .eq('user_id', this.userId)
       .maybeSingle();
     if (error) throw new Error(settingsColumnHint(error.message));
     if (!data) return null;
-    // com by_mode preenchido a linha já está no formato de hoje; sem ele, o
-    // que existe são as colunas antigas — um conjunto só para os três modos
+    // três gerações de linha: by_market (hoje), by_mode (um conjunto por
+    // conta) e as colunas soltas (um conjunto para as três). A normalização
+    // do SettingsService converte as duas antigas; aqui só se escolhe qual
+    // delas devolver.
+    if (data.by_market) {
+      return {
+        mode: data.mode as TradingMode,
+        market: (data.market as StoredSettings['market']) ?? 'SPOT',
+        scanner: data.scanner as ScannerSettings,
+        byMarket: data.by_market as StoredSettings['byMarket'],
+        updatedAt: data.updated_at as string,
+      };
+    }
     if (data.by_mode) {
       return {
         mode: data.mode as TradingMode,
         scanner: data.scanner as ScannerSettings,
-        byMode: data.by_mode as StoredSettings['byMode'],
+        byMode: data.by_mode as Extract<PersistedSettings, { byMode: unknown }>['byMode'],
         updatedAt: data.updated_at as string,
       };
     }
@@ -96,13 +107,17 @@ export class SupabaseStore implements Repository {
   }
 
   async saveSettings(settings: StoredSettings): Promise<void> {
-    const active = settings.byMode[settings.mode];
+    const active = settings.byMarket[settings.market][settings.mode];
     const { error } = await this.db().from('app_settings').upsert(
       {
         user_id: this.userId,
         mode: settings.mode,
+        market: settings.market,
         scanner: settings.scanner,
-        by_mode: settings.byMode,
+        by_market: settings.byMarket,
+        // by_mode continua espelhando o SPOT: uma volta atrás de versão
+        // encontra exatamente o que deixou, sem futuros no meio
+        by_mode: settings.byMarket.SPOT,
         // as colunas antigas continuam gravadas com o conjunto do modo ATIVO.
         // Não são lidas quando by_mode existe: ficam para quem abre a tabela
         // no painel do Supabase e para uma volta atrás de versão não achar a
@@ -342,6 +357,7 @@ function setupToRow(setup: TradeSetup): Row {
     id: setup.id,
     symbol: setup.symbol,
     side: setup.side,
+    market: setup.market,
     timeframe: setup.timeframe,
     anchor_timeframe: setup.anchorTimeframe,
     setup_type: setup.setupType,
@@ -376,7 +392,8 @@ function rowToSetup(row: Row): TradeSetup {
   return {
     id: row.id as string,
     symbol: row.symbol as string,
-    side: 'BUY',
+    side: row.side === 'SELL' ? 'SELL' : 'BUY',
+    market: (row.market as TradeSetup['market']) ?? 'SPOT',
     timeframe: row.timeframe as TradeSetup['timeframe'],
     anchorTimeframe: row.anchor_timeframe as TradeSetup['anchorTimeframe'],
     setupType: row.setup_type as TradeSetup['setupType'],
@@ -413,6 +430,7 @@ function tradeToRow(trade: Trade): Row {
     setup_id: trade.setupId,
     symbol: trade.symbol,
     mode: trade.mode,
+    market: trade.market,
     side: trade.side,
     setup_type: trade.setupType,
     timeframe: trade.timeframe,
@@ -442,6 +460,10 @@ function tradeToRow(trade: Trade): Row {
     high_water_price: trade.highWaterPrice,
     protective_stop: trade.protectiveStop,
     close_reason: trade.closeReason,
+    leverage: trade.leverage,
+    initial_margin: trade.initialMargin,
+    margin_mode: trade.marginMode ?? null,
+    liquidation_price: trade.liquidationPrice,
     opened_at: trade.openedAt,
     closed_at: trade.closedAt,
     updated_at: trade.updatedAt,
@@ -453,6 +475,12 @@ function rowToTrade(row: Row): Trade {
     id: row.id as string,
     setupId: row.setup_id as string,
     symbol: row.symbol as string,
+    // linha gravada antes dos futuros é spot, comprada e sem alavancagem
+    market: (row.market as Trade['market']) ?? 'SPOT',
+    leverage: row.leverage === undefined || row.leverage === null ? 1 : Number(row.leverage),
+    initialMargin: row.initial_margin === null || row.initial_margin === undefined ? 0 : Number(row.initial_margin),
+    marginMode: (row.margin_mode as Trade['marginMode']) ?? undefined,
+    liquidationPrice: row.liquidation_price === null || row.liquidation_price === undefined ? null : Number(row.liquidation_price),
     mode: row.mode as Trade['mode'],
     side: 'BUY',
     setupType: row.setup_type as Trade['setupType'],

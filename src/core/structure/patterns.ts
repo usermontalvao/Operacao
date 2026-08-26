@@ -1,3 +1,4 @@
+import { type Side, isFavorable } from '../direction.ts';
 import type { BreakoutInfo, Candle, MarketStructure, PriceLevel, SwingPoint } from '../types.ts';
 import { lastSwings } from './swings.ts';
 
@@ -35,25 +36,65 @@ export function detectBreakout(
   atrPercent: number,
   lookback = 12,
 ): BreakoutInfo | null {
-  if (candles.length < 5 || resistances.length === 0) return null;
+  return detectDirectionalBreak(candles, resistances, atrPercent, 'BUY', lookback);
+}
+
+/**
+ * O mesmo evento, do outro lado: perda de um suporte já provado.
+ *
+ * Vale a mesma exigência do rompimento de alta — não basta o preço furar o
+ * nível, o vendedor precisa aparecer no reteste. Um suporte perdido sem
+ * confirmação é candidato a pavio, e vender pavio é como comprar topo.
+ */
+export function detectBreakdown(
+  candles: Candle[],
+  supports: PriceLevel[],
+  atrPercent: number,
+  lookback = 12,
+): BreakoutInfo | null {
+  return detectDirectionalBreak(candles, supports, atrPercent, 'SELL', lookback);
+}
+
+/**
+ * Rompimento nos dois sentidos. `far` é a borda que o preço precisa vencer
+ * (o teto da resistência subindo, o piso do suporte caindo) e `near` é a
+ * borda oposta, que define a falha.
+ */
+function detectDirectionalBreak(
+  candles: Candle[],
+  levels: PriceLevel[],
+  atrPercent: number,
+  side: Side,
+  lookback: number,
+): BreakoutInfo | null {
+  if (candles.length < 5 || levels.length === 0) return null;
   const start = Math.max(1, candles.length - lookback);
   const tolerance = Math.min(Math.max(atrPercent * 0.5, 0.2), 2) / 100;
 
   let found: BreakoutInfo | null = null;
 
-  for (const level of resistances) {
+  for (const level of levels) {
+    const far = side === 'SELL' ? level.low : level.high;
+    const near = side === 'SELL' ? level.high : level.low;
     for (let i = start; i < candles.length; i += 1) {
       const candle = candles[i] as Candle;
       const previous = candles[i - 1] as Candle;
-      const brokeNow = candle.close > level.high && previous.close <= level.high;
+      const brokeNow =
+        isFavorable(side, candle.close, far) && !isFavorable(side, previous.close, far);
       if (!brokeNow) continue;
 
       const after = candles.slice(i + 1);
-      const touchOffset = after.findIndex((c) => c.low <= level.high * (1 + tolerance));
+      // volta a encostar no nível rompido: pela mínima quando subiu, pela
+      // máxima quando caiu
+      const touchOffset = after.findIndex((c) =>
+        side === 'SELL'
+          ? c.high >= far * (1 - tolerance)
+          : c.low <= far * (1 + tolerance),
+      );
       const retestIndex = touchOffset >= 0 ? i + 1 + touchOffset : null;
       const retested = retestIndex !== null;
-      const failed = after.some((c) => c.close < level.low);
-      const confirmation = confirmRetest(candles, retestIndex, level);
+      const failed = after.some((c) => isFavorable(side, near, c.close));
+      const confirmation = confirmRetest(candles, retestIndex, level, side);
       const info: BreakoutInfo = {
         level,
         breakoutIndex: i,
@@ -99,25 +140,38 @@ function confirmRetest(
   candles: Candle[],
   retestIndex: number | null,
   level: PriceLevel,
+  side: Side = 'BUY',
 ): { index: number | null; reasons: string[] } {
   if (retestIndex === null) return { index: null, reasons: [] };
   const touch = candles[retestIndex];
   if (!touch) return { index: null, reasons: [] };
 
+  const edge = side === 'SELL' ? level.low : level.high;
   const limit = Math.min(retestIndex + CONFIRMATION_WINDOW, candles.length - 1);
   for (let j = retestIndex; j <= limit; j += 1) {
     const bar = candles[j] as Candle;
-    if (bar.close <= level.high) continue;
+    if (!isFavorable(side, bar.close, edge)) continue;
 
-    const higherLow = j === retestIndex ? isBullishRejection(bar) : bar.low > touch.low;
-    if (!higherLow) continue;
+    const defended =
+      j === retestIndex
+        ? side === 'SELL'
+          ? isBearishRejection(bar)
+          : isBullishRejection(bar)
+        : side === 'SELL'
+          ? bar.high < touch.high
+          : bar.low > touch.low;
+    if (!defended) continue;
 
     const average = averageVolumeBefore(candles, j);
     if (average > 0 && bar.volume < average * MIN_CONFIRMATION_VOLUME) continue;
 
     const reasons = [
-      `Fechamento de volta acima de ${level.high.toPrecision(6)} ${j - retestIndex} candle(s) após o toque`,
-      j === retestIndex ? 'Defesa na própria barra do toque' : 'Fundo mais alto que o do toque',
+      `Fechamento de volta ${side === 'SELL' ? 'abaixo' : 'acima'} de ${edge.toPrecision(6)} ${j - retestIndex} candle(s) após o toque`,
+      j === retestIndex
+        ? 'Defesa na própria barra do toque'
+        : side === 'SELL'
+          ? 'Topo mais baixo que o do toque'
+          : 'Fundo mais alto que o do toque',
     ];
     if (average > 0) reasons.push(`Volume ${(bar.volume / average).toFixed(1)}x a média na confirmação`);
     return { index: j, reasons };
@@ -132,6 +186,16 @@ export function isConsolidating(candles: Candle[], atrValue: number, window = 8)
   const high = Math.max(...slice.map((c) => c.high));
   const low = Math.min(...slice.map((c) => c.low));
   return high - low < atrValue * 2.2;
+}
+
+/** Quanto o preço já subiu do fundo recente, em percentual — o espelho do pullback. */
+export function bounceFromLow(candles: Candle[], window = 30): number | null {
+  if (candles.length === 0) return null;
+  const slice = candles.slice(-window);
+  const low = Math.min(...slice.map((c) => c.low));
+  const close = (slice[slice.length - 1] as Candle).close;
+  if (low <= 0) return null;
+  return ((close - low) / low) * 100;
 }
 
 /** Quanto o preço já recuou do topo recente, em percentual. */
@@ -152,4 +216,14 @@ export function isBullishRejection(candle: Candle): boolean {
   const lowerWick = Math.min(candle.open, candle.close) - candle.low;
   const closesHigh = (candle.close - candle.low) / range >= 0.6;
   return closesHigh && (lowerWick > body * 0.8 || candle.close > candle.open);
+}
+
+/** Candle de exaustão compradora: fecha no terço inferior, com pavio em cima. */
+export function isBearishRejection(candle: Candle): boolean {
+  const range = candle.high - candle.low;
+  if (range <= 0) return false;
+  const body = Math.abs(candle.close - candle.open);
+  const upperWick = candle.high - Math.max(candle.open, candle.close);
+  const closesLow = (candle.high - candle.close) / range >= 0.6;
+  return closesLow && (upperWick > body * 0.8 || candle.close < candle.open);
 }

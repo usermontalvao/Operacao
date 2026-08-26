@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import type { ConnectionState } from '../../core/types.ts';
 import { logger } from '../logger.ts';
 import { closeListenKey, createListenKey, getActiveEnvironment, keepAliveListenKey } from './rest.ts';
-import { parseExecutionReport, type OrderExecutionEvent } from './userEvents.ts';
+import { parseOrderEvent, type OrderExecutionEvent } from './userEvents.ts';
 
 /** A chave expira em 60 min; renovar a cada 30 dá margem para uma falha. */
 const KEEPALIVE_MS = 30 * 60 * 1000;
@@ -129,13 +129,14 @@ export class UserDataStream extends EventEmitter {
     } catch {
       return;
     }
-    const execution = parseExecutionReport(payload);
+    const execution = parseOrderEvent(payload);
     if (execution) {
       this.emit('execution', execution satisfies OrderExecutionEvent);
       return;
     }
     const type = (payload as { e?: unknown }).e;
-    if (type === 'outboundAccountPosition' || type === 'balanceUpdate') {
+    // ACCOUNT_UPDATE é o equivalente de futuros: saldo e posições mudaram
+    if (type === 'outboundAccountPosition' || type === 'balanceUpdate' || type === 'ACCOUNT_UPDATE') {
       this.emit('balance', payload);
     }
   }

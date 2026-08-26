@@ -15,6 +15,16 @@ export function migrateTrade(raw: Trade): Trade {
   const number = (value: unknown, fallback: number): number =>
     typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
+  // operação gravada antes dos futuros: spot, comprada, sem alavancagem. Sem
+  // isto, `notional / undefined` vira NaN na primeira conta de margem.
+  if (trade.market !== 'FUTURES' && trade.market !== 'SPOT') trade.market = 'SPOT';
+  if (trade.side !== 'SELL') trade.side = 'BUY';
+  trade.leverage = Math.max(number(trade.leverage, 1), 1);
+  trade.initialMargin = number(trade.initialMargin, 0);
+  if (typeof trade.liquidationPrice !== 'number' || !Number.isFinite(trade.liquidationPrice)) {
+    trade.liquidationPrice = null;
+  }
+
   trade.filledQuantity = number(trade.filledQuantity, 0);
   trade.requestedQuantity = number(trade.requestedQuantity, trade.filledQuantity);
   trade.realizedPnl = number(trade.realizedPnl, 0);
@@ -22,6 +32,9 @@ export function migrateTrade(raw: Trade): Trade {
   trade.feesPaid = number(trade.feesPaid, 0);
   trade.riskAmount = number(trade.riskAmount, 0);
   trade.notional = number(trade.notional, 0);
+  if (trade.initialMargin === 0 && trade.notional > 0) {
+    trade.initialMargin = trade.notional / trade.leverage;
+  }
   trade.maxFavorablePercent = number(trade.maxFavorablePercent, 0);
   trade.maxAdversePercent = number(trade.maxAdversePercent, 0);
 

@@ -1,8 +1,10 @@
 import type { AppSettings, SymbolFilters, Trade } from '../../core/types.ts';
+import { isFavorable } from '../../core/direction.ts';
 import { round } from '../../core/risk/index.ts';
 import { feeFor, netPnl } from '../../core/risk/costs.ts';
 import { nextProtectiveStop } from '../../core/risk/stops.ts';
 import { getOrderById, getOrderList, getSymbolFilters } from '../binance/rest.ts';
+import { getFuturesOrderById } from '../binance/futures.ts';
 import type { UserDataStream } from '../binance/userStream.ts';
 import { averageFillPrice, type OrderExecutionEvent } from '../binance/userEvents.ts';
 import type { EventBus } from '../events.ts';
@@ -54,6 +56,15 @@ export class LiveTradeMonitor {
   private stopped = true;
   /** primeira vez que cada operação foi vista parcialmente preenchida e a descoberto */
   private exposedSince = new Map<string, number>();
+  /**
+   * Quantidade que a proteção de futuros cobre agora, por operação.
+   *
+   * Sem esta lembrança, uma entrada preenchida pela metade faria o monitor
+   * cancelar e recriar alvo e stop a CADA volta da reconciliação — e cada
+   * ciclo desses tem uma janela em que a posição fica descoberta. Rearmar é
+   * caro: só se faz quando a quantidade em mãos mudou de verdade.
+   */
+  private protectedQuantity = new Map<string, number>();
 
   constructor(
     repository: Repository,
@@ -162,6 +173,7 @@ export class LiveTradeMonitor {
   }
 
   private async syncTrade(trade: Trade): Promise<void> {
+    if (trade.market === 'FUTURES') return this.syncFuturesTrade(trade);
     try {
       const lists = [...new Set([trade.clientOrderId, ...(trade.protectionListIds ?? [])])];
       const orderIds = new Set<string>();
@@ -207,7 +219,7 @@ export class LiveTradeMonitor {
         if (await this.ensureProtection(trade)) changed = true;
         const price = this.market.getPrice(trade.symbol);
         if (price !== null) {
-          if (trade.highWaterPrice === null || price > trade.highWaterPrice) {
+          if (trade.highWaterPrice === null || isFavorable(trade.side, price, trade.highWaterPrice)) {
             trade.highWaterPrice = price;
             changed = true;
           }
@@ -219,6 +231,83 @@ export class LiveTradeMonitor {
       await this.settle(trade);
     } catch (error) {
       logger.warn('Não foi possível sincronizar a ordem na Binance', {
+        tradeId: trade.id,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  /**
+   * Reconciliação em FUTUROS.
+   *
+   * Não há lista OCO para consultar: o que existe é um punhado de ids de
+   * ordem — a entrada e as ordens de proteção que este servidor mandou. A
+   * conta em si é a mesma do spot (`applyOrderState`), e é de propósito: o
+   * jeito de não divergir entre os dois mercados é os dois passarem pela
+   * mesma contabilidade.
+   */
+  private async syncFuturesTrade(trade: Trade): Promise<void> {
+    try {
+      const ids = [...new Set([...trade.exchangeOrderIds, ...(trade.protectionListIds ?? [])])];
+      let changed = false;
+
+      for (const orderId of ids) {
+        let order;
+        try {
+          order = await getFuturesOrderById(trade.symbol, orderId);
+        } catch (error) {
+          logger.debug('Ordem de futuros não encontrada na reconciliação', {
+            tradeId: trade.id,
+            orderId,
+            error: (error as Error).message,
+          });
+          continue;
+        }
+
+        // entrada que a corretora encerrou sem executar nada
+        if (
+          trade.status === 'PENDING' &&
+          trade.exchangeOrderIds.includes(orderId) &&
+          (order.status === 'CANCELED' || order.status === 'EXPIRED' || order.status === 'REJECTED')
+        ) {
+          trade.status = 'CANCELLED';
+          trade.closeReason = 'ordem de entrada encerrada na corretora sem executar';
+          trade.closedAt = new Date().toISOString();
+          changed = true;
+          continue;
+        }
+
+        const executed = Number(order.executedQty);
+        if (!Number.isFinite(executed) || executed <= 0) continue;
+        const average = Number(order.avgPrice) > 0 ? Number(order.avgPrice) : Number(order.price);
+        if (!Number.isFinite(average) || average <= 0) continue;
+
+        const applied = await this.applyOrderState(trade, {
+          orderId,
+          side: order.side === 'SELL' ? 'SELL' : 'BUY',
+          isStop: order.type.includes('STOP'),
+          executedQuantity: executed,
+          averagePrice: average,
+        });
+        if (applied) changed = true;
+      }
+
+      if (trade.status === 'OPEN') {
+        if (await this.ensureProtection(trade)) changed = true;
+        const price = this.market.getPrice(trade.symbol);
+        if (price !== null) {
+          if (trade.highWaterPrice === null || isFavorable(trade.side, price, trade.highWaterPrice)) {
+            trade.highWaterPrice = price;
+            changed = true;
+          }
+          if (await this.moveLiveStop(trade, price)) changed = true;
+        }
+      }
+
+      if (!changed) return;
+      await this.settle(trade);
+    } catch (error) {
+      logger.warn('Não foi possível sincronizar a posição de futuros', {
         tradeId: trade.id,
         error: (error as Error).message,
       });
@@ -241,7 +330,11 @@ export class LiveTradeMonitor {
     const feePercent = this.guard().feePercent;
     const { orderId, averagePrice } = state;
 
-    if (state.side === 'BUY') {
+    // ENTRADA é a ordem do lado da tese; SAÍDA é a do lado contrário. Enquanto
+    // só existia compra, "BUY = entrada" era verdade por acidente — numa
+    // posição vendida essa leitura registraria cada saída como se fosse uma
+    // nova entrada, dobrando a posição no papel e zerando o resultado.
+    if (state.side === trade.side) {
       const previousFilled = trade.filledQuantity;
       const previousEntry = trade.averageFillPrice ?? 0;
       const filled = round(previousFilled + delta, 10);
@@ -274,7 +367,8 @@ export class LiveTradeMonitor {
     const entry = trade.averageFillPrice ?? trade.entryPrice;
     // soma, nunca substitui: saída em duas partes tem dois resultados
     trade.realizedPnl = round(
-      trade.realizedPnl + netPnl({ entryPrice: entry, exitPrice: averagePrice, quantity: delta, feePercent }),
+      trade.realizedPnl +
+        netPnl({ entryPrice: entry, exitPrice: averagePrice, quantity: delta, feePercent, side: trade.side }),
       2,
     );
     trade.feesPaid = round(trade.feesPaid + feeFor(averagePrice, delta, feePercent), 6);
@@ -320,6 +414,7 @@ export class LiveTradeMonitor {
     this.bus.broadcast({ type: 'trade', payload: trade });
     if (trade.status === 'CLOSED' || trade.status === 'CANCELLED') {
       this.exposedSince.delete(trade.id);
+      this.protectedQuantity.delete(trade.id);
       if (trade.status === 'CLOSED') await this.onClosed(trade);
     }
   }
@@ -343,6 +438,32 @@ export class LiveTradeMonitor {
     const hasProtection = (trade.protectionListIds ?? []).length > 0;
     const wantsScaleOut = guard.liveScaleOut && trade.target2 !== null;
     const entryIncomplete = trade.filledQuantity + 1e-10 < trade.requestedQuantity;
+
+    /*
+     * Em futuros não existe bracket: a entrada vai sozinha e a posição nasce
+     * DESPROTEGIDA. Aqui não há o que esperar — e esperar seria o erro. A
+     * espera do spot existe porque lá o OTOCO ainda pode armar sozinho quando
+     * o resto da entrada preencher; em futuros isso nunca acontece.
+     */
+    if (trade.market === 'FUTURES') {
+      const covered = this.protectedQuantity.get(trade.id) ?? 0;
+      const matchesPosition = Math.abs(covered - trade.remainingQuantity) <= 1e-10;
+      if (hasProtection && matchesPosition) return false;
+
+      const filters = (await getSymbolFilters([trade.symbol])).get(trade.symbol);
+      if (!filters) return false;
+      const why = hasProtection
+        ? 'proteção de futuros ajustada à quantidade em mãos'
+        : 'posição de futuros aberta sem proteção — alvo e stop só existem depois do preenchimento';
+      const armed = await this.protection.rearm(trade, filters, trade.stopLoss, why);
+      if (armed.armed) {
+        this.protectedQuantity.set(trade.id, trade.remainingQuantity);
+      } else {
+        this.protectedQuantity.delete(trade.id);
+        await this.protection.panicSell(trade, filters, why);
+      }
+      return true;
+    }
 
     if (hasProtection && !entryIncomplete) return false;
 
@@ -396,6 +517,7 @@ export class LiveTradeMonitor {
         highWaterPrice: trade.highWaterPrice ?? price,
         currentPrice: price,
         target1Filled: trade.fills.some((item) => item.kind === 'TARGET1'),
+        side: trade.side,
       },
       {
         breakevenAfterTarget1: guard.breakevenAfterTarget1,
@@ -413,9 +535,11 @@ export class LiveTradeMonitor {
     const from = trade.stopLoss;
     const result = await this.protection.rearm(trade, filters, moved, 'stop de proteção subindo');
     if (!result.armed) {
+      this.protectedQuantity.delete(trade.id);
       await this.protection.panicSell(trade, filters, 'proteção não pôde ser recriada');
       return true;
     }
+    this.protectedQuantity.set(trade.id, trade.remainingQuantity);
 
     trade.stopLoss = moved;
     trade.protectiveStop = moved;

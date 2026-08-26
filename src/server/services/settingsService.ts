@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import type {
   AppSettings,
+  MarketKind,
   ModeSettings,
   PersistedSettings,
   StoredSettings,
   TradingMode,
 } from '../../core/types.ts';
+import { DEFAULT_FUTURES_FEE_PERCENT } from '../../core/risk/costs.ts';
 import { DEFAULT_GUARD } from '../../core/risk/governor.ts';
 import { config } from '../config.ts';
 import type { Repository } from '../store/index.ts';
@@ -76,8 +78,24 @@ const guardSchema = z.object({
   mutedUntil: z.string().datetime().nullable(),
 });
 
+/**
+ * Ajustes de futuros. O teto de alavancagem tem limite no schema: 10x é o
+ * máximo que o painel aceita digitar, mesmo que a corretora permita 125x.
+ * Alavancagem alta não aumenta o lucro esperado — encurta a distância até a
+ * liquidação, e a liquidação chega antes do stop.
+ */
+const futuresSchema = z.object({
+  leverage: z.number().int().min(1).max(10),
+  maxLeverage: z.number().int().min(1).max(10),
+  marginMode: z.enum(['ISOLATED', 'CROSSED']),
+  allowShort: z.boolean(),
+  minLiquidationBufferPercent: z.number().min(0).max(50),
+});
+
 export const settingsUpdateSchema = z.object({
   mode: z.enum(['PAPER', 'TESTNET', 'LIVE']).optional(),
+  market: z.enum(['SPOT', 'FUTURES']).optional(),
+  futures: futuresSchema.partial().optional(),
   risk: riskSchema.partial().optional(),
   scanner: scannerSchema.partial().optional(),
   autoTrade: autoTradeSchema.partial().optional(),
@@ -125,6 +143,9 @@ const FIELD_LABELS: Record<string, string> = {
   'scanner.setupTtlMinutes': 'Validade do setup (min)',
   'scanner.cooldownMinutes': 'Silêncio antes de recriar (min)',
   'scanner.minQuoteVolume24h': 'Volume mínimo do universo',
+  'futures.leverage': 'Alavancagem',
+  'futures.maxLeverage': 'Teto de alavancagem',
+  'futures.minLiquidationBufferPercent': 'Folga mínima até a liquidação (%)',
 };
 
 /**
@@ -163,6 +184,7 @@ export function describeSettingsIssue(error: z.ZodError): string {
 }
 
 const MODES: readonly TradingMode[] = ['PAPER', 'TESTNET', 'LIVE'];
+const MARKETS: readonly MarketKind[] = ['SPOT', 'FUTURES'];
 
 /**
  * Configurações de uma conta, já com a diferença que importa: em conta real o
@@ -170,8 +192,9 @@ const MODES: readonly TradingMode[] = ['PAPER', 'TESTNET', 'LIVE'];
  * três modos — o robô nascia ligado inclusive no LIVE, e só as travas do
  * servidor seguravam. Uma trava a menos é uma trava a menos.
  */
-export function defaultModeSettings(mode: TradingMode): ModeSettings {
+export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPOT'): ModeSettings {
   const live = mode === 'LIVE';
+  const futuresMarket = market === 'FUTURES';
   return {
     risk: {
       // o usuário pensa em reais; o motor converte para USDT pelo par USDTBRL
@@ -202,13 +225,37 @@ export function defaultModeSettings(mode: TradingMode): ModeSettings {
       liveArmedUntil: null,
       maxNotionalPerTrade: 50,
     },
-    guard: { ...DEFAULT_GUARD },
+    guard: {
+      ...DEFAULT_GUARD,
+      // futuros cobra taxa de contrato, não de spot; usar a do spot faria o
+      // R/R líquido recusar operação que na prática paga menos
+      feePercent: futuresMarket ? DEFAULT_FUTURES_FEE_PERCENT : DEFAULT_GUARD.feePercent,
+    },
+    futures: {
+      leverage: 3,
+      maxLeverage: 10,
+      marginMode: 'ISOLATED',
+      // a venda a descoberto nasce ligada nas contas de teste e DESARMADA na
+      // conta real: o lado vendido nunca passou pelo laboratório, então em
+      // dinheiro de verdade ele começa como decisão consciente
+      allowShort: futuresMarket && !live,
+      minLiquidationBufferPercent: 1.5,
+    },
+  };
+}
+
+function defaultBuckets(market: MarketKind): Record<TradingMode, ModeSettings> {
+  return {
+    PAPER: defaultModeSettings('PAPER', market),
+    TESTNET: defaultModeSettings('TESTNET', market),
+    LIVE: defaultModeSettings('LIVE', market),
   };
 }
 
 export function defaultStoredSettings(): StoredSettings {
   return {
     mode: config.mode,
+    market: config.market,
     scanner: {
       watchlist: config.watchlist,
       triggerTimeframes: ['1h', '4h'],
@@ -218,73 +265,107 @@ export function defaultStoredSettings(): StoredSettings {
       universe: 'ALL_USDT',
       minQuoteVolume24h: 3_000_000,
     },
-    byMode: {
-      PAPER: defaultModeSettings('PAPER'),
-      TESTNET: defaultModeSettings('TESTNET'),
-      LIVE: defaultModeSettings('LIVE'),
+    byMarket: {
+      SPOT: defaultBuckets('SPOT'),
+      FUTURES: defaultBuckets('FUTURES'),
     },
     updatedAt: new Date().toISOString(),
   };
 }
 
-/** Achata o modo pedido — é assim que o resto do sistema enxerga tudo. */
+/** Achata a modalidade e o modo pedidos — é assim que o resto do sistema enxerga tudo. */
 export function resolveSettings(stored: StoredSettings): AppSettings {
-  const bucket = stored.byMode[stored.mode];
+  const bucket = stored.byMarket[stored.market][stored.mode];
   return {
     mode: stored.mode,
+    market: stored.market,
     scanner: stored.scanner,
     risk: bucket.risk,
     autoTrade: bucket.autoTrade,
     guard: bucket.guard,
+    futures: bucket.futures,
     updatedAt: stored.updatedAt,
   };
 }
 
-function isLegacy(value: PersistedSettings): value is Exclude<PersistedSettings, StoredSettings> {
-  return !('byMode' in value) || value.byMode === undefined;
+function hasMarketBuckets(value: PersistedSettings): value is StoredSettings {
+  return 'byMarket' in value && value.byMarket !== undefined;
+}
+
+function hasModeBuckets(
+  value: PersistedSettings,
+): value is Extract<PersistedSettings, { byMode: unknown }> {
+  return 'byMode' in value && value.byMode !== undefined;
 }
 
 /**
  * Traz o que está no disco para o formato de hoje.
  *
- * O conjunto antigo era de todo mundo, mas quem o ajustou tinha um modo na
- * tela — é a esse modo que ele volta. Os outros começam do padrão em vez de
- * herdar números pensados para outra conta; herdar seria repetir, de outro
- * jeito, exatamente o problema que a separação existe para resolver.
+ * São três gerações de arquivo: o conjunto único de todas as contas, o
+ * conjunto por conta (`byMode`) e o atual, por modalidade e conta
+ * (`byMarket`). As duas primeiras viram SPOT — que era a única modalidade que
+ * existia quando foram gravadas — e futuros começa do padrão. Herdar em
+ * futuros os números pensados para spot seria dar a uma posição alavancada os
+ * limites de uma posição à vista.
  */
 export function normalizeStoredSettings(value: PersistedSettings): StoredSettings {
   const base = defaultStoredSettings();
-  if (!isLegacy(value)) {
-    const byMode = { ...base.byMode };
-    for (const mode of MODES) {
-      const stored = value.byMode?.[mode];
-      const fallback = base.byMode[mode];
-      byMode[mode] = {
-        risk: { ...fallback.risk, ...stored?.risk },
-        autoTrade: { ...fallback.autoTrade, ...stored?.autoTrade },
-        guard: { ...fallback.guard, ...stored?.guard },
+  const scanner = { ...base.scanner, ...value.scanner };
+  const mode = value.mode ?? base.mode;
+  const updatedAt = value.updatedAt ?? base.updatedAt;
+
+  const merge = (
+    market: MarketKind,
+    stored: Partial<Record<TradingMode, Partial<ModeSettings>>> | undefined,
+  ): Record<TradingMode, ModeSettings> => {
+    const result = { ...base.byMarket[market] };
+    for (const each of MODES) {
+      const fallback = base.byMarket[market][each];
+      const saved = stored?.[each];
+      result[each] = {
+        risk: { ...fallback.risk, ...saved?.risk },
+        autoTrade: { ...fallback.autoTrade, ...saved?.autoTrade },
+        guard: { ...fallback.guard, ...saved?.guard },
+        futures: { ...fallback.futures, ...saved?.futures },
       };
     }
+    return result;
+  };
+
+  if (hasMarketBuckets(value)) {
+    const byMarket = { ...base.byMarket };
+    for (const market of MARKETS) byMarket[market] = merge(market, value.byMarket?.[market]);
     return {
-      mode: value.mode ?? base.mode,
-      scanner: { ...base.scanner, ...value.scanner },
-      byMode,
-      updatedAt: value.updatedAt ?? base.updatedAt,
+      mode,
+      market: value.market ?? base.market,
+      scanner,
+      byMarket,
+      updatedAt,
     };
   }
 
-  const mode = value.mode ?? base.mode;
-  const byMode = { ...base.byMode };
-  byMode[mode] = {
-    risk: { ...base.byMode[mode].risk, ...value.risk },
-    autoTrade: { ...base.byMode[mode].autoTrade, ...value.autoTrade },
-    guard: { ...base.byMode[mode].guard, ...value.guard },
-  };
+  if (hasModeBuckets(value)) {
+    return {
+      mode,
+      // arquivo sem modalidade é arquivo de antes dos futuros: era spot
+      market: 'SPOT',
+      scanner,
+      byMarket: { SPOT: merge('SPOT', value.byMode), FUTURES: merge('FUTURES', undefined) },
+      updatedAt,
+    };
+  }
+
+  // formato mais antigo: um conjunto só, que volta para o modo que estava na tela
+  const legacy = value as Extract<PersistedSettings, { risk: unknown }>;
+  const spot = merge('SPOT', {
+    [mode]: { risk: legacy.risk, autoTrade: legacy.autoTrade, guard: legacy.guard },
+  });
   return {
     mode,
-    scanner: { ...base.scanner, ...value.scanner },
-    byMode,
-    updatedAt: value.updatedAt ?? base.updatedAt,
+    market: 'SPOT',
+    scanner,
+    byMarket: { SPOT: spot, FUTURES: merge('FUTURES', undefined) },
+    updatedAt,
   };
 }
 
@@ -320,9 +401,18 @@ export class SettingsService {
     return this.view;
   }
 
-  /** Configurações de um modo que não é o ativo — para a tela mostrar as três. */
-  forMode(mode: TradingMode): ModeSettings {
-    return this.stored.byMode[mode];
+  /**
+   * Configurações de um modo que não é o ativo — para a tela mostrar as três.
+   * Sem modalidade informada vale a que está em exibição: quem pergunta pelo
+   * robô do demo quer o robô do demo DA modalidade aberta, não o do spot.
+   */
+  forMode(mode: TradingMode, market: MarketKind = this.stored.market): ModeSettings {
+    return this.stored.byMarket[market][mode];
+  }
+
+  /** As três contas da modalidade pedida — é o que a tela de ajustes desenha. */
+  buckets(market: MarketKind = this.stored.market): Record<TradingMode, ModeSettings> {
+    return this.stored.byMarket[market];
   }
 
   all(): StoredSettings {
@@ -339,16 +429,24 @@ export class SettingsService {
    */
   async update(
     patch: z.infer<typeof settingsUpdateSchema>,
-    options: { targetMode?: TradingMode } = {},
+    options: { targetMode?: TradingMode; targetMarket?: MarketKind } = {},
   ): Promise<AppSettings> {
     const displayed = patch.mode ?? this.stored.mode;
+    const displayedMarket = patch.market ?? this.stored.market;
     const target = options.targetMode ?? displayed;
-    const current = this.stored.byMode[target];
+    const targetMarket = options.targetMarket ?? displayedMarket;
+    const current = this.stored.byMarket[targetMarket][target];
     const bucket: ModeSettings = {
       risk: { ...current.risk, ...patch.risk },
       autoTrade: { ...current.autoTrade, ...patch.autoTrade },
       guard: { ...current.guard, ...patch.guard },
+      futures: { ...current.futures, ...patch.futures },
     };
+    // alavancagem nunca passa do teto configurado, mesmo que o pedido venha
+    // com os dois campos de uma vez e em ordem inconveniente
+    if (bucket.futures.leverage > bucket.futures.maxLeverage) {
+      bucket.futures.leverage = bucket.futures.maxLeverage;
+    }
     if (bucket.risk.minimumScoreToShow > bucket.risk.minimumScoreToAlert) {
       bucket.risk.minimumScoreToShow = bucket.risk.minimumScoreToAlert;
     }
@@ -360,8 +458,12 @@ export class SettingsService {
 
     const next: StoredSettings = {
       mode: displayed,
+      market: displayedMarket,
       scanner: { ...this.stored.scanner, ...patch.scanner },
-      byMode: { ...this.stored.byMode, [target]: bucket },
+      byMarket: {
+        ...this.stored.byMarket,
+        [targetMarket]: { ...this.stored.byMarket[targetMarket], [target]: bucket },
+      },
       updatedAt: new Date().toISOString(),
     };
     this.stored = next;

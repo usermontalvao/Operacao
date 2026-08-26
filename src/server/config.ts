@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import type { TradingMode } from '../core/types.ts';
+import type { MarketKind, TradingMode } from '../core/types.ts';
 
 const DEFAULT_WATCHLIST = ['BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'OPUSDT', 'ONDOUSDT'];
 
@@ -8,10 +8,23 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(3010),
   HOST: z.string().default('127.0.0.1'),
   TRADING_MODE: z.enum(['PAPER', 'TESTNET', 'LIVE']).default('PAPER'),
+  /** modalidade inicial; o painel troca em tempo de execução */
+  TRADING_MARKET: z.enum(['SPOT', 'FUTURES']).default('SPOT'),
   BINANCE_API_KEY: z.string().optional(),
   BINANCE_API_SECRET: z.string().optional(),
   BINANCE_TESTNET_API_KEY: z.string().optional(),
   BINANCE_TESTNET_API_SECRET: z.string().optional(),
+  /**
+   * Chaves de futuros. Em produção a mesma chave do spot costuma servir
+   * (basta ter futuros habilitado), e é isso que o fallback faz. No testnet
+   * NÃO existe fallback possível: testnet.binancefuture.com é outro site, com
+   * cadastro e chaves próprios — usar ali a chave do testnet spot devolve
+   * -2015 e nada mais.
+   */
+  BINANCE_FUTURES_API_KEY: z.string().optional(),
+  BINANCE_FUTURES_API_SECRET: z.string().optional(),
+  BINANCE_FUTURES_TESTNET_API_KEY: z.string().optional(),
+  BINANCE_FUTURES_TESTNET_API_SECRET: z.string().optional(),
   APP_SECRET: z.string().optional(),
   STORE: z.enum(['json', 'supabase']).default('json'),
   DATA_DIR: z.string().default('data'),
@@ -43,10 +56,24 @@ const schema = z.object({
 
 const parsed = schema.parse(process.env);
 
-export type BinanceEnvironment = 'production' | 'testnet';
+/**
+ * Ambiente = modalidade + conta. Quatro combinações, quatro conjuntos de
+ * endereços: o mesmo par tem preço, filtros e ordens diferentes em spot e em
+ * futuros, e misturá-los produziria ordem calculada num livro e enviada a
+ * outro.
+ */
+export type BinanceEnvironment =
+  | 'production'
+  | 'testnet'
+  | 'futures-production'
+  | 'futures-testnet';
 
 export interface EnvironmentEndpoints {
   name: BinanceEnvironment;
+  /** spot ou futuros — decide os prefixos de caminho (/api/v3 x /fapi/v1) */
+  market: MarketKind;
+  /** produção ou testnet, já sem a modalidade */
+  network: 'production' | 'testnet';
   /** dados públicos de mercado — não consomem peso da conta de trading */
   marketRestBase: string;
   /** endpoints assinados (conta e ordens) */
@@ -63,6 +90,8 @@ export interface EnvironmentEndpoints {
 export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
   production: {
     name: 'production',
+    market: 'SPOT',
+    network: 'production',
     marketRestBase: 'https://data-api.binance.vision',
     tradeRestBase: 'https://api.binance.com',
     wsBase: 'wss://data-stream.binance.vision',
@@ -71,11 +100,38 @@ export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
   },
   testnet: {
     name: 'testnet',
+    market: 'SPOT',
+    network: 'testnet',
     marketRestBase: 'https://testnet.binance.vision',
     tradeRestBase: 'https://testnet.binance.vision',
     wsBase: 'wss://stream.testnet.binance.vision',
     userWsBase: 'wss://stream.testnet.binance.vision',
     hasCredentials: !!parsed.BINANCE_TESTNET_API_KEY && !!parsed.BINANCE_TESTNET_API_SECRET,
+  },
+  'futures-production': {
+    name: 'futures-production',
+    market: 'FUTURES',
+    network: 'production',
+    // futuros não tem espelho público em data-api: dados e ordens saem do
+    // mesmo host, e é ele que conta o peso de requisição
+    marketRestBase: 'https://fapi.binance.com',
+    tradeRestBase: 'https://fapi.binance.com',
+    wsBase: 'wss://fstream.binance.com',
+    userWsBase: 'wss://fstream.binance.com',
+    hasCredentials:
+      (!!parsed.BINANCE_FUTURES_API_KEY && !!parsed.BINANCE_FUTURES_API_SECRET) ||
+      (!!parsed.BINANCE_API_KEY && !!parsed.BINANCE_API_SECRET),
+  },
+  'futures-testnet': {
+    name: 'futures-testnet',
+    market: 'FUTURES',
+    network: 'testnet',
+    marketRestBase: 'https://testnet.binancefuture.com',
+    tradeRestBase: 'https://testnet.binancefuture.com',
+    wsBase: 'wss://fstream.binancefuture.com',
+    userWsBase: 'wss://fstream.binancefuture.com',
+    hasCredentials:
+      !!parsed.BINANCE_FUTURES_TESTNET_API_KEY && !!parsed.BINANCE_FUTURES_TESTNET_API_SECRET,
   },
 };
 
@@ -85,14 +141,23 @@ export const ENVIRONMENTS: Record<BinanceEnvironment, EnvironmentEndpoints> = {
  * executa — misturar preço real com execução de teste produziria ordens que
  * nunca preenchem.
  */
-export function environmentForMode(mode: TradingMode): EnvironmentEndpoints {
-  return mode === 'TESTNET' ? ENVIRONMENTS.testnet : ENVIRONMENTS.production;
+export function environmentForMode(
+  mode: TradingMode,
+  market: MarketKind = 'SPOT',
+): EnvironmentEndpoints {
+  const testnet = mode === 'TESTNET';
+  if (market === 'FUTURES') {
+    return testnet ? ENVIRONMENTS['futures-testnet'] : ENVIRONMENTS['futures-production'];
+  }
+  return testnet ? ENVIRONMENTS.testnet : ENVIRONMENTS.production;
 }
 
 export interface AppConfig {
   port: number;
   host: string;
   mode: TradingMode;
+  /** modalidade com que o servidor sobe, antes de ler o que está gravado */
+  market: MarketKind;
   store: 'json' | 'supabase';
   dataDir: string;
   supabase: { url: string; serviceRoleKey: string; anonKey: string; ownerId: string } | null;
@@ -175,6 +240,7 @@ export const config: AppConfig = {
   port: parsed.PORT,
   host: parsed.HOST,
   mode: parsed.TRADING_MODE,
+  market: parsed.TRADING_MARKET,
   store: supabaseReady ? 'supabase' : 'json',
   dataDir: parsed.DATA_DIR,
   supabase: supabaseReady
@@ -214,6 +280,25 @@ export const config: AppConfig = {
 export function readCredentials(
   environment: BinanceEnvironment,
 ): { apiKey: string; apiSecret: string } | null {
+  if (environment === 'futures-testnet') {
+    if (!parsed.BINANCE_FUTURES_TESTNET_API_KEY || !parsed.BINANCE_FUTURES_TESTNET_API_SECRET) {
+      return null;
+    }
+    return {
+      apiKey: parsed.BINANCE_FUTURES_TESTNET_API_KEY,
+      apiSecret: parsed.BINANCE_FUTURES_TESTNET_API_SECRET,
+    };
+  }
+  if (environment === 'futures-production') {
+    if (parsed.BINANCE_FUTURES_API_KEY && parsed.BINANCE_FUTURES_API_SECRET) {
+      return {
+        apiKey: parsed.BINANCE_FUTURES_API_KEY,
+        apiSecret: parsed.BINANCE_FUTURES_API_SECRET,
+      };
+    }
+    if (!parsed.BINANCE_API_KEY || !parsed.BINANCE_API_SECRET) return null;
+    return { apiKey: parsed.BINANCE_API_KEY, apiSecret: parsed.BINANCE_API_SECRET };
+  }
   if (environment === 'testnet') {
     if (!parsed.BINANCE_TESTNET_API_KEY || !parsed.BINANCE_TESTNET_API_SECRET) return null;
     return {

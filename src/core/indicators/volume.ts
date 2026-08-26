@@ -25,14 +25,27 @@ export function volumeProfile(candles: Candle[], period = 20): VolumeProfile {
 
 /** Compara o volume vendedor recente com o anterior (queda = pressão sumindo). */
 export function sellingVolumeFading(candles: Candle[], window = 3): boolean {
+  return pressureFading(candles, 'SELLING', window);
+}
+
+/**
+ * O espelho: volume COMPRADOR sumindo. É o que autoriza vender um repique —
+ * a alta que continua sem comprador é a alta que devolve.
+ */
+export function buyingVolumeFading(candles: Candle[], window = 3): boolean {
+  return pressureFading(candles, 'BUYING', window);
+}
+
+function pressureFading(candles: Candle[], kind: 'BUYING' | 'SELLING', window: number): boolean {
   if (candles.length < window * 2) return false;
   const slice = candles.slice(-window * 2);
   const older = slice.slice(0, window);
   const recent = slice.slice(window);
-  const sellVolume = (list: Candle[]): number =>
-    list.reduce((acc, c) => acc + (c.close < c.open ? c.volume : 0), 0);
-  const olderSell = sellVolume(older);
-  const recentSell = sellVolume(recent);
-  if (olderSell === 0) return false;
-  return recentSell < olderSell * 0.8;
+  const inDirection = (c: Candle): boolean => (kind === 'SELLING' ? c.close < c.open : c.close > c.open);
+  const volumeOf = (list: Candle[]): number =>
+    list.reduce((acc, c) => acc + (inDirection(c) ? c.volume : 0), 0);
+  const before = volumeOf(older);
+  const now = volumeOf(recent);
+  if (before === 0) return false;
+  return now < before * 0.8;
 }

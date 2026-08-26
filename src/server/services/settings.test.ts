@@ -109,14 +109,19 @@ test('o ajuste do formato antigo volta para o modo que estava na tela', () => {
   const convertido = normalizeStoredSettings(antigo);
 
   assert.equal(convertido.mode, 'TESTNET');
-  assert.equal(convertido.byMode.TESTNET.risk.paperCapital, 4242);
-  assert.equal(convertido.byMode.TESTNET.autoTrade.minimumScore, 97);
+  // arquivo daquela época é de antes dos futuros: o que ele guarda é spot
+  assert.equal(convertido.market, 'SPOT');
+  assert.equal(convertido.byMarket.SPOT.TESTNET.risk.paperCapital, 4242);
+  assert.equal(convertido.byMarket.SPOT.TESTNET.autoTrade.minimumScore, 97);
   assert.deepEqual(convertido.scanner.watchlist, ['SOLUSDT']);
 
   // os outros modos começam do padrão: números pensados para a conta de teste
   // não podem virar, sozinhos, os números da conta real
-  assert.notEqual(convertido.byMode.LIVE.risk.paperCapital, 4242);
-  assert.equal(convertido.byMode.LIVE.autoTrade.enabled, false);
+  assert.notEqual(convertido.byMarket.SPOT.LIVE.risk.paperCapital, 4242);
+  assert.equal(convertido.byMarket.SPOT.LIVE.autoTrade.enabled, false);
+
+  // e futuros não herda nada: o capital do spot não vira capital alavancado
+  assert.notEqual(convertido.byMarket.FUTURES.TESTNET.risk.paperCapital, 4242);
 });
 
 test('desligar o robô desarma a conta real só do modo mexido', async () => {

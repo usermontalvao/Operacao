@@ -95,12 +95,17 @@ export class AutoTrader {
 
   /** A decisão desta sessão, sem executar nada — é o que o painel consulta. */
   async decide(setup: TradeSetup, mode: TradingMode): Promise<EntryDecision> {
-    const policy = this.settings.forMode(mode);
+    // a modalidade é a do SETUP, não a da tela: o setup nasceu numa varredura
+    // de uma modalidade e é lá que ele seria executado
+    const policy = this.settings.forMode(mode, setup.market);
     const trades = this.persistenceAvailable ? await this.repository.listTrades() : [];
 
     const openAutomatic = this.paper
       .getOpenTrades()
-      .filter((trade) => trade.automatic === true && trade.mode === mode)
+      .filter(
+        (trade) =>
+          trade.automatic === true && trade.mode === mode && trade.market === setup.market,
+      )
       .map((trade) => ({ symbol: trade.symbol, setupId: trade.setupId }));
 
     const liveDenial = mode === 'LIVE' ? liveAutoTradeDenial(policy) : null;
@@ -134,7 +139,7 @@ export class AutoTrader {
       await this.record(decision, setup, mode);
       if (!decision.allowed) return;
 
-      const trade = await this.execution.executeAutomatic(setup, mode, decision);
+      const trade = await this.execution.executeAutomatic(setup, mode, decision, setup.market);
       if (trade) {
         logger.info('Compra automática executada', {
           symbol: setup.symbol,
@@ -180,7 +185,7 @@ export class AutoTrader {
   ): Promise<void> {
     if (!this.persistenceAvailable) return;
 
-    const policy = this.settings.forMode(mode);
+    const policy = this.settings.forMode(mode, setup.market);
     const snapshot = capturePolicySnapshot({
       mode,
       autoTrade: policy.autoTrade,

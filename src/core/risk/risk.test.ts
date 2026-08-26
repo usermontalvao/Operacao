@@ -20,12 +20,14 @@ const FILTERS: SymbolFilters = {
   quotePrecision: 8,
   isSpotTradingAllowed: true,
   ocoAllowed: true,
+  market: 'SPOT',
 };
 
 const SETUP: TradeSetup = {
   id: 'setup-1',
   symbol: 'XRPUSDT',
   side: 'BUY',
+  market: 'SPOT',
   timeframe: '4h',
   anchorTimeframe: '1d',
   setupType: 'PULLBACK',

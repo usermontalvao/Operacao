@@ -139,8 +139,19 @@ export class ScannerService {
     return this.context;
   }
 
+  /**
+   * O radar da modalidade em exibição.
+   *
+   * Setups de spot e de futuros convivem em memória — trocar de modalidade
+   * não apaga o que a outra encontrou —, mas o radar mostra só os da
+   * modalidade aberta: uma tese vendida aparecendo numa tela de spot é uma
+   * tese que ninguém consegue executar dali.
+   */
   getSetups(): TradeSetup[] {
-    return [...this.setups.values()].sort((a, b) => b.score - a.score);
+    const market = this.settings.get().market;
+    return [...this.setups.values()]
+      .filter((setup) => setup.market === market)
+      .sort((a, b) => b.score - a.score);
   }
 
   getSetup(id: string): TradeSetup | null {

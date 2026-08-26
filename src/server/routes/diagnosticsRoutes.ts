@@ -101,7 +101,7 @@ export function diagnosticsRoutes(context: ApiContext): Router {
         },
         binance: {
           ambienteAtivo: getActiveEnvironment().name,
-          ambienteEsperado: environmentForMode(settings.mode).name,
+          ambienteEsperado: environmentForMode(settings.mode, settings.market).name,
           publicaDisponivel: context.market.isAvailable(),
           streamPrecos: context.market.getConnectionState(),
         },

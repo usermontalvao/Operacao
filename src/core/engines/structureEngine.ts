@@ -1,7 +1,9 @@
 import type { Candle, IndicatorSnapshot, StructureSnapshot, TrendState } from '../types.ts';
 import {
+  bounceFromLow,
   buildLevels,
   classifyStructure,
+  detectBreakdown,
   detectBreakout,
   findSwings,
   isConsolidating,
@@ -51,8 +53,10 @@ export function computeStructure(
     nearestSupport: nearestBelow(supports, close),
     nearestResistance: nearestAbove(resistances, close),
     breakout: detectBreakout(candles, resistances, atrPercent),
+    breakdown: detectBreakdown(candles, supports, atrPercent),
     consolidating: isConsolidating(candles, indicators.atr14 ?? 0),
     pullbackPercent: pullbackFromHigh(candles),
+    bouncePercent: bounceFromLow(candles),
     recentHigh,
     recentLow,
   };

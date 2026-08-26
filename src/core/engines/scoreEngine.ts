@@ -1,4 +1,5 @@
 import type { TimeframeAnalysis } from '../analysis.ts';
+import type { Side } from '../direction.ts';
 import type {
   ExtensionCheck,
   MarketContext,
@@ -36,18 +37,33 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
   const components: ScoreComponent[] = [];
   const penalties: ScoreComponent[] = [];
 
+  /*
+   * Toda a régua abaixo foi escrita para a compra: tendência de alta pontua,
+   * LH_LL zera, RSI de 45 a 65 é o ideal. Numa tese vendida cada uma dessas
+   * frases significa o oposto — e um score que continuasse premiando a alta
+   * daria nota alta justamente para a pior venda possível. Em vez de duplicar
+   * a tabela, o lado é lido aqui e o resto do cálculo passa a falar em "a
+   * favor" e "contra".
+   */
+  const side: Side = candidate.side;
+  const short = side === 'SELL';
+  const withSide = short ? 'DOWN' : 'UP';
+  const againstSide = short ? 'UP' : 'DOWN';
+  const withLabel = short ? 'Baixa' : 'Alta';
+  const againstLabel = short ? 'alta' : 'baixa';
+
   // Tendência
   const anchorTrend = anchor.structure.trend;
   const triggerTrend = trigger.structure.trend;
   let trendPoints = 0;
   let trendDetail = '';
-  if (anchorTrend === 'UP' && triggerTrend !== 'DOWN') {
+  if (anchorTrend === withSide && triggerTrend !== againstSide) {
     trendPoints = MAX.trend;
-    trendDetail = `Alta no ${anchor.timeframe} com ${trigger.timeframe} acompanhando`;
-  } else if (anchorTrend === 'UP') {
+    trendDetail = `${withLabel} no ${anchor.timeframe} com ${trigger.timeframe} acompanhando`;
+  } else if (anchorTrend === withSide) {
     trendPoints = 12;
-    trendDetail = `Alta no ${anchor.timeframe}, mas ${trigger.timeframe} ainda corrigindo`;
-  } else if (anchorTrend === 'SIDEWAYS' && triggerTrend === 'UP') {
+    trendDetail = `${withLabel} no ${anchor.timeframe}, mas ${trigger.timeframe} ainda corrigindo`;
+  } else if (anchorTrend === 'SIDEWAYS' && triggerTrend === withSide) {
     trendPoints = 9;
     trendDetail = `${anchor.timeframe} lateral com ${trigger.timeframe} virando`;
   } else if (anchorTrend === 'SIDEWAYS') {
@@ -55,12 +71,19 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
     trendDetail = `${anchor.timeframe} lateral`;
   } else {
     trendPoints = 0;
-    trendDetail = `Tendência de baixa no ${anchor.timeframe}`;
+    trendDetail = `Tendência de ${againstLabel} no ${anchor.timeframe}`;
   }
   components.push(component('trend', 'Tendência', trendPoints, MAX.trend, trendDetail));
 
   // Estrutura
-  const structureMap: Record<string, number> = { HH_HL: MAX.structure, RANGE: 8, UNDEFINED: 5, LH_LL: 0 };
+  const favorable = short ? 'LH_LL' : 'HH_HL';
+  const adverse = short ? 'HH_HL' : 'LH_LL';
+  const structureMap: Record<string, number> = {
+    [favorable]: MAX.structure,
+    RANGE: 8,
+    UNDEFINED: 5,
+    [adverse]: 0,
+  };
   const structurePoints = structureMap[anchor.structure.structure] ?? 5;
   components.push(
     component(
@@ -72,31 +95,39 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
     ),
   );
 
-  // Momentum
+  // Momentum — o RSI é espelhado (100 − valor) para que "a favor" signifique
+  // a mesma coisa nos dois lados
   const rsiValue = trigger.indicators.rsi14;
+  const rsiView = rsiValue === null ? null : short ? 100 - rsiValue : rsiValue;
   let momentumPoints = 0;
   const momentumNotes: string[] = [];
-  if (rsiValue !== null) {
-    if (rsiValue >= 45 && rsiValue <= 65) {
+  if (rsiValue !== null && rsiView !== null) {
+    if (rsiView >= 45 && rsiView <= 65) {
       momentumPoints += 8;
       momentumNotes.push(`RSI em ${rsiValue.toFixed(0)}`);
-    } else if (rsiValue >= 35 && rsiValue < 45) {
+    } else if (rsiView >= 35 && rsiView < 45) {
       momentumPoints += 6;
-      momentumNotes.push(`RSI se recuperando (${rsiValue.toFixed(0)})`);
-    } else if (rsiValue > 65 && rsiValue < 72) {
+      momentumNotes.push(`RSI se ${short ? 'enfraquecendo' : 'recuperando'} (${rsiValue.toFixed(0)})`);
+    } else if (rsiView > 65 && rsiView < 72) {
       momentumPoints += 3;
       momentumNotes.push(`RSI adiantado (${rsiValue.toFixed(0)})`);
     }
   }
   const macdNow = trigger.indicators.macd;
   const macdBefore = trigger.indicators.macdPrev;
-  if (macdNow && macdBefore && macdNow.histogram > macdBefore.histogram) {
+  const macdImproving =
+    macdNow && macdBefore
+      ? short
+        ? macdNow.histogram < macdBefore.histogram
+        : macdNow.histogram > macdBefore.histogram
+      : false;
+  if (macdImproving) {
     momentumPoints += 4;
     momentumNotes.push('MACD melhorando');
   }
-  if (macdNow && macdNow.histogram > 0) {
+  if (macdNow && (short ? macdNow.histogram < 0 : macdNow.histogram > 0)) {
     momentumPoints += 2;
-    momentumNotes.push('MACD positivo');
+    momentumNotes.push(`MACD ${short ? 'negativo' : 'positivo'}`);
   }
   momentumPoints = Math.min(momentumPoints, MAX.momentum);
   components.push(
@@ -121,7 +152,7 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
   }
   if (candidate.qualityHints.volumeConfirmation) {
     volumePoints = Math.min(volumePoints + 4, MAX.volume);
-    volumeDetail += ' · pressão vendedora cedendo';
+    volumeDetail += short ? ' · pressão compradora cedendo' : ' · pressão vendedora cedendo';
   }
   components.push(component('volume', 'Volume', volumePoints, MAX.volume, volumeDetail));
 
@@ -130,7 +161,11 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
   components.push(
     component(
       'level',
-      candidate.setupType === 'BREAKOUT_RETEST' ? 'Qualidade do rompimento' : 'Qualidade do suporte',
+      candidate.setupType === 'BREAKOUT_RETEST'
+        ? 'Qualidade do rompimento'
+        : short
+          ? 'Qualidade da resistência'
+          : 'Qualidade do suporte',
       levelPoints,
       MAX.level,
       `Nível em ${candidate.levelPrice.toPrecision(6)}`,
@@ -148,8 +183,9 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
     component('riskReward', 'Risco / retorno', rrPoints, MAX.riskReward, `R/R de 1:${riskReward.toFixed(1)}`),
   );
 
-  // Contexto do BTC
-  const modifier = context?.scoreModifier ?? 0;
+  // Contexto do BTC. O modificador nasce para a compra: BTC fraco desconta.
+  // Numa tese vendida é o contrário, e o sinal é invertido antes de virar ponto.
+  const modifier = (context?.scoreModifier ?? 0) * (short ? -1 : 1);
   const btcPoints = Math.round(clamp01((modifier + 20) / 30) * MAX.btc);
   components.push(
     component('btc', 'Contexto BTC', btcPoints, MAX.btc, context ? context.reasons[0] ?? context.state : 'Sem contexto'),
@@ -165,8 +201,10 @@ export function scoreSetup(input: ScoreInput): ScoreBreakdown {
       component('volatility', 'Volatilidade do ativo', -6, 0, `ATR de ${atrPercent.toFixed(1)}% no ${trigger.timeframe}`),
     );
   }
-  if (triggerTrend === 'DOWN') {
-    penalties.push(component('triggerTrend', 'Gatilho contra a tendência', -5, 0, `${trigger.timeframe} em baixa`));
+  if (triggerTrend === againstSide) {
+    penalties.push(
+      component('triggerTrend', 'Gatilho contra a tendência', -5, 0, `${trigger.timeframe} em ${againstLabel}`),
+    );
   }
 
   const rawTotal =
@@ -237,8 +275,15 @@ export function scoreMomentumBurst(input: ScoreInput): ScoreBreakdown {
     component('volume', 'Volume', volumePoints, 30, `${volumeMultiple.toFixed(1)}x a média de 20 barras`),
   );
 
+  const short = input.candidate.side === 'SELL';
   components.push(
-    component('structure', 'Rompimento', 15, 20, `Máxima de ${lookback} barras superada`),
+    component(
+      'structure',
+      'Rompimento',
+      15,
+      20,
+      `${short ? 'Mínima' : 'Máxima'} de ${lookback} barras superada`,
+    ),
   );
 
   const closePoints = closePosition >= 0.85 ? 10 : 5;
@@ -253,7 +298,13 @@ export function scoreMomentumBurst(input: ScoreInput): ScoreBreakdown {
   );
 
   components.push(
-    component('btc', 'Regime', 5, 5, 'BTC acima da média de 200 dias'),
+    component(
+      'btc',
+      'Regime',
+      5,
+      5,
+      short ? 'BTC abaixo da média de 200 dias' : 'BTC acima da média de 200 dias',
+    ),
   );
 
   const total = components.reduce((sum, item) => sum + item.points, 0);

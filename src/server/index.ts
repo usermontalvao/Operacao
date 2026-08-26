@@ -90,7 +90,7 @@ async function main(): Promise<void> {
   );
 
   // o ambiente segue o modo: PAPER e LIVE usam produção, TESTNET usa o testnet
-  setActiveEnvironment(environmentForMode(settings.get().mode).name);
+  setActiveEnvironment(environmentForMode(settings.get().mode, settings.get().market).name);
 
   const context: ApiContext = {
     repository,
@@ -190,8 +190,11 @@ async function main(): Promise<void> {
     logger.info('Crypto Setup Hunter no ar', {
       url: `http://${config.host}:${config.port}`,
       mode: settings.get().mode,
-      binanceEnv: environmentForMode(settings.get().mode).name,
-      credentials: environmentForMode(settings.get().mode).hasCredentials ? 'configuradas' : 'ausentes',
+      market: settings.get().market,
+      binanceEnv: environmentForMode(settings.get().mode, settings.get().market).name,
+      credentials: environmentForMode(settings.get().mode, settings.get().market).hasCredentials
+        ? 'configuradas'
+        : 'ausentes',
       store: config.store,
       persistencia: store.degraded ? 'INDISPONÍVEL — modo degradado' : 'ok',
       login: auth.backend,
@@ -204,7 +207,7 @@ async function main(): Promise<void> {
   const available = await ping();
   if (!available) {
     logger.error('Binance inacessível no boot — o painel vai mostrar DADOS INDISPONÍVEIS');
-  } else if (environmentForMode(settings.get().mode).hasCredentials) {
+  } else if (environmentForMode(settings.get().mode, settings.get().market).hasCredentials) {
     await syncClock().catch((error) =>
       logger.warn('Não foi possível sincronizar o relógio', { error: (error as Error).message }),
     );
@@ -238,7 +241,10 @@ async function main(): Promise<void> {
     liveMonitor.start();
     // só faz sentido abrir o fluxo da conta quando existe conta: em PAPER não há
     // ordem na corretora para acompanhar
-    if (settings.get().mode !== 'PAPER' && environmentForMode(settings.get().mode).hasCredentials) {
+    if (
+      settings.get().mode !== 'PAPER' &&
+      environmentForMode(settings.get().mode, settings.get().market).hasCredentials
+    ) {
       userStream.start();
     }
   }

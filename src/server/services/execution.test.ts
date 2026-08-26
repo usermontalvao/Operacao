@@ -28,6 +28,7 @@ const FILTERS: SymbolFilters = {
   quotePrecision: 8,
   isSpotTradingAllowed: true,
   ocoAllowed: true,
+  market: 'SPOT',
 };
 
 function makeSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
@@ -35,6 +36,7 @@ function makeSetup(overrides: Partial<TradeSetup> = {}): TradeSetup {
     id: 'setup-xrp-1',
     symbol: 'XRPUSDT',
     side: 'BUY',
+    market: 'SPOT',
     timeframe: '4h',
     anchorTimeframe: '1d',
     setupType: 'PULLBACK',

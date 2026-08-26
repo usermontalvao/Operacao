@@ -40,6 +40,7 @@ function makeFilters(overrides: Partial<SymbolFilters> = {}): SymbolFilters {
     quotePrecision: 8,
     isSpotTradingAllowed: true,
     ocoAllowed: true,
+    market: 'SPOT',
     ...overrides,
   };
 }

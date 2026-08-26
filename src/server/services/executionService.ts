@@ -2,11 +2,15 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type {
   AppSettings,
   EntryDecision,
+  MarketKind,
+  Side,
   SymbolFilters,
   Trade,
   TradeSetup,
   TradingMode,
 } from '../../core/types.ts';
+import { gainPerUnit, sideLabel } from '../../core/direction.ts';
+import { checkLiquidation, marginRequired, maxSafeLeverage } from '../../core/risk/futures.ts';
 import { automaticStrategyRejectionReason } from '../../core/strategy/automationPolicy.ts';
 import {
   formatPrice,
@@ -31,6 +35,13 @@ import {
   newOtocoOrder,
   testOrder,
 } from '../binance/rest.ts';
+import {
+  futuresEntryOrder,
+  getFuturesBalances,
+  isHedgeMode,
+  setLeverage,
+  setMarginMode,
+} from '../binance/futures.ts';
 import type { AuditService } from './auditService.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import { paperBalance, type PaperTradingEngine } from './paperTradingEngine.ts';
@@ -42,13 +53,22 @@ const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 /** Injetáveis para teste: em produção falam com a Binance de verdade. */
 export interface ExecutionDependencies {
   loadFilters: (symbol: string) => Promise<SymbolFilters | null>;
-  loadUsdtBalance: () => Promise<{ free: number; locked: number }>;
+  loadUsdtBalance: (market: MarketKind) => Promise<{ free: number; locked: number }>;
   loadBrlRate: () => Promise<number | null>;
 }
 
 const defaultDependencies: ExecutionDependencies = {
   loadFilters: async (symbol) => (await getSymbolFilters([symbol])).get(symbol) ?? null,
-  loadUsdtBalance: async () => {
+  loadUsdtBalance: async (market) => {
+    if (market === 'FUTURES') {
+      // em futuros o que importa é a margem livre, não o saldo bruto: o que
+      // está preso nas posições abertas não abre posição nenhuma
+      const balances = await getFuturesBalances();
+      const usdt = balances.find((item) => item.asset === 'USDT');
+      const wallet = usdt?.walletBalance ?? 0;
+      const free = usdt?.availableBalance ?? 0;
+      return { free, locked: Math.max(wallet - free, 0) };
+    }
     const balances = await getAccountBalances();
     const usdt = balances.find((item) => item.asset === 'USDT');
     return { free: usdt?.free ?? 0, locked: usdt?.locked ?? 0 };
@@ -82,6 +102,16 @@ export interface CapitalView {
 export interface PreviewResult {
   setup: TradeSetup;
   mode: TradingMode;
+  market: MarketKind;
+  side: Side;
+  /** 1 em spot */
+  leverage: number;
+  /** saldo que a posição prende (notional ÷ alavancagem) */
+  margin: number;
+  /** preço estimado de liquidação; null em spot */
+  liquidationPrice: number | null;
+  /** maior alavancagem que ainda deixa a liquidação atrás do stop */
+  safeLeverage: number | null;
   entryPrice: number;
   currentPrice: number;
   /** a conta do risco por extenso: quanto se perde no stop e quem limitou o tamanho */
@@ -119,6 +149,10 @@ interface ConfirmationPayload {
   mode: TradingMode;
   expiresAt: number;
   automatic: boolean;
+  /** modalidade, lado e alavancagem aprovados — mudar qualquer um refaz o preview */
+  market: MarketKind;
+  side: Side;
+  leverage: number;
 }
 
 /**
@@ -173,14 +207,19 @@ export class ExecutionService {
    * Recebe o modo porque cada sessão tem a sua carteira: o robô do demo
    * continua operando o capital do demo enquanto o usuário olha a conta real.
    */
-  async getCapital(mode: TradingMode = this.settings.get().mode): Promise<CapitalView> {
-    const policy = this.settings.forMode(mode);
+  async getCapital(
+    mode: TradingMode = this.settings.get().mode,
+    market: MarketKind = this.settings.get().market,
+  ): Promise<CapitalView> {
+    const policy = this.settings.forMode(mode, market);
     const brlRate = await this.dependencies.loadBrlRate();
 
     if (mode === 'PAPER') {
       const trades = await this.repository.listTrades();
       const base = this.paperCapitalInUsdt(policy.risk.paperCapital, policy.risk.paperCapitalCurrency, brlRate);
-      const balance = paperBalance(trades, base);
+      // a carteira de papel é de cada modalidade: a demo de futuros não pode
+      // gastar o caixa que a demo de spot já comprometeu
+      const balance = paperBalance(trades, base, market);
       return {
         capital: balance.capital,
         available: balance.available,
@@ -190,11 +229,19 @@ export class ExecutionService {
       };
     }
 
-    const usdt = await this.dependencies.loadUsdtBalance();
+    const usdt = await this.dependencies.loadUsdtBalance(market);
+    const environment = environmentForMode(mode, market);
     return {
       capital: round(usdt.free + usdt.locked, 2),
       available: round(usdt.free, 2),
-      source: environmentForMode(mode).name === 'testnet' ? 'BINANCE_TESTNET' : 'BINANCE',
+      source:
+        environment.network === 'testnet'
+          ? market === 'FUTURES'
+            ? 'BINANCE_FUTURES_TESTNET'
+            : 'BINANCE_TESTNET'
+          : market === 'FUTURES'
+            ? 'BINANCE_FUTURES'
+            : 'BINANCE',
       currency: 'USDT',
       brlRate,
     };
@@ -216,12 +263,18 @@ export class ExecutionService {
     setup: TradeSetup,
     automatic = false,
     mode: TradingMode = this.settings.get().mode,
+    market: MarketKind = this.settings.get().market,
   ): Promise<PreviewResult> {
-    const policy = this.settings.forMode(mode);
+    const policy = this.settings.forMode(mode, market);
+    const side = setup.side;
+    const futures = market === 'FUTURES';
+    // spot não tem alavancagem: forçar 1 aqui evita que uma configuração de
+    // futuros esquecida no balde do spot vire margem inventada
+    const leverage = futures ? Math.max(1, Math.round(policy.futures.leverage)) : 1;
     const currentPrice = this.market.getPrice(setup.symbol) ?? setup.currentPrice;
     const entryPrice = clampToZone(currentPrice, setup);
 
-    const capitalView = await this.getCapital(mode);
+    const capitalView = await this.getCapital(mode, market);
     const requested =
       request.quoteAmount ??
       (request.percentOfCapital
@@ -234,10 +287,13 @@ export class ExecutionService {
       stopLoss: setup.stopLoss,
       target: setup.target1,
       costs: policy.guard,
+      side,
     });
 
     const snapshot = await this.risk.snapshot(capitalView.capital, mode);
-    const openTrades = this.paper.getOpenTrades().filter((trade) => trade.mode === mode);
+    const openTrades = this.paper
+      .getOpenTrades()
+      .filter((trade) => trade.mode === mode && trade.market === market);
     const firstGate = this.risk.gate({
       snapshot,
       symbol: setup.symbol,
@@ -292,9 +348,41 @@ export class ExecutionService {
       requestedQuote: automatic ? undefined : quoteAmount > 0 ? quoteAmount : undefined,
       sizeFactor: gate.sizeFactor,
       stepSize: filters?.stepSize,
+      side,
+      leverage,
     });
 
-    const sizing = toSizingResult(sized, setup, entryPrice, capitalView.capital, policy.risk);
+    const sizing = toSizingResult(sized, setup, entryPrice, capitalView.capital, policy.risk, side);
+
+    /*
+     * A segunda saída, a que não é sua.
+     *
+     * Alavancado, a corretora fecha a posição quando a margem acaba — e se
+     * essa linha estiver antes do stop, o stop nunca executa. O prejuízo
+     * deixaria de ser o 1% do orçamento para ser a margem inteira, e o
+     * sistema teria aprovado a operação achando que estava protegido.
+     */
+    const liquidation = futures
+      ? checkLiquidation({
+          side,
+          entryPrice,
+          quantity: sizing.quantity,
+          leverage,
+          marginMode: policy.futures.marginMode,
+          walletBalance: capitalView.capital,
+          stopLoss: setup.stopLoss,
+          minBufferPercent: policy.futures.minLiquidationBufferPercent,
+        })
+      : null;
+    const safeLeverage = futures
+      ? maxSafeLeverage({
+          side,
+          entryPrice,
+          stopLoss: setup.stopLoss,
+          minBufferPercent: policy.futures.minLiquidationBufferPercent,
+          ceiling: policy.futures.maxLeverage,
+        })
+      : null;
 
     if (filters) {
       const validation = validateOrder(filters, sizing.quantity, entryPrice);
@@ -302,19 +390,35 @@ export class ExecutionService {
       if (validation.valid) sizing.quantity = validation.quantity;
     }
 
+    const margin = futures ? round(marginRequired(sizing.notional, leverage), 2) : sizing.notional;
     const blockers = [
       ...(await this.collectBlockers({
         setup,
         mode,
-        quoteAmount,
+        market,
+        // o que precisa caber no saldo é a MARGEM, não o notional: com 3x,
+        // uma posição de 300 USDT prende 100
+        quoteAmount: futures ? round(marginRequired(quoteAmount, leverage), 2) : quoteAmount,
         available: capitalView.available,
         capital: capitalView.capital,
         sizingBlockers: sizing.blockReasons,
       })),
       ...gate.blockers,
     ];
+    if (liquidation?.blockReason) {
+      blockers.push(
+        safeLeverage !== null && safeLeverage < leverage
+          ? `${liquidation.blockReason} (com este stop, o máximo seguro é ${safeLeverage}x)`
+          : liquidation.blockReason,
+      );
+    }
 
     const warnings = [...sizing.warnings, ...gate.warnings];
+    if (futures && liquidation?.liquidationPrice) {
+      warnings.push(
+        `Posição ${sideLabel(side)} ${leverage}x — margem de ${margin.toFixed(2)} USDT, liquidação estimada em ${liquidation.liquidationPrice.toPrecision(6)}`,
+      );
+    }
     const strategyRejection = automaticStrategyRejectionReason(setup);
     if (strategyRejection !== null) {
       warnings.push(`Estratégia observacional — compra automática bloqueada: ${strategyRejection}`);
@@ -329,6 +433,12 @@ export class ExecutionService {
     return {
       setup,
       mode,
+      market,
+      side,
+      leverage,
+      margin,
+      liquidationPrice: liquidation?.liquidationPrice ?? null,
+      safeLeverage,
       entryPrice,
       currentPrice,
       capital: capitalView.capital,
@@ -353,6 +463,9 @@ export class ExecutionService {
             mode,
             expiresAt,
             automatic,
+            market,
+            side,
+            leverage,
           })
         : null,
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
@@ -362,14 +475,31 @@ export class ExecutionService {
   private async collectBlockers(input: {
     setup: TradeSetup;
     mode: TradingMode;
+    market: MarketKind;
     quoteAmount: number;
     available: number;
     capital: number;
     sizingBlockers: string[];
   }): Promise<string[]> {
-    const { setup, mode, quoteAmount, available, capital } = input;
+    const { setup, mode, market, quoteAmount, available, capital } = input;
     const settings = this.settings.get();
+    const policy = this.settings.forMode(mode, market);
     const blockers = [...input.sizingBlockers];
+
+    // a tese e a modalidade têm de ser a mesma coisa: um setup de futuros não
+    // se executa em spot, e vender a descoberto em spot não existe
+    if (setup.market !== market) {
+      blockers.push(
+        `Este setup é de ${setup.market === 'FUTURES' ? 'futuros' : 'spot'} e a modalidade ativa é outra`,
+      );
+    }
+    if (setup.side === 'SELL') {
+      if (market !== 'FUTURES') {
+        blockers.push('Venda a descoberto só existe em futuros');
+      } else if (!policy.futures.allowShort) {
+        blockers.push('A venda a descoberto não está liberada nos ajustes desta conta');
+      }
+    }
 
     if (quoteAmount > available) {
       blockers.push(`Saldo insuficiente: disponível ${available.toFixed(2)} USDT`);
@@ -378,7 +508,9 @@ export class ExecutionService {
       blockers.push('Este setup não está mais válido');
     }
 
-    const openTrades = this.paper.getOpenTrades().filter((trade) => trade.mode === mode);
+    const openTrades = this.paper
+      .getOpenTrades()
+      .filter((trade) => trade.mode === mode && trade.market === market);
     if (openTrades.length >= settings.risk.maxOpenTrades) {
       blockers.push(`Limite de ${settings.risk.maxOpenTrades} operações abertas atingido`);
     }
@@ -386,7 +518,7 @@ export class ExecutionService {
       blockers.push('Já existe uma operação aberta para este setup');
     }
 
-    const dailyLoss = await this.dailyLoss(mode);
+    const dailyLoss = await this.dailyLoss(mode, market);
     const dailyLimit = capital * (settings.risk.dailyLossLimitPercent / 100);
     if (dailyLoss < 0 && Math.abs(dailyLoss) >= dailyLimit) {
       blockers.push(
@@ -395,13 +527,9 @@ export class ExecutionService {
     }
 
     if (mode !== 'PAPER') {
-      const environment = environmentForMode(mode);
+      const environment = environmentForMode(mode, market);
       if (!environment.hasCredentials) {
-        blockers.push(
-          mode === 'LIVE'
-            ? 'Configure BINANCE_API_KEY e BINANCE_API_SECRET no servidor para operar em conta real'
-            : 'Configure BINANCE_TESTNET_API_KEY e BINANCE_TESTNET_API_SECRET para usar o testnet',
-        );
+        blockers.push(missingCredentialsMessage(mode, market));
       }
       if (getActiveEnvironment().name !== environment.name) {
         blockers.push('O ambiente da Binance ainda está trocando — tente de novo em instantes');
@@ -415,11 +543,12 @@ export class ExecutionService {
     request: ExecuteRequest,
     setup: TradeSetup,
     mode: TradingMode = this.settings.get().mode,
+    market: MarketKind = this.settings.get().market,
   ): Promise<Trade> {
     const existing = this.inFlight.get(request.idempotencyKey);
     if (existing) return existing;
 
-    const promise = this.runExecution(request, setup, mode);
+    const promise = this.runExecution(request, setup, mode, market);
     this.inFlight.set(request.idempotencyKey, promise);
     try {
       return await promise;
@@ -448,8 +577,9 @@ export class ExecutionService {
     setup: TradeSetup,
     mode: TradingMode = this.settings.get().mode,
     decision?: EntryDecision,
+    market: MarketKind = this.settings.get().market,
   ): Promise<Trade | null> {
-    const policy = this.settings.forMode(mode);
+    const policy = this.settings.forMode(mode, market);
     if (!policy.autoTrade.enabled) return null;
 
     const strategyRejection = automaticStrategyRejectionReason(setup);
@@ -469,7 +599,9 @@ export class ExecutionService {
       .getOpenTrades()
       .some(
         (trade) =>
-          trade.mode === mode && (trade.setupId === setup.id || trade.symbol === setup.symbol),
+          trade.mode === mode &&
+          trade.market === market &&
+          (trade.setupId === setup.id || trade.symbol === setup.symbol),
       );
     if (alreadyOpen) return null;
 
@@ -490,7 +622,7 @@ export class ExecutionService {
     // O tamanho sai do preview, que dimensiona pelo risco. Nada de calcular
     // aqui um valor a investir: era exatamente esse caminho paralelo que
     // deixava o risco por operação virar um aviso sem efeito.
-    const preview = await this.preview({ setupId: setup.id }, setup, true, mode);
+    const preview = await this.preview({ setupId: setup.id }, setup, true, mode, market);
     if (!preview.canExecute || !preview.confirmationToken) {
       await this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
@@ -513,10 +645,13 @@ export class ExecutionService {
         // a chave inclui o modo: a mesma oportunidade comprada em duas sessões
         // são duas ordens diferentes, e compartilhar a chave faria a segunda
         // devolver silenciosamente a operação da primeira
-        idempotencyKey: `auto${mode.slice(0, 2)}${setup.id.replace(/-/g, '').slice(0, 18)}`,
+        // a chave inclui a modalidade pelo mesmo motivo do modo: a mesma
+        // explosão comprada em spot e em futuros são duas ordens diferentes
+        idempotencyKey: `auto${mode.slice(0, 2)}${market.slice(0, 1)}${setup.id.replace(/-/g, '').slice(0, 17)}`,
       },
       setup,
       mode,
+      market,
     );
 
     await this.audit.record({
@@ -546,8 +681,10 @@ export class ExecutionService {
     request: ExecuteRequest,
     setup: TradeSetup,
     mode: TradingMode = this.settings.get().mode,
+    market: MarketKind = this.settings.get().market,
   ): Promise<Trade> {
-    const settings = { ...this.settings.get(), ...this.settings.forMode(mode), mode };
+    const settings = { ...this.settings.get(), ...this.settings.forMode(mode, market), mode, market };
+    const side = setup.side;
     const clientOrderId = buildClientOrderId(request.idempotencyKey);
 
     // clique duplo: a operação já existe, devolve a mesma em vez de duplicar
@@ -574,15 +711,26 @@ export class ExecutionService {
     if (payload.mode !== mode) {
       throw new ExecutionError('O modo de operação mudou depois da confirmação — refaça');
     }
+    if ((payload.market ?? 'SPOT') !== market) {
+      throw new ExecutionError('A modalidade mudou depois da confirmação — refaça');
+    }
+    if ((payload.side ?? 'BUY') !== side) {
+      throw new ExecutionError('O lado da operação mudou depois da confirmação — refaça');
+    }
     if (payload.stopLoss !== setup.stopLoss || payload.target1 !== setup.target1) {
       throw new ExecutionError('O plano do setup mudou depois da confirmação — refaça');
     }
 
-    const capitalView = await this.getCapital();
+    const leverage = market === 'FUTURES' ? Math.max(1, Math.round(payload.leverage ?? 1)) : 1;
+    const capitalView = await this.getCapital(mode, market);
     const blockers = await this.collectBlockers({
       setup,
       mode,
-      quoteAmount: payload.quoteAmount,
+      market,
+      quoteAmount:
+        market === 'FUTURES'
+          ? round(marginRequired(payload.quoteAmount, leverage), 2)
+          : payload.quoteAmount,
       available: capitalView.available,
       capital: capitalView.capital,
       sizingBlockers: [],
@@ -618,6 +766,7 @@ export class ExecutionService {
       target2: setup.target2,
       target3: setup.target3,
       maxTargetPercent: settings.guard.maxTargetPercent,
+      side,
     });
     if (targets.dropped.length > 0) {
       await this.audit.record({
@@ -630,13 +779,35 @@ export class ExecutionService {
     }
 
     const now = new Date().toISOString();
+    const notional = payload.quoteAmount;
+    const margin = market === 'FUTURES' ? round(marginRequired(notional, leverage), 2) : notional;
+    const liquidation =
+      market === 'FUTURES'
+        ? checkLiquidation({
+            side,
+            entryPrice: payload.entryPrice,
+            quantity: payload.quantity,
+            leverage,
+            marginMode: settings.futures.marginMode,
+            walletBalance: capitalView.capital,
+            stopLoss: setup.stopLoss,
+            minBufferPercent: settings.futures.minLiquidationBufferPercent,
+          })
+        : null;
+    // a checagem já barrou isto no preview; aqui é defesa em profundidade,
+    // porque entre aprovar e executar o preço (e a margem livre) mudaram
+    if (liquidation?.stopBeyondLiquidation) {
+      throw new ExecutionError(liquidation.blockReason ?? 'Liquidação antes do stop', 400);
+    }
+
     const trade: Trade = {
       id: randomUUID(),
       setupId: setup.id,
       automatic: payload.automatic,
       symbol: setup.symbol,
       mode,
-      side: 'BUY',
+      market,
+      side,
       setupType: setup.setupType,
       timeframe: setup.timeframe,
       score: setup.score,
@@ -651,8 +822,15 @@ export class ExecutionService {
       target1: targets.target1,
       target2: targets.target2,
       target3: targets.target3,
-      notional: payload.quoteAmount,
-      riskAmount: round(payload.quantity * Math.max(payload.entryPrice - setup.stopLoss, 0), 2),
+      notional,
+      leverage,
+      initialMargin: margin,
+      marginMode: market === 'FUTURES' ? settings.futures.marginMode : undefined,
+      liquidationPrice: liquidation?.liquidationPrice ?? null,
+      riskAmount: round(
+        payload.quantity * Math.max(-gainPerUnit(side, payload.entryPrice, setup.stopLoss), 0),
+        2,
+      ),
       realizedPnl: 0,
       realizedPnlPercent: 0,
       maxFavorablePercent: 0,
@@ -687,7 +865,114 @@ export class ExecutionService {
       return this.paper.getOpenTrades().find((item) => item.id === trade.id) ?? trade;
     }
 
-    return this.sendToBinance(trade, setup, filters);
+    return trade.market === 'FUTURES'
+      ? this.sendToFutures(trade, setup, filters)
+      : this.sendToBinance(trade, setup, filters);
+  }
+
+  /**
+   * Entrada em futuros.
+   *
+   * Diferente do spot em três pontos que não são detalhe:
+   *
+   *  1. Antes da ordem é preciso ACERTAR A CONTA — margem e alavancagem são
+   *     estado do par na corretora, não parâmetro da ordem. Sem isto a
+   *     posição nasce com a alavancagem que sobrou da última vez.
+   *  2. Não existe OTOCO. A entrada vai sozinha; alvo e stop só podem ser
+   *     enviados depois, sobre uma posição que exista — quem os arma é o
+   *     monitor, no instante em que a entrada preenche.
+   *  3. Modo hedge é recusado. Neste modo cada ordem precisa declarar se abre
+   *     ou fecha posição, e `reduceOnly` — a base de toda a proteção — deixa
+   *     de significar o que o resto do sistema assume.
+   */
+  private async sendToFutures(
+    trade: Trade,
+    setup: TradeSetup,
+    filters: SymbolFilters | null,
+  ): Promise<Trade> {
+    if (!filters) throw new ExecutionError('Filtros do par indisponíveis — ordem não enviada', 503);
+    if (!readCredentials(environmentForMode(trade.mode, 'FUTURES').name)) {
+      throw new ExecutionError(missingCredentialsMessage(trade.mode, 'FUTURES'), 401);
+    }
+
+    const quantity = formatQuantity(trade.requestedQuantity, filters);
+    const entry = formatPrice(trade.entryPrice, filters);
+
+    try {
+      if (await isHedgeMode()) {
+        throw new ExecutionError(
+          'A conta de futuros está em modo hedge. Este painel opera uma posição por par (one-way) — troque em Preferências na Binance.',
+          400,
+        );
+      }
+
+      await setMarginMode(trade.symbol, trade.marginMode ?? 'ISOLATED');
+      const applied = await setLeverage(trade.symbol, trade.leverage);
+      if (applied !== trade.leverage) {
+        // a corretora pode devolver menos que o pedido quando a faixa de
+        // notional não permite: quem manda é o número dela
+        await this.audit.record({
+          action: 'FUTURES_LEVERAGE_ADJUSTED',
+          mode: trade.mode,
+          symbol: trade.symbol,
+          setupId: setup.id,
+          tradeId: trade.id,
+          detail: { pedida: trade.leverage, aplicada: applied },
+        });
+        trade.leverage = applied;
+        trade.initialMargin = round(marginRequired(trade.notional, applied), 2);
+      }
+
+      const result = await futuresEntryOrder({
+        symbol: trade.symbol,
+        side: trade.side,
+        quantity,
+        price: entry,
+        clientOrderId: trade.clientOrderId,
+      });
+
+      trade.exchangeOrderIds = [String(result.orderId)];
+      trade.updatedAt = new Date().toISOString();
+      await this.repository.saveTrade(trade);
+      this.paper.track(trade);
+      this.bus.broadcast({ type: 'trade', payload: trade });
+
+      await this.audit.record({
+        action: 'FUTURES_ORDER_SENT',
+        mode: trade.mode,
+        symbol: trade.symbol,
+        setupId: setup.id,
+        tradeId: trade.id,
+        detail: {
+          lado: sideLabel(trade.side),
+          alavancagem: trade.leverage,
+          margem: trade.initialMargin,
+          margemModo: trade.marginMode,
+          liquidacaoEstimada: trade.liquidationPrice,
+          ordem: result.orderId,
+          // a proteção ainda NÃO está na corretora: futuros não aceita alvo e
+          // stop antes de existir posição
+          protecao: 'será armada quando a entrada preencher',
+        },
+      });
+      return trade;
+    } catch (error) {
+      if (error instanceof ExecutionError) throw error;
+      const message =
+        error instanceof BinanceError
+          ? `Binance recusou a ordem de futuros: ${error.message} (código ${error.code})`
+          : (error as Error).message;
+      await this.audit.record({
+        action: 'ORDER_FAILED',
+        mode: trade.mode,
+        symbol: trade.symbol,
+        setupId: setup.id,
+        tradeId: trade.id,
+        detail: { message, mercado: 'FUTURES' },
+      });
+      logger.error('Falha ao enviar ordem de futuros', { symbol: trade.symbol, message });
+      throw new ExecutionError(message, 502);
+    }
   }
 
   private async sendToBinance(
@@ -767,13 +1052,17 @@ export class ExecutionService {
     }
   }
 
-  private async dailyLoss(mode: TradingMode): Promise<number> {
+  private async dailyLoss(mode: TradingMode, market: MarketKind): Promise<number> {
     const trades = await this.repository.listTrades();
     const start = new Date();
     start.setUTCHours(0, 0, 0, 0);
     return trades
       .filter(
-        (trade) => trade.mode === mode && trade.closedAt && new Date(trade.closedAt) >= start,
+        (trade) =>
+          trade.mode === mode &&
+          trade.market === market &&
+          trade.closedAt &&
+          new Date(trade.closedAt) >= start,
       )
       .reduce((acc, trade) => acc + trade.realizedPnl, 0);
   }
@@ -830,6 +1119,18 @@ export function liveAutoTradeDenial(
   return null;
 }
 
+/** Qual variável do .env falta para esta combinação de conta e modalidade. */
+export function missingCredentialsMessage(mode: TradingMode, market: MarketKind): string {
+  if (market === 'FUTURES') {
+    return mode === 'LIVE'
+      ? 'Configure BINANCE_FUTURES_API_KEY e BINANCE_FUTURES_API_SECRET (ou habilite futuros na chave do spot) para operar futuros em conta real'
+      : 'Configure BINANCE_FUTURES_TESTNET_API_KEY e BINANCE_FUTURES_TESTNET_API_SECRET — o testnet de futuros tem cadastro próprio em testnet.binancefuture.com';
+  }
+  return mode === 'LIVE'
+    ? 'Configure BINANCE_API_KEY e BINANCE_API_SECRET no servidor para operar em conta real'
+    : 'Configure BINANCE_TESTNET_API_KEY e BINANCE_TESTNET_API_SECRET para usar o testnet';
+}
+
 /** A entrada nunca sai da zona aprovada, mesmo com o preço correndo. */
 function clampToZone(price: number, setup: TradeSetup): number {
   if (price < setup.entryLow) return setup.entryLow;
@@ -865,9 +1166,10 @@ function toSizingResult(
   entryPrice: number,
   capital: number,
   risk: AppSettings['risk'],
+  side: Side = 'BUY',
 ): SizingResult {
   const profit = (target: number | null): number | null =>
-    target === null ? null : round(sized.quantity * (target - entryPrice), 2);
+    target === null ? null : round(sized.quantity * gainPerUnit(side, entryPrice, target), 2);
 
   const blockReasons: string[] = [];
   if (sized.blocked && sized.blockReason !== null) blockReasons.push(sized.blockReason);

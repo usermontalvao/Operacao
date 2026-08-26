@@ -1,4 +1,5 @@
 import type { DetectorInput } from '../analysis.ts';
+import { type Side, directionOf } from '../direction.ts';
 import type { Candle, SetupCandidate } from '../types.ts';
 import { normalizeEntryZone } from './shared.ts';
 
@@ -51,14 +52,38 @@ export const MAX_STALE_FRACTION = 0.15;
 export const MAX_STALE_MS = 20 * 60_000;
 
 export function detectMomentumBurst(input: DetectorInput): SetupCandidate | null {
+  return detectBurst(input, 'BUY');
+}
+
+/**
+ * DESABAMENTO DE FORÇA — o espelho vendido, só disponível em futuros.
+ *
+ * ATENÇÃO, e isto não é formalidade: os números do cabeçalho acima são da
+ * COMPRA. O lado vendido nunca foi medido no laboratório. Ele existe aqui
+ * porque a mecânica é a mesma e porque quem opera futuros precisa dela na
+ * mão — não porque haja expectativa comprovada. Por isso o robô continua
+ * recusando teses vendidas na automação (ver automationPolicy): enquanto não
+ * houver treino e teste deste lado, ele é uma entrada manual.
+ *
+ * O regime também espelha: em vez de exigir o BTC acima da média de 200 dias,
+ * exige o BTC ABAIXO dela. "Não saber" segue não autorizando.
+ */
+export function detectCollapseBurst(input: DetectorInput): SetupCandidate | null {
+  return detectBurst(input, 'SELL');
+}
+
+function detectBurst(input: DetectorInput, side: Side): SetupCandidate | null {
   const { trigger, anchor, context } = input;
+  const short = side === 'SELL';
+  const direction = directionOf(side);
   const candles = trigger.candles;
   const atrValue = trigger.indicators.atr14;
   if (atrValue === null || atrValue <= 0 || candles.length < BREAKOUT_LOOKBACK + 5) return null;
 
   // regime: sem BTC acima da média de 200 dias esta entrada é perdedora em
-  // todas as variantes medidas. Não saber também não autoriza.
-  if (context?.btcAboveDailyMean !== true) return null;
+  // todas as variantes medidas. Não saber também não autoriza. No espelho
+  // vendido a exigência inverte: BTC abaixo da própria média diária.
+  if (context?.btcAboveDailyMean !== !short) return null;
 
   const bar = candles[candles.length - 1] as Candle;
 
@@ -71,13 +96,15 @@ export function detectMomentumBurst(input: DetectorInput): SetupCandidate | null
   }
 
   const range = bar.high - bar.low;
-  const body = bar.close - bar.open;
+  const body = (bar.close - bar.open) * direction;
   if (range <= 0 || body <= 0) return null;
 
   const bodyAtr = body / atrValue;
   if (bodyAtr < MIN_BODY_ATR) return null;
 
-  const closePosition = (bar.close - bar.low) / range;
+  // fechamento no extremo da própria barra: no topo dela na explosão de alta,
+  // no fundo dela no desabamento
+  const closePosition = short ? (bar.high - bar.close) / range : (bar.close - bar.low) / range;
   if (closePosition < MIN_CLOSE_POSITION) return null;
 
   const average = averageVolume(candles, 20);
@@ -85,38 +112,47 @@ export function detectMomentumBurst(input: DetectorInput): SetupCandidate | null
   const volumeMultiple = bar.volume / average;
   if (volumeMultiple < MIN_VOLUME_MULTIPLE) return null;
 
-  let highest = 0;
+  // o fechamento tem de vencer o extremo das últimas barras: a máxima na
+  // explosão, a mínima no desabamento
+  let extreme = short ? Number.POSITIVE_INFINITY : 0;
   for (let i = candles.length - 1 - BREAKOUT_LOOKBACK; i < candles.length - 1; i += 1) {
     const previous = candles[i];
-    if (previous) highest = Math.max(highest, previous.high);
+    if (!previous) continue;
+    extreme = short ? Math.min(extreme, previous.low) : Math.max(extreme, previous.high);
   }
-  if (highest <= 0 || bar.close < highest) return null;
+  if (!Number.isFinite(extreme) || extreme <= 0) return null;
+  if (short ? bar.close > extreme : bar.close < extreme) return null;
 
   // a entrada é agora, não numa zona lá embaixo: quem espera repique de
   // explosão fica de fora justamente das que não repicam
   const [entryLow, entryHigh] = normalizeEntryZone(
-    bar.close - atrValue * 0.25,
-    bar.close + atrValue * 0.15,
+    bar.close - direction * atrValue * 0.25,
+    bar.close + direction * atrValue * 0.15,
     bar.close,
   );
   const entryPrice = (entryLow + entryHigh) / 2;
-  // o stop é o pé da explosão: se o mercado devolver a barra inteira, a tese
-  // morreu — não é preciso inventar distância nenhuma
-  const stopLoss = bar.low;
-  const risk = entryPrice - stopLoss;
+  // o stop é o pé da explosão (o teto do desabamento): se o mercado devolver
+  // a barra inteira, a tese morreu — não é preciso inventar distância nenhuma
+  const stopLoss = short ? bar.high : bar.low;
+  const risk = (entryPrice - stopLoss) * direction;
   if (risk <= 0) return null;
 
   const reasons = [
-    `Candle de alta com corpo de ${bodyAtr.toFixed(1)} ATR no ${trigger.timeframe}`,
+    `Candle de ${short ? 'baixa' : 'alta'} com corpo de ${bodyAtr.toFixed(1)} ATR no ${trigger.timeframe}`,
     `Volume ${volumeMultiple.toFixed(1)}x a média de 20 barras`,
-    `Fechamento acima da máxima das últimas ${BREAKOUT_LOOKBACK} barras`,
-    `Fechou no topo da própria barra (${Math.round(closePosition * 100)}% do range)`,
-    'BTC acima da média de 200 dias — o regime que a medição exige',
+    `Fechamento ${short ? 'abaixo da mínima' : 'acima da máxima'} das últimas ${BREAKOUT_LOOKBACK} barras`,
+    `Fechou no ${short ? 'fundo' : 'topo'} da própria barra (${Math.round(closePosition * 100)}% do range)`,
+    short
+      ? 'BTC abaixo da média de 200 dias — o regime espelhado (este lado não foi medido)'
+      : 'BTC acima da média de 200 dias — o regime que a medição exige',
   ];
-  if (anchor.structure.trend === 'UP') reasons.push(`Tendência de alta no ${anchor.timeframe}`);
+  if (anchor.structure.trend === (short ? 'DOWN' : 'UP')) {
+    reasons.push(`Tendência de ${short ? 'baixa' : 'alta'} no ${anchor.timeframe}`);
+  }
 
   return {
     symbol: input.analysis.symbol,
+    side,
     timeframe: trigger.timeframe,
     anchorTimeframe: anchor.timeframe,
     setupType: 'MOMENTUM_BURST',
@@ -124,16 +160,16 @@ export function detectMomentumBurst(input: DetectorInput): SetupCandidate | null
     entryHigh,
     stopLoss,
     // alvo único: o laboratório mediu saída INTEIRA em 3R, não 50/30/20
-    target1: entryPrice + risk * TARGET_R,
+    target1: entryPrice + direction * risk * TARGET_R,
     target2: null,
     target3: null,
     reasons,
-    levelPrice: highest,
+    levelPrice: extreme,
     qualityHints: {
       levelQuality: 0,
       volumeConfirmation: true,
       momentumTurning: true,
-      trendAligned: anchor.structure.trend !== 'DOWN',
+      trendAligned: anchor.structure.trend !== (short ? 'UP' : 'DOWN'),
       burst: { bodyAtr, volumeMultiple, lookback: BREAKOUT_LOOKBACK, closePosition },
     },
   };

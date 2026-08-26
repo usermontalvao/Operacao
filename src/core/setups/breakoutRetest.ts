@@ -1,4 +1,5 @@
 import type { DetectorInput } from '../analysis.ts';
+import { type Side, bestOf, directionOf, gainPerUnit, isFavorable } from '../direction.ts';
 import type { Candle, SetupCandidate } from '../types.ts';
 import { buildTargets, normalizeEntryZone } from './shared.ts';
 
@@ -9,66 +10,101 @@ import { buildTargets, normalizeEntryZone } from './shared.ts';
  * pavio; quem compra o reteste tem invalidação a poucos passos.
  */
 export function detectBreakoutRetest(input: DetectorInput): SetupCandidate | null {
+  return detectBreakRetest(input, 'BUY');
+}
+
+/**
+ * PERDA DE SUPORTE + RETESTE — o espelho, só disponível em futuros.
+ *
+ * O antigo chão vira teto: o preço perde o suporte, volta a encostar nele por
+ * baixo e é rejeitado. A invalidação fica logo acima do nível perdido.
+ */
+export function detectBreakdownRetest(input: DetectorInput): SetupCandidate | null {
+  return detectBreakRetest(input, 'SELL');
+}
+
+function detectBreakRetest(input: DetectorInput, side: Side): SetupCandidate | null {
   const { trigger, anchor } = input;
+  const short = side === 'SELL';
   const indicators = trigger.indicators;
   const structure = trigger.structure;
   const atrValue = indicators.atr14;
   const close = indicators.close;
-  const breakout = structure.breakout;
+  const direction = directionOf(side);
+  const event = short ? structure.breakdown : structure.breakout;
 
-  if (atrValue === null || atrValue <= 0 || !breakout) return null;
-  if (breakout.failed) return null;
-  // encostar no nível não basta: o comprador tem de ter aparecido depois do toque
-  if (!breakout.confirmed || breakout.barsSinceConfirmation === null) return null;
-  if (breakout.barsSinceBreakout < 1 || breakout.barsSinceBreakout > 10) return null;
+  if (atrValue === null || atrValue <= 0 || !event) return null;
+  if (event.failed) return null;
+  // encostar no nível não basta: o lado que rompeu tem de ter aparecido de
+  // novo depois do toque
+  if (!event.confirmed || event.barsSinceConfirmation === null) return null;
+  if (event.barsSinceBreakout < 1 || event.barsSinceBreakout > 10) return null;
   // confirmação velha já não é gatilho: o preço andou sem a gente
-  if (breakout.barsSinceConfirmation > 4) return null;
-  if (anchor.structure.trend === 'DOWN') return null;
+  if (event.barsSinceConfirmation > 4) return null;
+  if (anchor.structure.trend === (short ? 'UP' : 'DOWN')) return null;
 
-  const level = breakout.level;
+  const level = event.level;
+  // a borda que o preço rompeu (vira o novo piso do comprado, o novo teto do
+  // vendido) e a borda de trás, que só é ultrapassada quando a tese morre
+  const far = short ? level.low : level.high;
+  const near = short ? level.high : level.low;
+
   // o nível rompido tem de estar sendo defendido agora
-  if (close < level.low) return null;
-  if (close > level.high + atrValue * 1.8) return null;
+  if (isFavorable(side, near, close)) return null;
+  if (gainPerUnit(side, far, close) > atrValue * 1.8) return null;
 
-  const breakoutCandle = trigger.candles[breakout.breakoutIndex];
-  const breakoutVolumeRatio = relativeVolumeAt(trigger.candles, breakout.breakoutIndex);
-  if (breakoutVolumeRatio !== null && breakoutVolumeRatio < 1.1) return null;
+  const eventCandle = trigger.candles[event.breakoutIndex];
+  const eventVolumeRatio = relativeVolumeAt(trigger.candles, event.breakoutIndex);
+  if (eventVolumeRatio !== null && eventVolumeRatio < 1.1) return null;
 
   const [entryLow, entryHigh] = normalizeEntryZone(
-    level.low - atrValue * 0.1,
-    level.high + atrValue * 0.35,
+    near - direction * atrValue * 0.1,
+    far + direction * atrValue * 0.35,
     close,
   );
   const entryPrice = (entryLow + entryHigh) / 2;
-  const stopLoss = level.low - atrValue * 0.9;
-  if (stopLoss >= entryLow) return null;
+  const stopLoss = near - direction * atrValue * 0.9;
+  const entryEdge = short ? entryHigh : entryLow;
+  if (!isFavorable(side, entryEdge, stopLoss)) return null;
 
-  const consolidationHeight = Math.max(level.price - structure.recentLow, atrValue * 2);
-  const measuredMove = level.high + consolidationHeight;
+  // projeção do movimento: a altura da consolidação, jogada a partir do nível
+  const consolidationHeight = Math.max(
+    Math.abs(level.price - (short ? structure.recentHigh : structure.recentLow)),
+    atrValue * 2,
+  );
+  const measuredMove = far + direction * consolidationHeight;
   const targets = buildTargets(
     entryPrice,
     stopLoss,
-    structure.resistances,
-    Math.max(structure.recentHigh, measuredMove),
+    short ? structure.supports : structure.resistances,
+    // o alvo estrutural mais distante é o extremo recente OU a projeção da
+    // consolidação — vale o que for mais longe no sentido da operação
+    bestOf(side, short ? structure.recentLow : structure.recentHigh, measuredMove),
     atrValue,
+    side,
   );
   if (!targets) return null;
 
   const reasons: string[] = [
-    `Rompimento da resistência de ${level.price.toPrecision(6)} no ${trigger.timeframe}`,
-    `Reteste do nível ${breakout.barsSinceBreakout} candle(s) depois`,
-    ...breakout.confirmationReasons,
+    short
+      ? `Perda do suporte de ${level.price.toPrecision(6)} no ${trigger.timeframe}`
+      : `Rompimento da resistência de ${level.price.toPrecision(6)} no ${trigger.timeframe}`,
+    `Reteste do nível ${event.barsSinceBreakout} candle(s) depois`,
+    ...event.confirmationReasons,
   ];
-  if (breakoutVolumeRatio !== null) {
-    reasons.push(`Volume ${breakoutVolumeRatio.toFixed(1)}x a média no rompimento`);
+  if (eventVolumeRatio !== null) {
+    reasons.push(`Volume ${eventVolumeRatio.toFixed(1)}x a média no rompimento`);
   }
-  if (breakoutCandle) {
-    reasons.push(`Fechamento do rompimento em ${breakoutCandle.close.toPrecision(6)}`);
+  if (eventCandle) {
+    reasons.push(`Fechamento do rompimento em ${eventCandle.close.toPrecision(6)}`);
   }
-  if (anchor.structure.trend === 'UP') reasons.push(`Tendência de alta no ${anchor.timeframe}`);
+  if (anchor.structure.trend === (short ? 'DOWN' : 'UP')) {
+    reasons.push(`Tendência de ${short ? 'baixa' : 'alta'} no ${anchor.timeframe}`);
+  }
 
   return {
     symbol: input.analysis.symbol,
+    side,
     timeframe: trigger.timeframe,
     anchorTimeframe: anchor.timeframe,
     setupType: 'BREAKOUT_RETEST',
@@ -82,9 +118,9 @@ export function detectBreakoutRetest(input: DetectorInput): SetupCandidate | nul
     levelPrice: level.price,
     qualityHints: {
       levelQuality: level.quality,
-      volumeConfirmation: (breakoutVolumeRatio ?? 0) >= 1.3,
-      momentumTurning: (indicators.rsi14 ?? 50) > 50,
-      trendAligned: anchor.structure.trend === 'UP',
+      volumeConfirmation: (eventVolumeRatio ?? 0) >= 1.3,
+      momentumTurning: short ? (indicators.rsi14 ?? 50) < 50 : (indicators.rsi14 ?? 50) > 50,
+      trendAligned: anchor.structure.trend === (short ? 'DOWN' : 'UP'),
     },
   };
 }
