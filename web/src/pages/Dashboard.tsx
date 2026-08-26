@@ -257,30 +257,23 @@ function MarketColumn({
   /*
    * Filtro por tempo gráfico.
    *
-   * As teses da mesa não são comparáveis entre si: uma de 1 minuto dura três
-   * minutos e exige olhar agora; uma de 1 dia pode esperar a semana. Numa
-   * lista única ordenada por nota, a mais urgente aparece no meio das que não
-   * são — e é o tempo gráfico, não o tipo de setup, que separa as duas coisas.
-   *
-   * Seleção MÚLTIPLA, com tudo ligado por padrão: o filtro serve para tirar
-   * ruído da vista, e um seletor único obrigaria a escolher entre 1m e 15m
-   * quando a resposta natural é "esses dois, sem o resto".
+   * Clicar em "15m" significa "mostrar 15m". A versão anterior fazia o
+   * inverso: o clique OCULTAVA 15m e deixava 1h na tela, exatamente com cara
+   * de setup classificado no timeframe errado. Um filtro exclusivo, mais o
+   * botão Todos, torna a ação inequívoca.
    */
-  const [ocultos, setOcultos] = useState<Set<Timeframe>>(new Set());
+  const [filtro, setFiltro] = useState<Timeframe | 'TODOS'>('TODOS');
   const contagem = new Map<Timeframe, number>();
   for (const setup of setups) {
     contagem.set(setup.timeframe, (contagem.get(setup.timeframe) ?? 0) + 1);
   }
   /* na ordem do mais curto para o mais longo, não na ordem em que apareceram */
   const presentes = ORDEM_TIMEFRAME.filter((tf) => contagem.has(tf));
-  const visiveis = setups.filter((setup) => !ocultos.has(setup.timeframe));
-  const alternar = (tf: Timeframe): void =>
-    setOcultos((atual) => {
-      const proximo = new Set(atual);
-      if (proximo.has(tf)) proximo.delete(tf);
-      else proximo.add(tf);
-      return proximo;
-    });
+  // Se o último setup do filtro expirar, volta para Todos em vez de deixar
+  // uma lista vazia enquanto há oportunidades em outros tempos.
+  const filtroAtivo = filtro !== 'TODOS' && presentes.includes(filtro) ? filtro : 'TODOS';
+  const visiveis =
+    filtroAtivo === 'TODOS' ? setups : setups.filter((setup) => setup.timeframe === filtroAtivo);
 
   return (
     <div className="flex flex-col">
@@ -320,36 +313,39 @@ function MarketColumn({
           */}
           {presentes.length > 1 ? (
             <span className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setFiltro('TODOS')}
+                title="Mostrar teses de todos os timeframes"
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold normal-case tabular ${
+                  filtroAtivo === 'TODOS'
+                    ? 'border-info/60 bg-info/10 text-info'
+                    : 'border-terminal-border text-terminal-muted'
+                }`}
+              >
+                Todos ({setups.length})
+              </button>
               {presentes.map((tf) => {
-                const oculto = ocultos.has(tf);
+                const selecionado = filtroAtivo === tf;
                 const micro = tf === MICRO_TIMEFRAME;
                 return (
                   <button
                     key={tf}
                     type="button"
-                    onClick={() => alternar(tf)}
-                    title={oculto ? `Mostrar as teses de ${tf}` : `Ocultar as teses de ${tf}`}
+                    onClick={() => setFiltro(tf)}
+                    title={`Mostrar somente as teses de ${tf}`}
                     className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold normal-case tabular ${
-                      oculto
-                        ? 'border-terminal-border text-terminal-muted opacity-50'
-                        : micro
+                      selecionado
+                        ? micro
                           ? 'border-bull/60 bg-bull/10 text-bull'
-                          : 'border-terminal-border bg-terminal-panel-soft text-terminal-text'
+                          : 'border-info/60 bg-info/10 text-info'
+                        : 'border-terminal-border text-terminal-muted'
                     }`}
                   >
                     {tf} ({contagem.get(tf) ?? 0})
                   </button>
                 );
               })}
-              {ocultos.size > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setOcultos(new Set())}
-                  className="rounded px-1 text-[10px] font-normal normal-case text-terminal-muted underline"
-                >
-                  limpar
-                </button>
-              ) : null}
             </span>
           ) : null}
         </h2>
@@ -361,11 +357,18 @@ function MarketColumn({
         />
       </div>
 
+      {!futuros && robot.enabled ? (
+        <p className="mb-2 text-[10px] leading-relaxed text-terminal-muted">
+          Automático nesta coluna: somente Explosão de força comprada, score ≥ 90. O robô avalia
+          cada timeframe ativo separadamente; os demais tipos continuam manuais.
+        </p>
+      ) : null}
+
       {visiveis.length === 0 ? (
         <Empty
           text={
-            ocultos.size > 0
-              ? 'Nenhuma tese nos tempos gráficos que estão à vista. Reative um deles acima.'
+            filtroAtivo !== 'TODOS'
+              ? `Nenhuma tese de ${filtroAtivo} agora. Selecione Todos para ver os demais timeframes.`
               : futuros
                 ? 'Nenhuma tese em futuros agora. O sistema segue varrendo as duas modalidades.'
                 : 'Nenhum setup válido agora. O sistema segue varrendo o mercado.'
@@ -445,7 +448,7 @@ function RobotSwitch({
         robot.liveDenial
           ? `Robô ligado, mas sem agir na conta real: ${robot.liveDenial}`
           : robot.enabled
-            ? `O robô opera sozinho em ${MARKET_LABEL[market]}`
+            ? `O robô avalia Explosão de força comprada em cada timeframe ativo de ${MARKET_LABEL[market]}`
             : `O robô está desligado em ${MARKET_LABEL[market]} — só entrada manual`
       }
       className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold tracking-wide transition disabled:opacity-40 ${tom}`}
@@ -528,8 +531,11 @@ function SetupRow({
           </span>
         )}
 
+        <span className="rounded border border-terminal-border bg-terminal-panel-soft px-1.5 py-0.5 text-[10px] font-bold tabular text-terminal-text">
+          {setup.timeframe}
+        </span>
         <span className="hidden min-w-0 truncate text-[11px] text-terminal-muted sm:inline">
-          {SETUP_LABEL[setup.setupType]} · {setup.timeframe}
+          {SETUP_LABEL[setup.setupType]}
         </span>
 
         {/*

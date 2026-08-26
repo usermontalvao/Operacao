@@ -13,6 +13,8 @@ export type DecisionCode =
   | 'LIVE_NOT_ARMED'
   | 'PERSISTENCE_UNAVAILABLE'
   | 'MARKET_DATA_STALE'
+  /** o setup pertence a um gatilho que foi desligado depois que ele nasceu */
+  | 'TIMEFRAME_DISABLED'
   // estratégia e evidência
   | 'STRATEGY_NOT_VALIDATED'
   /** tese vendida: o robô não opera o lado de baixo, só entrada manual */
@@ -160,6 +162,7 @@ export function stageForCode(code: DecisionCode): FunnelStage {
     case 'SETUP_INVALIDATED':
     case 'SETUP_IGNORED':
     case 'SETUP_ALREADY_BOUGHT':
+    case 'TIMEFRAME_DISABLED':
       return 'SCORE_SUFICIENTE';
     default:
       return 'DENTRO_DA_ZONA';

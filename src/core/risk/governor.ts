@@ -1,10 +1,10 @@
 /**
- * Disjuntor de risco.
+ * Monitor de risco.
  *
- * O sistema erra — isso é dado. O que decide a sobrevivência da conta não é a
- * qualidade do acerto, é o tamanho do erro quando a sequência vira contra.
- * Este módulo é puro de propósito: as regras que desligam a operação precisam
- * ser lidas, testadas e conferidas sem subir servidor nenhum.
+ * Perda diária, sequência ruim, drawdown e quantidade de operações continuam
+ * calculados e visíveis, mas não desligam mais o robô. As travas por operação
+ * (saldo, exposição, liquidez, R/R, posição duplicada e regras da corretora)
+ * permanecem no porteiro abaixo.
  */
 
 import type { BtcContextState, Side, Trade, TradingMode } from '../types.ts';
@@ -156,10 +156,10 @@ export interface RiskSnapshot {
   exposurePercent: number;
   altExposurePercent: number;
   lastLossAt: string | null;
-  /** true quando alguma trava disparou e o robô não deve abrir posição */
+  /** mantido na API por compatibilidade; o monitor não interrompe mais o robô */
   halted: boolean;
   haltReasons: string[];
-  /** travas que dispararam mas estão reconhecidas pelo usuário */
+  /** alertas de perda/drawdown que não bloqueiam entradas */
   mutedReasons: string[];
   mutedUntil: string | null;
 }
@@ -327,9 +327,6 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
     reasons.push(`${tradesToday} operações iniciadas hoje (teto ${guard.maxDailyTrades})`);
   }
 
-  const muted =
-    guard.mutedUntil !== null && new Date(guard.mutedUntil).getTime() > now.getTime();
-
   return {
     mode,
     capital: round(capital, 2),
@@ -340,17 +337,19 @@ export function computeRiskSnapshot(input: RiskSnapshotInput): RiskSnapshot {
     dailyUnrealizedPnl,
     dailyLossLimit,
     consecutiveLosses,
-    resumesAt: pausing ? resumesAt : null,
+    // Não existe mais pausa automática. A janela ainda é usada acima apenas
+    // para contar/explicar a sequência recente.
+    resumesAt: null,
     tradesToday,
     openPositions: open.length,
     exposure,
     exposurePercent: capital > 0 ? round((exposure / capital) * 100, 2) : 0,
     altExposurePercent: capital > 0 ? round((altExposure / capital) * 100, 2) : 0,
     lastLossAt: lastLoss?.closedAt ?? null,
-    halted: !muted && reasons.length > 0,
-    haltReasons: muted ? [] : reasons,
-    mutedReasons: muted ? reasons : [],
-    mutedUntil: guard.mutedUntil,
+    halted: false,
+    haltReasons: [],
+    mutedReasons: reasons,
+    mutedUntil: null,
   };
 }
 
@@ -410,12 +409,9 @@ export function evaluateEntryGate(input: EntryGateInput): EntryGateResult {
   const warnings: string[] = [];
   let sizeFactor = 1;
 
-  if (snapshot.halted) {
-    blockers.push(`Disjuntor acionado: ${snapshot.haltReasons.join('; ')}`);
-  }
   if (snapshot.mutedReasons.length > 0) {
     warnings.push(
-      `Disjuntor reconhecido até ${snapshot.mutedUntil}: ${snapshot.mutedReasons.join('; ')}`,
+      `Alerta de risco (não bloqueia o robô): ${snapshot.mutedReasons.join('; ')}`,
     );
   }
 

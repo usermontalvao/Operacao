@@ -30,6 +30,8 @@ export interface FuturesBalance {
   unrealizedProfit: number;
 }
 
+const futuresBalanceInFlight = new Map<BinanceEnvironment, Promise<FuturesBalance[]>>();
+
 /**
  * Saldo da carteira de futuros.
  *
@@ -43,20 +45,26 @@ export async function getFuturesBalances(
   const environment: EnvironmentEndpoints = environmentName
     ? ENVIRONMENTS[environmentName]
     : environmentFor('FUTURES');
-  const balances = await signedRequest<
-    Array<{
-      asset: string;
-      balance: string;
-      availableBalance: string;
-      crossUnPnl: string;
-    }>
-  >('GET', '/fapi/v2/balance', {}, environment);
-  return balances.map((item) => ({
-    asset: item.asset,
-    walletBalance: Number(item.balance),
-    availableBalance: Number(item.availableBalance),
-    unrealizedProfit: Number(item.crossUnPnl),
-  }));
+  const existing = futuresBalanceInFlight.get(environment.name);
+  if (existing) return existing;
+  const loading = (async () => {
+    const balances = await signedRequest<
+      Array<{
+        asset: string;
+        balance: string;
+        availableBalance: string;
+        crossUnPnl: string;
+      }>
+    >('GET', '/fapi/v2/balance', {}, environment);
+    return balances.map((item) => ({
+      asset: item.asset,
+      walletBalance: Number(item.balance),
+      availableBalance: Number(item.availableBalance),
+      unrealizedProfit: Number(item.crossUnPnl),
+    }));
+  })().finally(() => futuresBalanceInFlight.delete(environment.name));
+  futuresBalanceInFlight.set(environment.name, loading);
+  return loading;
 }
 
 export interface FuturesPosition {

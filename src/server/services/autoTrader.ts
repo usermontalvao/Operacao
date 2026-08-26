@@ -109,6 +109,11 @@ export class AutoTrader {
       .map((trade) => ({ symbol: trade.symbol, setupId: trade.setupId }));
 
     const liveDenial = mode === 'LIVE' ? liveAutoTradeDenial(policy) : null;
+    const scanner = this.settings.get().scanner;
+    const timeframeEnabled =
+      setup.timeframe === '1m'
+        ? scanner.microScalp.enabled
+        : scanner.triggerTimeframes.includes(setup.timeframe);
 
     return evaluateEntryDecision({
       setup,
@@ -118,6 +123,7 @@ export class AutoTrader {
       robotEnabled: policy.autoTrade.enabled,
       liveDenial,
       persistenceAvailable: this.persistenceAvailable,
+      timeframeEnabled,
       autoTrade: policy.autoTrade,
       openAutomatic,
       symbolCooldownUntil: symbolCooldownUntil({

@@ -13,6 +13,7 @@ import { AutoTrader } from './services/autoTrader.ts';
 import { DecisionJournal } from './services/decisionJournal.ts';
 import { LiveTradeMonitor } from './services/liveTradeMonitor.ts';
 import { LiveProtection } from './services/liveProtection.ts';
+import { TradePlanService } from './services/tradePlanService.ts';
 import { AccountStreams, marketsWithAccount } from './binance/accountStreams.ts';
 import { BalanceFeed } from './services/balanceFeed.ts';
 import { buildCuratedWatchlist } from './services/curatedWatchlist.ts';
@@ -118,6 +119,15 @@ async function main(): Promise<void> {
   // fluxo da conta: a corretora avisa a execução em vez de sermos nós a perguntar
   const accounts = new AccountStreams();
   const protection = new LiveProtection(audit, settings);
+  const tradePlan = new TradePlanService(
+    repository,
+    paper,
+    market,
+    settings,
+    audit,
+    bus,
+    protection,
+  );
   const liveMonitor = new LiveTradeMonitor(
     repository,
     paper,
@@ -175,6 +185,7 @@ async function main(): Promise<void> {
     news,
     execution,
     close,
+    tradePlan,
     risk,
     paper,
     audit,

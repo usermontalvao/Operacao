@@ -258,6 +258,7 @@ export function History({ prices = {} }: { prices?: Record<string, number> }) {
                       <SymbolButton
                         symbol={trade.symbol}
                         plan={planOf(trade)}
+                        timeframe={trade.timeframe}
                         note={`encerrada · ${OUTCOME_LABEL[trade.outcome] ?? trade.outcome}`}
                         markers={marksOf(trade)}
                         focusTime={trade.closedAt ? Date.parse(trade.closedAt) : null}
@@ -442,7 +443,10 @@ function PositionCard({
         <SymbolButton
           symbol={position.symbol}
           plan={planOf(position)}
+          timeframe={position.timeframe}
           note={stateNote}
+          tradeId={pending ? undefined : position.id}
+          side={position.side}
           className="w-14 shrink-0 font-semibold"
         />
 
@@ -539,7 +543,16 @@ function PositionCard({
 
       <button
         type="button"
-        onClick={() => chart.open({ symbol: position.symbol, plan: planOf(position), note: stateNote })}
+        onClick={() =>
+          chart.open({
+            symbol: position.symbol,
+            plan: planOf(position),
+            timeframe: position.timeframe,
+            note: stateNote,
+            tradeId: pending ? undefined : position.id,
+            side: position.side,
+          })
+        }
         title={`Ver o gráfico de ${position.symbol}`}
         className="mt-2 flex w-full cursor-pointer items-center gap-3"
       >

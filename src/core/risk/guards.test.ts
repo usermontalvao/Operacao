@@ -94,7 +94,7 @@ const TRES_PERDIDAS = [
   makeTrade({ id: 'c', realizedPnl: -3, closedAt: '2026-08-25T11:00:00.000Z' }),
 ];
 
-test('perdas seguidas mandam o robô para o intervalo', () => {
+test('perdas seguidas geram alerta, mas não interrompem o robô', () => {
   const snapshot = computeRiskSnapshot({
     trades: TRES_PERDIDAS,
     mode: 'PAPER',
@@ -106,9 +106,23 @@ test('perdas seguidas mandam o robô para o intervalo', () => {
     now: new Date('2026-08-25T11:30:00.000Z'),
   });
   assert.equal(snapshot.consecutiveLosses, 3);
-  assert.equal(snapshot.halted, true);
-  assert.equal(snapshot.resumesAt, '2026-08-25T12:00:00.000Z');
-  assert.match(snapshot.haltReasons.join(' '), /volta sozinho em 30 min/);
+  assert.equal(snapshot.halted, false);
+  assert.equal(snapshot.resumesAt, null);
+  assert.match(snapshot.mutedReasons.join(' '), /volta sozinho em 30 min/);
+
+  const gate = evaluateEntryGate({
+    snapshot,
+    guard: { ...DEFAULT_GUARD, minNetRiskReward: 1, lossCooldownMinutes: 0 },
+    symbol: 'BTCUSDT',
+    quoteAmount: 50,
+    netRiskReward: 3,
+    openTrades: [],
+    btcContext: 'BTC_NEUTRAL',
+    quoteVolume24h: 50_000_000,
+    now: new Date('2026-08-25T11:30:00.000Z'),
+  });
+  assert.equal(gate.allowed, true);
+  assert.match(gate.warnings.join(' '), /não bloqueia o robô/);
 });
 
 test('passado o intervalo o robô volta sozinho, sem ninguém clicar', () => {
@@ -245,7 +259,7 @@ test('operação de outro modo não aciona o disjuntor do modo ativo', () => {
   assert.equal(snapshot.halted, false);
 });
 
-test('reconhecer o disjuntor libera a operação até a hora marcada', () => {
+test('o campo antigo de reconhecimento não altera o monitor não bloqueador', () => {
   const snapshot = computeRiskSnapshot({
     trades: TRES_PERDIDAS,
     mode: 'PAPER',

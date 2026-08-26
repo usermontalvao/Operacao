@@ -64,7 +64,13 @@ export function environmentFor(market: MarketKind): EnvironmentEndpoints {
 
 let bannedUntil = 0;
 let lastRequestAt = 0;
-const MIN_INTERVAL_MS = 60;
+/**
+ * 480 chamadas/minuto deixam folga para o peso 2 dos candles e para chamadas
+ * mais caras (exchangeInfo/ticker). Sessenta ms permitiam ~1.000 chamadas —
+ * mas não ~1.000 de peso — e o scanner atravessava a cota mesmo sem erro de
+ * concorrência.
+ */
+const MIN_INTERVAL_MS = 125;
 /** Diferença entre o relógio local e o da Binance, remedida quando erra. */
 let clockOffsetMs = 0;
 /**
@@ -75,28 +81,108 @@ let clockOffsetMs = 0;
  */
 const MARGEM_DE_RELOGIO_MS = 500;
 
-async function throttle(): Promise<void> {
-  const now = Date.now();
-  if (bannedUntil > now) {
-    throw new BinanceError(
-      `Limite de requisições atingido — liberado em ${Math.ceil((bannedUntil - now) / 1000)}s`,
-      -1003,
-      429,
-    );
-  }
-  const wait = lastRequestAt + MIN_INTERVAL_MS - now;
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+const delay = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+interface RequestJob {
+  run: () => Promise<unknown>;
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+}
+
+/*
+ * Uma fila de verdade, não apenas um `sleep` antes de cada chamada.
+ *
+ * Antes, todas as centenas de promises do scanner liam o mesmo
+ * `lastRequestAt`, dormiam juntas e acordavam juntas: o suposto limitador
+ * criava a própria rajada. A fila mantém uma única chamada HTTP em voo e dá
+ * prioridade a saldo, proteção e ordens assinadas; assim uma ordem nunca fica
+ * atrás de centenas de candles já enfileirados.
+ */
+const signedQueue: RequestJob[] = [];
+const publicQueue: RequestJob[] = [];
+let drainingRequests = false;
+
+function isSignedOrMutating(init: RequestInit): boolean {
+  const headers = new Headers(init.headers);
+  return headers.has('X-MBX-APIKEY') || (init.method !== undefined && init.method !== 'GET');
+}
+
+function enqueueRequest<T>(run: () => Promise<T>, priority: 'SIGNED' | 'PUBLIC'): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const job: RequestJob = {
+      run,
+      resolve: (value) => resolve(value as T),
+      reject,
+    };
+    (priority === 'SIGNED' ? signedQueue : publicQueue).push(job);
+    void drainRequestQueue();
+  });
+}
+
+async function waitForRequestWindow(): Promise<void> {
+  const wait = Math.max(bannedUntil, lastRequestAt + MIN_INTERVAL_MS) - Date.now();
+  if (wait > 0) await delay(wait);
   lastRequestAt = Date.now();
 }
 
-async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
-  await throttle();
-  const response = await fetch(url, init);
+async function drainRequestQueue(): Promise<void> {
+  if (drainingRequests) return;
+  drainingRequests = true;
+  try {
+    while (signedQueue.length > 0 || publicQueue.length > 0) {
+      // A fila assinada pode furar a fila pública, mas não interrompe a única
+      // chamada que já começou. Na prática o atraso de uma ordem é <= 1 HTTP.
+      const job = signedQueue.shift() ?? publicQueue.shift();
+      if (!job) continue;
+      await waitForRequestWindow();
+      try {
+        job.resolve(await job.run());
+      } catch (error) {
+        job.reject(error);
+      }
+    }
+  } finally {
+    drainingRequests = false;
+    // Cobre o caso raro de uma chamada entrar entre o último `while` e o
+    // `finally`; `enqueueRequest` viu a fila como ocupada e não abriu outra.
+    if (signedQueue.length > 0 || publicQueue.length > 0) void drainRequestQueue();
+  }
+}
+
+function retryAfterMs(response: Response): number {
+  const raw = response.headers.get('retry-after');
+  if (!raw) return 30_000;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.max(1_000, seconds * 1_000);
+  const date = Date.parse(raw);
+  return Number.isNaN(date) ? 30_000 : Math.max(1_000, date - Date.now());
+}
+
+async function performRequest<T>(url: string, init: RequestInit): Promise<T> {
+  let response = await fetch(url, init);
 
   if (response.status === 429 || response.status === 418) {
-    const retryAfter = Number(response.headers.get('retry-after') ?? '30');
-    bannedUntil = Date.now() + retryAfter * 1000;
-    throw new BinanceError('Binance pediu para desacelerar (429/418)', -1003, response.status);
+    const wait = retryAfterMs(response);
+    bannedUntil = Math.max(bannedUntil, Date.now() + wait);
+    logger.warn('Binance pediu para desacelerar; aguardando e repetindo uma vez', {
+      status: response.status,
+      waitMs: wait,
+    });
+    // O bloqueio é global. Permanecer dentro deste job impede que outras
+    // chamadas escapem durante o Retry-After e evita despejar 503 na tela.
+    await waitForRequestWindow();
+    response = await fetch(url, init);
+  }
+
+  if (response.status === 429 || response.status === 418) {
+    const wait = retryAfterMs(response);
+    bannedUntil = Math.max(bannedUntil, Date.now() + wait);
+    throw new BinanceError(
+      'A Binance continuou limitando após a espera automática; a fila permanecerá pausada',
+      -1003,
+      response.status,
+    );
   }
 
   const text = await response.text();
@@ -116,6 +202,13 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
     );
   }
   return payload as T;
+}
+
+async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  return enqueueRequest(
+    () => performRequest<T>(url, init),
+    isSignedOrMutating(init) ? 'SIGNED' : 'PUBLIC',
+  );
 }
 
 /**
@@ -343,6 +436,7 @@ export interface Ticker24h {
 }
 
 let brlRate = { value: 0, fetchedAt: 0 };
+let brlRateInFlight: Promise<number | null> | null = null;
 const BRL_RATE_TTL_MS = 5 * 60 * 1000;
 
 /**
@@ -353,19 +447,25 @@ const BRL_RATE_TTL_MS = 5 * 60 * 1000;
  */
 export async function getUsdtBrlRate(): Promise<number | null> {
   if (brlRate.value > 0 && Date.now() - brlRate.fetchedAt < BRL_RATE_TTL_MS) return brlRate.value;
-  try {
-    const result = await request<{ price: string }>(
-      `https://data-api.binance.vision/api/v3/ticker/price?symbol=USDTBRL`,
-    );
-    const value = Number(result.price);
-    if (Number.isFinite(value) && value > 0) {
-      brlRate = { value, fetchedAt: Date.now() };
-      return value;
+  if (brlRateInFlight) return brlRateInFlight;
+  brlRateInFlight = (async () => {
+    try {
+      const result = await request<{ price: string }>(
+        `https://data-api.binance.vision/api/v3/ticker/price?symbol=USDTBRL`,
+      );
+      const value = Number(result.price);
+      if (Number.isFinite(value) && value > 0) {
+        brlRate = { value, fetchedAt: Date.now() };
+        return value;
+      }
+    } catch (error) {
+      logger.warn('Cotação USDT/BRL indisponível', { error: (error as Error).message });
     }
-  } catch (error) {
-    logger.warn('Cotação USDT/BRL indisponível', { error: (error as Error).message });
-  }
-  return brlRate.value > 0 ? brlRate.value : null;
+    return brlRate.value > 0 ? brlRate.value : null;
+  })().finally(() => {
+    brlRateInFlight = null;
+  });
+  return brlRateInFlight;
 }
 
 /** Acima deste tamanho a lista não cabe na URL (a Binance devolve 414). */
@@ -684,6 +784,7 @@ export async function getApiKeyPowers(
  */
 const ACCOUNT_CACHE_TTL_MS = 2_000;
 const accountCache = new Map<BinanceEnvironment, { at: number; value: AccountBalance[] }>();
+const accountInFlight = new Map<BinanceEnvironment, Promise<AccountBalance[]>>();
 
 export function invalidateAccountCache(): void {
   accountCache.clear();
@@ -695,17 +796,23 @@ export async function getAccountBalances(environmentName?: BinanceEnvironment): 
   const environment = environmentName ? ENVIRONMENTS[environmentName] : environmentFor('SPOT');
   const cached = accountCache.get(environment.name);
   if (cached && Date.now() - cached.at < ACCOUNT_CACHE_TTL_MS) return cached.value;
-  const account = await signedRequest<{
-    balances: Array<{ asset: string; free: string; locked: string }>;
-    canTrade: boolean;
-  }>('GET', '/api/v3/account', { omitZeroBalances: true }, environment);
-  const balances = account.balances.map((balance) => ({
-    asset: balance.asset,
-    free: Number(balance.free),
-    locked: Number(balance.locked),
-  }));
-  accountCache.set(environment.name, { at: Date.now(), value: balances });
-  return balances;
+  const existing = accountInFlight.get(environment.name);
+  if (existing) return existing;
+  const loading = (async () => {
+    const account = await signedRequest<{
+      balances: Array<{ asset: string; free: string; locked: string }>;
+      canTrade: boolean;
+    }>('GET', '/api/v3/account', { omitZeroBalances: true }, environment);
+    const balances = account.balances.map((balance) => ({
+      asset: balance.asset,
+      free: Number(balance.free),
+      locked: Number(balance.locked),
+    }));
+    accountCache.set(environment.name, { at: Date.now(), value: balances });
+    return balances;
+  })().finally(() => accountInFlight.delete(environment.name));
+  accountInFlight.set(environment.name, loading);
+  return loading;
 }
 
 export interface OrderResponse {

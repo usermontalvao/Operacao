@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   CandlestickSeries,
   HistogramSeries,
@@ -47,6 +47,8 @@ export interface ChartPlan {
   target3?: number | null;
 }
 
+export type EditableChartLevel = 'stopLoss' | 'target1' | 'target2' | 'target3';
+
 /** Um acontecimento da operação desenhado sobre o candle em que aconteceu. */
 export interface ChartMarker {
   /** milissegundos */
@@ -65,6 +67,10 @@ interface PriceChartProps {
   focusTime?: number | null;
   livePrice: number | null;
   height?: number;
+  /** níveis que respondem ao gesto de arrastar; entrada nunca é editável */
+  editableLevels?: EditableChartLevel[];
+  /** `committed` só fica true quando o dedo/mouse é solto */
+  onLevelChange?: (level: EditableChartLevel, price: number, committed: boolean) => void;
 }
 
 /** Casas decimais suficientes para o par, lidas dos próprios candles. */
@@ -100,6 +106,8 @@ export function PriceChart({
   focusTime = null,
   livePrice,
   height = 340,
+  editableLevels = [],
+  onLevelChange,
 }: PriceChartProps) {
   const container = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -110,6 +118,8 @@ export function PriceChart({
   const loadedCandles = useRef<Candle[]>([]);
   /** as linhas do plano são recriadas a cada carga — sem isto elas se acumulam */
   const priceLines = useRef<IPriceLine[]>([]);
+  const dragging = useRef<EditableChartLevel | null>(null);
+  const [draggingLevel, setDraggingLevel] = useState<EditableChartLevel | null>(null);
 
   const [timeframe, setTimeframe] = useState<ChartInterval>(initialTimeframe);
   /** o gráfico ocupando a tela inteira, para ler o candle de perto */
@@ -142,16 +152,73 @@ export function PriceChart({
 
   const levels = useMemo(
     () => [
-      { price: plan?.target3 ?? null, color: '#16c784', title: 'Alvo 3', dashed: true, label: false },
-      { price: plan?.target2 ?? null, color: '#16c784', title: 'Alvo 2', dashed: true, label: false },
-      { price: plan?.target1 ?? null, color: '#16c784', title: 'Alvo 1', dashed: false, label: true },
-      { price: plan?.entryHigh ?? null, color: '#4b8ef7', title: 'Entrada', dashed: true, label: false },
-      { price: plan?.entryLow ?? null, color: '#4b8ef7', title: 'Entrada', dashed: true, label: false },
-      { price: plan?.stopLoss ?? null, color: '#ea3943', title: 'Stop', dashed: false, label: true },
+      { key: 'target3' as const, price: plan?.target3 ?? null, color: '#16c784', title: 'Alvo 3', dashed: true, label: false },
+      { key: 'target2' as const, price: plan?.target2 ?? null, color: '#16c784', title: 'Alvo 2', dashed: true, label: false },
+      { key: 'target1' as const, price: plan?.target1 ?? null, color: '#16c784', title: 'Alvo 1', dashed: false, label: true },
+      { key: null, price: plan?.entryHigh ?? null, color: '#4b8ef7', title: 'Entrada', dashed: true, label: false },
+      { key: null, price: plan?.entryLow ?? null, color: '#4b8ef7', title: 'Entrada', dashed: true, label: false },
+      { key: 'stopLoss' as const, price: plan?.stopLoss ?? null, color: '#ea3943', title: 'Stop', dashed: false, label: true },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [levelsKey],
   );
+  const editable = useMemo(() => new Set(editableLevels), [editableLevels.join('|')]);
+
+  const priceAt = (event: ReactPointerEvent<HTMLDivElement>): number | null => {
+    const series = candleSeries.current;
+    if (!series) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const value = series.coordinateToPrice(event.clientY - rect.top);
+    if (value === null || !Number.isFinite(value) || value <= 0) return null;
+    const decimals = decimalsFor(loadedCandles.current);
+    return Number(value.toFixed(decimals));
+  };
+
+  const startLevelDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!onLevelChange || editable.size === 0 || !candleSeries.current) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    let nearest: { key: EditableChartLevel; distance: number } | null = null;
+    for (const level of levels) {
+      if (level.key === null || !editable.has(level.key) || level.price === null) continue;
+      const coordinate = candleSeries.current.priceToCoordinate(level.price);
+      if (coordinate === null) continue;
+      const distance = Math.abs(coordinate - y);
+      if (!nearest || distance < nearest.distance) nearest = { key: level.key, distance };
+    }
+    // Uma faixa estreita evita capturar o gesto normal de mover o gráfico.
+    if (!nearest || nearest.distance > 14) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragging.current = nearest.key;
+    setDraggingLevel(nearest.key);
+    chartRef.current?.applyOptions({ handleScroll: false, handleScale: false });
+  };
+
+  const moveLevel = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const level = dragging.current;
+    if (!level || !onLevelChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const value = priceAt(event);
+    if (value !== null) onLevelChange(level, value, false);
+  };
+
+  const finishLevelDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const level = dragging.current;
+    if (!level || !onLevelChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const value = priceAt(event);
+    dragging.current = null;
+    setDraggingLevel(null);
+    chartRef.current?.applyOptions({ handleScroll: true, handleScale: true });
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (value !== null) onLevelChange(level, value, true);
+  };
 
   useEffect(() => {
     if (!container.current) return;
@@ -376,7 +443,23 @@ export function PriceChart({
           {error}
         </div>
       ) : null}
-      <div className={loading ? 'opacity-40' : ''} ref={container} />
+      {editable.size > 0 ? (
+        <p className="mb-1 px-0.5 text-[10px] text-terminal-muted">
+          {draggingLevel ? 'Solte para posicionar a linha' : 'Arraste o stop ou um alvo pela linha no gráfico'}
+        </p>
+      ) : null}
+      <div
+        className={`${loading ? 'opacity-40' : ''} ${draggingLevel ? 'cursor-ns-resize' : ''}`}
+        ref={container}
+        onPointerDownCapture={startLevelDrag}
+        onPointerMoveCapture={moveLevel}
+        onPointerUpCapture={finishLevelDrag}
+        onPointerCancelCapture={finishLevelDrag}
+        // O navegador decide o gesto de toque no pointerdown; trocar para
+        // `none` depois que começou já é tarde. `pan-x` reserva o movimento
+        // vertical para a linha e ainda deixa a página rolar lateralmente.
+        style={editable.size > 0 ? { touchAction: 'pan-x' } : undefined}
+      />
     </div>
   );
 }

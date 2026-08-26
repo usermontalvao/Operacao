@@ -23,6 +23,7 @@ import type { SizingResult } from '../../core/risk/index.ts';
 import { sizeByRisk, type RiskSizingResult } from '../../core/risk/sizeByRisk.ts';
 import { netRiskReward } from '../../core/risk/costs.ts';
 import { sanitizeTargets } from '../../core/risk/stops.ts';
+import { validateTradePlan } from '../../core/risk/tradePlan.ts';
 import { config, environmentForMode, readCredentials } from '../config.ts';
 import type { EventBus } from '../events.ts';
 import { logger } from '../logger.ts';
@@ -143,6 +144,11 @@ export interface PreviewRequest {
   setupId: string;
   quoteAmount?: number;
   percentOfCapital?: number;
+  /** níveis alterados no gráfico; ausentes preservam os calculados pelo setup */
+  stopLoss?: number;
+  target1?: number;
+  target2?: number | null;
+  target3?: number | null;
   /**
    * Ordem forçada: desarma as travas de POLÍTICA nesta ordem, e só nela.
    *
@@ -226,6 +232,8 @@ interface ConfirmationPayload {
   quoteAmount: number;
   stopLoss: number;
   target1: number;
+  target2: number | null;
+  target3: number | null;
   mode: TradingMode;
   expiresAt: number;
   automatic: boolean;
@@ -381,6 +389,14 @@ export class ExecutionService {
      * para perseguir preço — e conta real/testnet continuam como ordem limite.
      */
     const entryPrice = mode === 'PAPER' && !automatic ? currentPrice : clampToZone(currentPrice, setup);
+    const requestedSetup: TradeSetup = {
+      ...setup,
+      stopLoss: request.stopLoss ?? setup.stopLoss,
+      target1: request.target1 ?? setup.target1,
+      target2: request.target2 === undefined ? setup.target2 : request.target2,
+      target3: request.target3 === undefined ? setup.target3 : request.target3,
+    };
+    const planErrors = validateTradePlan(requestedSetup, side, entryPrice);
 
     const capitalView = await this.getCapital(mode, market);
     const requested =
@@ -395,8 +411,8 @@ export class ExecutionService {
     // R/R líquido: é ele que decide se a operação vale, não o bruto da tela
     const netRR = netRiskReward({
       entryPrice,
-      stopLoss: setup.stopLoss,
-      target: setup.target1,
+      stopLoss: requestedSetup.stopLoss,
+      target: requestedSetup.target1,
       costs: policy.guard,
       side,
     });
@@ -456,7 +472,7 @@ export class ExecutionService {
      */
     const sized = sizeByRisk({
       entryPrice,
-      stopLoss: setup.stopLoss,
+      stopLoss: requestedSetup.stopLoss,
       equity: snapshot.equity > 0 ? snapshot.equity : capitalView.capital,
       available: capitalView.available,
       riskPerTradePercent: policy.risk.riskPerTradePercent,
@@ -493,14 +509,14 @@ export class ExecutionService {
      */
     const alvos = sanitizeTargets({
       entryPrice,
-      target1: setup.target1,
-      target2: setup.target2,
-      target3: setup.target3,
+      target1: requestedSetup.target1,
+      target2: requestedSetup.target2,
+      target3: requestedSetup.target3,
       maxTargetPercent: policy.guard.maxTargetPercent,
       side,
     });
     const setupComAlvosReais: TradeSetup = {
-      ...setup,
+      ...requestedSetup,
       target1: alvos.target1,
       target2: alvos.target2,
       target3: alvos.target3,
@@ -531,7 +547,7 @@ export class ExecutionService {
           leverage,
           marginMode: policy.futures.marginMode,
           walletBalance: capitalView.capital,
-          stopLoss: setup.stopLoss,
+          stopLoss: requestedSetup.stopLoss,
           minBufferPercent: policy.futures.minLiquidationBufferPercent,
         })
       : null;
@@ -539,7 +555,7 @@ export class ExecutionService {
       ? maxSafeLeverage({
           side,
           entryPrice,
-          stopLoss: setup.stopLoss,
+          stopLoss: requestedSetup.stopLoss,
           minBufferPercent: policy.futures.minLiquidationBufferPercent,
           ceiling: policy.futures.maxLeverage,
         })
@@ -588,10 +604,10 @@ export class ExecutionService {
         // ordem até o saldo. O bloqueio precisa comparar o pedido original.
         quoteAmount: manualSpotAmount ? requested : margin,
         available: capitalView.available,
-        capital: capitalView.capital,
         sizingBlockers: sizing.blockReasons,
       })),
       ...gateFinal.blockers,
+      ...planErrors,
     ];
     if (liquidation?.blockReason) {
       blockers.push(
@@ -716,8 +732,10 @@ export class ExecutionService {
             quantity: sizing.quantity,
             entryPrice,
             quoteAmount: round(sizing.quantity * entryPrice, 2),
-            stopLoss: setup.stopLoss,
-            target1: setup.target1,
+            stopLoss: setupComAlvosReais.stopLoss,
+            target1: setupComAlvosReais.target1,
+            target2: setupComAlvosReais.target2,
+            target3: setupComAlvosReais.target3,
             mode,
             expiresAt,
             automatic,
@@ -738,10 +756,9 @@ export class ExecutionService {
     market: MarketKind;
     quoteAmount: number;
     available: number;
-    capital: number;
     sizingBlockers: string[];
   }): Promise<string[]> {
-    const { setup, mode, market, quoteAmount, available, capital } = input;
+    const { setup, mode, market, quoteAmount, available } = input;
     const settings = this.settings.get();
     const policy = this.settings.forMode(mode, market);
     const blockers = [...input.sizingBlockers];
@@ -785,14 +802,6 @@ export class ExecutionService {
     }
     if (openTrades.some((trade) => trade.setupId === setup.id)) {
       blockers.push('Já existe uma operação aberta para este setup');
-    }
-
-    const dailyLoss = await this.dailyLoss(mode, market);
-    const dailyLimit = capital * (settings.risk.dailyLossLimitPercent / 100);
-    if (dailyLoss < 0 && Math.abs(dailyLoss) >= dailyLimit) {
-      blockers.push(
-        `Limite de perda diária atingido (${dailyLoss.toFixed(2)} de ${dailyLimit.toFixed(2)})`,
-      );
     }
 
     if (mode !== 'PAPER') {
@@ -992,8 +1001,16 @@ export class ExecutionService {
     if ((payload.side ?? 'BUY') !== side) {
       throw new ExecutionError('O lado da operação mudou depois da confirmação — refaça');
     }
-    if (payload.stopLoss !== setup.stopLoss || payload.target1 !== setup.target1) {
-      throw new ExecutionError('O plano do setup mudou depois da confirmação — refaça');
+    const approvedSetup: TradeSetup = {
+      ...setup,
+      stopLoss: payload.stopLoss,
+      target1: payload.target1,
+      target2: payload.target2 ?? null,
+      target3: payload.target3 ?? null,
+    };
+    const planErrors = validateTradePlan(approvedSetup, side, payload.entryPrice);
+    if (planErrors.length > 0) {
+      throw new ExecutionError(`Plano aprovado deixou de ser válido: ${planErrors[0]}`, 400);
     }
 
     const leverage = market === 'FUTURES' ? Math.max(1, Math.round(payload.leverage ?? 1)) : 1;
@@ -1007,7 +1024,6 @@ export class ExecutionService {
           ? round(marginRequired(payload.quoteAmount, leverage), 2)
           : payload.quoteAmount,
       available: capitalView.available,
-      capital: capitalView.capital,
       sizingBlockers: [],
     });
     /*
@@ -1075,8 +1091,8 @@ export class ExecutionService {
       detail: {
         quantity: payload.quantity,
         entryPrice: payload.entryPrice,
-        stopLoss: setup.stopLoss,
-        target1: setup.target1,
+        stopLoss: approvedSetup.stopLoss,
+        target1: approvedSetup.target1,
         quoteAmount: payload.quoteAmount,
       },
     });
@@ -1086,9 +1102,9 @@ export class ExecutionService {
     // o stop que sobe.
     const targets = sanitizeTargets({
       entryPrice: payload.entryPrice,
-      target1: setup.target1,
-      target2: setup.target2,
-      target3: setup.target3,
+      target1: approvedSetup.target1,
+      target2: approvedSetup.target2,
+      target3: approvedSetup.target3,
       maxTargetPercent: settings.guard.maxTargetPercent,
       side,
     });
@@ -1114,7 +1130,7 @@ export class ExecutionService {
             leverage,
             marginMode: settings.futures.marginMode,
             walletBalance: capitalView.capital,
-            stopLoss: setup.stopLoss,
+            stopLoss: approvedSetup.stopLoss,
             minBufferPercent: settings.futures.minLiquidationBufferPercent,
           })
         : null;
@@ -1142,7 +1158,7 @@ export class ExecutionService {
       remainingQuantity: 0,
       entryPrice: payload.entryPrice,
       averageFillPrice: null,
-      stopLoss: setup.stopLoss,
+      stopLoss: approvedSetup.stopLoss,
       target1: targets.target1,
       target2: targets.target2,
       target3: targets.target3,
@@ -1152,7 +1168,7 @@ export class ExecutionService {
       marginMode: market === 'FUTURES' ? settings.futures.marginMode : undefined,
       liquidationPrice: liquidation?.liquidationPrice ?? null,
       riskAmount: round(
-        payload.quantity * Math.max(-gainPerUnit(side, payload.entryPrice, setup.stopLoss), 0),
+        payload.quantity * Math.max(-gainPerUnit(side, payload.entryPrice, approvedSetup.stopLoss), 0),
         2,
       ),
       realizedPnl: 0,
@@ -1392,21 +1408,6 @@ export class ExecutionService {
       logger.error('Falha ao enviar ordem', { symbol: trade.symbol, message });
       throw new ExecutionError(message, 502);
     }
-  }
-
-  private async dailyLoss(mode: TradingMode, market: MarketKind): Promise<number> {
-    const trades = await this.repository.listTrades();
-    const start = new Date();
-    start.setUTCHours(0, 0, 0, 0);
-    return trades
-      .filter(
-        (trade) =>
-          trade.mode === mode &&
-          trade.market === market &&
-          trade.closedAt &&
-          new Date(trade.closedAt) >= start,
-      )
-      .reduce((acc, trade) => acc + trade.realizedPnl, 0);
   }
 
   private signConfirmation(payload: ConfirmationPayload): string {

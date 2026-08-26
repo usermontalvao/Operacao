@@ -14,6 +14,7 @@ const CODE_TONE: Record<string, string> = {
   ROBOT_DISABLED: 'muted',
   PERSISTENCE_UNAVAILABLE: 'bear',
   MARKET_DATA_STALE: 'bear',
+  TIMEFRAME_DISABLED: 'muted',
   PRICE_OUTSIDE_ENTRY_ZONE: 'warn',
   SETUP_STALE: 'warn',
   SETUP_EXPIRED: 'muted',
@@ -88,6 +89,8 @@ function rotuloCurto(motivo: DecisionReason, decision: EntryDecision): string {
         : `${Math.abs(decision.distanceToEntryPercent).toFixed(1)}% abaixo da zona`;
     case 'ROBOT_DISABLED':
       return 'robô desligado';
+    case 'TIMEFRAME_DISABLED':
+      return 'timeframe desligado';
     case 'STRATEGY_NOT_VALIDATED':
       return 'em observação';
     case 'SHORT_NOT_AUTOMATED':

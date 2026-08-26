@@ -18,6 +18,10 @@ const previewSchema = z
     percentOfCapital: z.number().positive().max(100).optional(),
     // o teto real é o dos ajustes; 25 aqui é só sanidade de entrada
     leverage: z.number().int().min(1).max(25).optional(),
+    stopLoss: z.number().positive().finite().optional(),
+    target1: z.number().positive().finite().optional(),
+    target2: z.number().positive().finite().nullable().optional(),
+    target3: z.number().positive().finite().nullable().optional(),
     /** ordem forçada: desarma as travas de política NESTA ordem */
     override: z.boolean().optional(),
   })
@@ -30,6 +34,17 @@ const executeSchema = z.object({
   confirmationToken: z.string().min(10),
   idempotencyKey: z.string().min(8).max(64),
 });
+
+const tradePlanSchema = z
+  .object({
+    stopLoss: z.number().positive().finite().optional(),
+    target1: z.number().positive().finite().optional(),
+    target2: z.number().positive().finite().nullable().optional(),
+    target3: z.number().positive().finite().nullable().optional(),
+  })
+  .refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: 'Informe ao menos um nível para alterar',
+  });
 
 /**
  * Recorte de período das consultas de análise.
@@ -165,6 +180,27 @@ export function tradingRoutes(context: ApiContext): Router {
           : 'encerrado pelo usuário';
       try {
         response.json(await context.close.close(String(request.params.id), reason));
+      } catch (error) {
+        if (error instanceof ExecutionError) {
+          response.status(error.status).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+    }),
+  );
+
+  /** Arrastar no gráfico só termina aqui: valida, rearma e então persiste. */
+  router.patch(
+    '/trades/:id/plan',
+    asyncHandler(async (request, response) => {
+      const parsed = tradePlanSchema.safeParse(request.body);
+      if (!parsed.success) {
+        response.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Plano inválido' });
+        return;
+      }
+      try {
+        response.json(await context.tradePlan.update(String(request.params.id), parsed.data));
       } catch (error) {
         if (error instanceof ExecutionError) {
           response.status(error.status).json({ error: error.message });
@@ -491,6 +527,8 @@ export function tradingRoutes(context: ApiContext): Router {
           return {
             id: trade.id,
             symbol: trade.symbol,
+            // o gráfico da posição abre no mesmo horizonte em que a tese nasceu
+            timeframe: trade.timeframe,
             status: trade.status,
             quantity,
             entryPrice,

@@ -44,6 +44,25 @@ test('detecta pullback em tendência com R/R e motivos explicados', () => {
   assert.equal(pullback.side, 'BUY');
 });
 
+test('a mesma estratégia sobrevive separadamente em cada timeframe ligado', () => {
+  const settings = defaultTestSettings();
+  settings.scanner.triggerTimeframes = ['15m', '1h', '4h'];
+
+  const setups = generateSetups({
+    analysis: pullbackAnalysis(),
+    context: null,
+    settings,
+    now: NOW,
+    makeId,
+  });
+  const timeframes = setups
+    .filter((setup) => setup.setupType === 'PULLBACK')
+    .map((setup) => setup.timeframe)
+    .sort();
+
+  assert.deepEqual(timeframes, ['15m', '1h', '4h']);
+});
+
 test('detecta breakout com reteste e não compra o rompimento puro', () => {
   const setups = generateSetups({
     analysis: breakoutAnalysis(),

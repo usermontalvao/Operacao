@@ -34,6 +34,8 @@ export interface EntryDecisionInput {
   /** motivo pelo qual a conta real não está liberada; null = liberada ou não é LIVE */
   liveDenial: string | null;
   persistenceAvailable: boolean;
+  /** true somente quando o gatilho que criou esta tese continua ligado */
+  timeframeEnabled: boolean;
   autoTrade: AutoTradeSettings;
   /** posições automáticas abertas no modo atual */
   openAutomatic: Array<{ symbol: string; setupId: string }>;
@@ -84,6 +86,16 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
         'marketData',
         `Preço ${input.priceFreshness.level === 'SEM_DADO' ? 'inexistente' : 'atrasado'} — comprar com cotação velha é comprar às cegas`,
         { nivel: input.priceFreshness.level, idadeMs: input.priceFreshness.ageMs },
+      ),
+    );
+  }
+  if (!input.timeframeEnabled) {
+    blockers.push(
+      reason(
+        'TIMEFRAME_DISABLED',
+        'autoTrader',
+        `O gatilho de ${setup.timeframe} está desligado — esta tese não pode gerar entrada automática`,
+        { timeframe: setup.timeframe },
       ),
     );
   }

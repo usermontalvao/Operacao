@@ -11,6 +11,7 @@ import type { SettingsService } from '../services/settingsService.ts';
 import type { UniverseService } from '../services/universeService.ts';
 import type { ScalpUniverseService } from '../services/scalpUniverseService.ts';
 import type { NewsService } from '../services/newsService.ts';
+import type { TradePlanService } from '../services/tradePlanService.ts';
 
 export interface ApiContext {
   repository: Repository;
@@ -24,6 +25,7 @@ export interface ApiContext {
   news: NewsService;
   execution: ExecutionService;
   close: CloseService;
+  tradePlan: TradePlanService;
   risk: RiskService;
   paper: PaperTradingEngine;
   audit: AuditService;

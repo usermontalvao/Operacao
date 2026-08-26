@@ -102,6 +102,13 @@ export interface SystemHealth {
     tick: { level: string; ageMs: number | null; at: string | null; blocksTrading: boolean };
     scan: { level: string; ageMs: number | null; at: string | null; blocksTrading: boolean };
   };
+  timeframes?: {
+    ativos: AppSettings['scanner']['triggerTimeframes'];
+    cobertura: Array<{
+      timeframe: AppSettings['scanner']['triggerTimeframes'][number];
+      automacao: 'SOMENTE_MANUAL' | 'MOMENTUM_BURST_SPOT';
+    }>;
+  };
   sessoes: Array<{
     mode: AppSettings['mode'];
     emExibicao: boolean;
@@ -150,6 +157,7 @@ export interface EquityResponse {
   positions: Array<{
     id: string;
     symbol: string;
+    timeframe: Trade['timeframe'];
     status: 'PENDING' | 'OPEN';
     quantity: number;
     entryPrice: number;
@@ -409,6 +417,10 @@ export const api = {
     setupId: string;
     quoteAmount?: number;
     percentOfCapital?: number;
+    stopLoss?: number;
+    target1?: number;
+    target2?: number | null;
+    target3?: number | null;
     /** alavancagem desta ordem; ausente = a dos ajustes da modalidade */
     leverage?: number;
     /** ordem forçada: desarma as travas de política NESTA ordem */
@@ -417,6 +429,14 @@ export const api = {
     request<PreviewResponse>('/orders/preview', { method: 'POST', body: JSON.stringify(body) }),
   execute: (body: { setupId: string; confirmationToken: string; idempotencyKey: string }) =>
     request<Trade>('/orders/execute', { method: 'POST', body: JSON.stringify(body) }),
+  updateTradePlan: (
+    tradeId: string,
+    plan: { stopLoss: number; target1: number; target2: number | null; target3: number | null },
+  ) =>
+    request<Trade>(`/trades/${encodeURIComponent(tradeId)}/plan`, {
+      method: 'PATCH',
+      body: JSON.stringify(plan),
+    }),
   risk: () => request<RiskResponse>('/risk'),
   closeAll: () =>
     request<{ closed: string[]; failed: Array<{ id: string; error: string }>; robotStopped: boolean }>(

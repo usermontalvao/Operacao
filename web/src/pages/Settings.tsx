@@ -29,7 +29,7 @@ const RISK_FIELDS: Array<{ key: keyof RiskSettings; label: string; hint: string;
   { key: 'maxPositionPercent', label: 'Máximo por operação (%)', hint: 'Teto do capital em um único trade', step: 1 },
   { key: 'riskPerTradePercent', label: 'Risco por operação (%)', hint: 'Perda aceita até o stop', step: 0.1 },
   { key: 'maxOpenTrades', label: 'Operações abertas ao mesmo tempo', hint: 'Trava de exposição', step: 1 },
-  { key: 'dailyLossLimitPercent', label: 'Limite de perda diária (%)', hint: 'Bloqueia novas compras no dia', step: 0.5 },
+  { key: 'dailyLossLimitPercent', label: 'Alerta de perda diária (%)', hint: 'Somente informa; não bloqueia entradas', step: 0.5 },
   { key: 'minimumRiskReward', label: 'R/R mínimo', hint: 'Abaixo disso o setup é descartado', step: 0.1 },
   { key: 'minimumScoreToAlert', label: 'Score mínimo para alertar', hint: 'Evita alerta demais', step: 1 },
   { key: 'minimumScoreToShow', label: 'Score mínimo para exibir', hint: 'Setups abaixo nem aparecem', step: 1 },
@@ -50,20 +50,14 @@ const TREND_TIMEFRAMES: Array<{ id: Timeframe; hint: string }> = [
   { id: '1d', hint: 'posição · o mais lento' },
 ];
 
-/** Só a hora e o minuto: a data seria ruído para algo que acaba hoje. */
-function horaCurta(iso: string): string {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-}
-
 const GUARD_FIELDS: Array<{ key: keyof GuardSettings; label: string; hint: string; step: number }> = [
   { key: 'feePercent', label: 'Taxa por lado (%)', hint: 'Corretagem da Binance; entra em todo resultado', step: 0.01 },
   { key: 'stopSlippagePercent', label: 'Escorregamento do stop (%)', hint: 'Quanto o stop preenche abaixo do gatilho', step: 0.05 },
   { key: 'exitSlippagePercent', label: 'Escorregamento a mercado (%)', hint: 'Custo de sair correndo', step: 0.05 },
   { key: 'minNetRiskReward', label: 'R/R líquido mínimo', hint: 'Já descontadas taxa e escorregamento', step: 0.1 },
-  { key: 'maxConsecutiveLosses', label: 'Perdas seguidas até pausar', hint: 'Manda o robô para o intervalo depois da sequência ruim', step: 1 },
-  { key: 'lossPauseMinutes', label: 'Duração da pausa (min)', hint: 'Passado o tempo ele volta sozinho e a contagem zera', step: 15 },
-  { key: 'maxDrawdownPercent', label: 'Queda máxima do topo (%)', hint: 'Para quando a carteira recua demais', step: 1 },
-  { key: 'maxDailyTrades', label: 'Operações por dia', hint: 'Impede metralhar o mercado', step: 1 },
+  { key: 'maxConsecutiveLosses', label: 'Alerta após perdas seguidas', hint: 'Somente informa; não pausa o robô', step: 1 },
+  { key: 'maxDrawdownPercent', label: 'Alerta de queda do topo (%)', hint: 'Somente informa; não pausa o robô', step: 1 },
+  { key: 'maxDailyTrades', label: 'Alerta de operações por dia', hint: 'Somente informa; não pausa o robô', step: 1 },
   { key: 'maxTotalExposurePercent', label: 'Exposição total máxima (%)', hint: 'Soma de tudo que está aberto', step: 5 },
   { key: 'maxAltExposurePercent', label: 'Exposição em altcoins (%)', hint: 'Altcoin cai junto quando o BTC cai', step: 5 },
   { key: 'lossCooldownMinutes', label: 'Descanso após perda (min)', hint: 'Silêncio obrigatório depois de perder', step: 15 },
@@ -800,19 +794,19 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
         </div>
       </section>
       <div className="pt-1">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-terminal-muted">5 · O que segura a queda</h3>
-        <p className="mt-0.5 text-[11px] text-terminal-muted">Custos reais, R/R líquido e o disjuntor que interrompe uma maré ruim.</p>
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-terminal-muted">5 · Controle e leitura de risco</h3>
+        <p className="mt-0.5 text-[11px] text-terminal-muted">Custos reais, R/R líquido e alertas que não desligam o robô.</p>
       </div>
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">
-              Disjuntor de risco <EscopoDoModo mode={settings.mode} />
+              Monitor de risco <EscopoDoModo mode={settings.mode} />
             </h2>
             <p className="mt-0.5 text-[11px] text-terminal-muted">
-              Quando parar, decidido antes de precisar. Estes limites valem para o robô e para a
-              compra manual — e sobrevivem a reinício do servidor.
+              Perda diária, drawdown e sequência ruim continuam visíveis, mas não interrompem
+              entradas automáticas nem manuais.
             </p>
           </div>
           <button
@@ -853,43 +847,9 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
               />
             </dl>
 
-            {riskState.halted ? (
-              /*
-                Quando a parada tem hora para acabar, a tela diz a hora.
-                O botão antigo dizia "retomar por 60 min" — e prometia o
-                contrário do que fazia: 60 minutos de folga e trava de novo.
-                Agora ele é o atalho de quem não quer esperar o intervalo,
-                nada mais que isso.
-              */
-              <div className="mt-3 rounded-lg border border-bear/50 bg-bear/10 p-3">
-                <p className="text-xs font-semibold text-bear">
-                  {riskState.resumesAt
-                    ? `Robô no intervalo — volta sozinho às ${horaCurta(riskState.resumesAt)}.`
-                    : 'Disjuntor acionado — nenhuma compra nova sai daqui.'}
-                </p>
-                <ul className="mt-1 list-inside list-disc text-[11px] text-bear/90">
-                  {riskState.haltReasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(() => api.acknowledgeRisk(60), 'Robô retomado por 60 min')
-                  }
-                  className="mt-2 rounded-lg border border-warn/50 bg-warn/10 px-3 py-1.5 text-[11px] font-semibold text-warn"
-                >
-                  {riskState.resumesAt
-                    ? 'Não quero esperar — retomar agora'
-                    : 'Estou ciente — retomar por 60 min'}
-                </button>
-              </div>
-            ) : null}
-
             {riskState.mutedReasons.length > 0 ? (
               <p className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
-                Operando com o disjuntor reconhecido: {riskState.mutedReasons.join('; ')}.
+                Alerta de risco — o robô continua operando: {riskState.mutedReasons.join('; ')}.
               </p>
             ) : null}
           </>
@@ -1197,7 +1157,11 @@ function MicroScalpSection({
 
   return (
     <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
-      <h2 className="text-sm font-semibold">Timeframes / tipos de negociação</h2>
+      <h2 className="text-sm font-semibold">Timeframes ativos / tipos de negociação</h2>
+      <p className="mt-1 text-[11px] leading-relaxed text-terminal-muted">
+        Cada timeframe é um interruptor independente: os marcados se somam. Ligar 15m não desliga
+        1h ou 4h; o Radar permite filtrar a mesa por um timeframe de cada vez.
+      </p>
 
       <div className="mt-3 space-y-2">
         {TREND_TIMEFRAMES.map((item) => {

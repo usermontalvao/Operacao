@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { api, type PreviewResponse } from '../lib/api.ts';
 import type { Trade, TradeSetup } from '../lib/types.ts';
+import { PriceChart, type EditableChartLevel } from './PriceChart.tsx';
 import {
   MARKET_LABEL,
   SETUP_LABEL,
@@ -64,6 +65,13 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
     token da confirmação carrega a alavancagem aprovada.
   */
   const [leverage, setLeverage] = useState<number | null>(null);
+  const [draftPlan, setDraftPlan] = useState(() => ({
+    stopLoss: clicado.stopLoss,
+    target1: clicado.target1,
+    target2: clicado.target2,
+    target3: clicado.target3,
+  }));
+  const draftPlanRef = useRef(draftPlan);
   /*
     Ordem forçada.
 
@@ -100,7 +108,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
     tese do radar aqui faria a tela oferecer um alvo que a ordem não vai usar,
     e o usuário confirmaria uma operação diferente da que leu.
   */
-  const setup = preview?.setup ?? clicado;
+  const setup: TradeSetup = { ...(preview?.setup ?? clicado), ...draftPlan };
   const manualComPoliticaEmAviso = !futuros && preview?.overridden === true;
 
   const load = useCallback(
@@ -109,6 +117,10 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
       percentOfCapital?: number;
       leverage?: number;
       override?: boolean;
+      stopLoss: number;
+      target1: number;
+      target2: number | null;
+      target3: number | null;
     }) => {
       const requestId = ++latestPreviewRequest.current;
       setLoading(true);
@@ -117,6 +129,14 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
         const result = await api.preview({ setupId: clicado.id, ...body });
         if (requestId !== latestPreviewRequest.current) return;
         setPreview(result);
+        const approved = {
+          stopLoss: result.setup.stopLoss,
+          target1: result.setup.target1,
+          target2: result.setup.target2,
+          target3: result.setup.target3,
+        };
+        draftPlanRef.current = approved;
+        setDraftPlan(approved);
         if (body.percentOfCapital !== undefined) setAmount(result.sizing.notional);
         // a primeira resposta traz a alavancagem dos ajustes; é dela que o
         // seletor parte, em vez de inventar um número que ninguém escolheu
@@ -133,34 +153,70 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
   );
 
   useEffect(() => {
-    void load({ percentOfCapital: 25 });
+    void load({
+      percentOfCapital: 25,
+      stopLoss: clicado.stopLoss,
+      target1: clicado.target1,
+      target2: clicado.target2,
+      target3: clicado.target3,
+    });
   }, [load]);
 
   /** O tamanho pedido de agora, para reenviar junto quando a alavancagem muda. */
   const tamanhoAtual = (): { quoteAmount?: number; percentOfCapital?: number } =>
     percentChoice !== null ? { percentOfCapital: percentChoice } : { quoteAmount: amount ?? undefined };
 
+  const corpoAtual = (plan = draftPlanRef.current) => ({
+    ...tamanhoAtual(),
+    leverage: leverage ?? undefined,
+    override: forcar,
+    ...plan,
+  });
+
   const applyPercent = (value: number): void => {
     setPercentChoice(value);
-    void load({ percentOfCapital: value, leverage: leverage ?? undefined, override: forcar });
+    void load({ ...corpoAtual(), quoteAmount: undefined, percentOfCapital: value });
   };
 
   const applyAmount = (value: number): void => {
     setPercentChoice(null);
     setAmount(value);
-    if (value > 0) void load({ quoteAmount: value, leverage: leverage ?? undefined, override: forcar });
+    if (value > 0) void load({ ...corpoAtual(), percentOfCapital: undefined, quoteAmount: value });
   };
 
   const applyLeverage = (value: number): void => {
     setLeverage(value);
-    void load({ ...tamanhoAtual(), leverage: value, override: forcar });
+    void load({ ...corpoAtual(), leverage: value });
   };
 
   /** Refaz a conta com as travas de política desarmadas — e volta atrás igual. */
   const alternarForcar = (): void => {
     const proximo = !forcar;
     setForcar(proximo);
-    void load({ ...tamanhoAtual(), leverage: leverage ?? undefined, override: proximo });
+    void load({ ...corpoAtual(), override: proximo });
+  };
+
+  const changePlan = (level: EditableChartLevel, value: number, committed: boolean): void => {
+    const next = { ...draftPlanRef.current, [level]: value };
+    draftPlanRef.current = next;
+    setDraftPlan(next);
+    if (committed) void load(corpoAtual(next));
+  };
+
+  const commitPlanInput = (): void => {
+    void load(corpoAtual());
+  };
+
+  const resetPlan = (): void => {
+    const original = {
+      stopLoss: clicado.stopLoss,
+      target1: clicado.target1,
+      target2: clicado.target2,
+      target3: clicado.target3,
+    };
+    draftPlanRef.current = original;
+    setDraftPlan(original);
+    void load(corpoAtual(original));
   };
 
   const confirm = async (): Promise<void> => {
@@ -239,6 +295,75 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
         {step === 'SIZE' ? (
           <>
+            <section className="mt-3 rounded-xl border border-terminal-border bg-terminal-panel-soft p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3 px-0.5">
+                <div>
+                  <p className="text-xs font-semibold">Ajustar stop e alvos</p>
+                  <p className="text-[10px] text-terminal-muted">
+                    Arraste as linhas ou digite o preço. Cada mudança refaz risco, R/R e liquidação.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetPlan}
+                  className="shrink-0 rounded border border-terminal-border px-2 py-1 text-[10px] text-terminal-muted"
+                >
+                  Restaurar
+                </button>
+              </div>
+              <PriceChart
+                symbol={setup.symbol}
+                timeframe={setup.timeframe}
+                plan={{
+                  entryLow: preview?.entryPrice ?? setup.entryLow,
+                  entryHigh: preview?.entryPrice ?? setup.entryHigh,
+                  ...draftPlan,
+                }}
+                livePrice={preview?.currentPrice ?? setup.currentPrice}
+                height={240}
+                editableLevels={[
+                  'stopLoss',
+                  'target1',
+                  ...(draftPlan.target2 !== null ? (['target2'] as const) : []),
+                  ...(draftPlan.target3 !== null ? (['target3'] as const) : []),
+                ]}
+                onLevelChange={changePlan}
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <PlanInput
+                  label="Stop"
+                  value={draftPlan.stopLoss}
+                  tone="text-bear"
+                  onChange={(value) => changePlan('stopLoss', value, false)}
+                  onCommit={commitPlanInput}
+                />
+                <PlanInput
+                  label="Alvo 1"
+                  value={draftPlan.target1}
+                  tone="text-bull"
+                  onChange={(value) => changePlan('target1', value, false)}
+                  onCommit={commitPlanInput}
+                />
+                {draftPlan.target2 !== null ? (
+                  <PlanInput
+                    label="Alvo 2"
+                    value={draftPlan.target2}
+                    tone="text-bull"
+                    onChange={(value) => changePlan('target2', value, false)}
+                    onCommit={commitPlanInput}
+                  />
+                ) : null}
+                {draftPlan.target3 !== null ? (
+                  <PlanInput
+                    label="Alvo 3"
+                    value={draftPlan.target3}
+                    tone="text-bull"
+                    onChange={(value) => changePlan('target3', value, false)}
+                    onCommit={commitPlanInput}
+                  />
+                ) : null}
+              </div>
+            </section>
             <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             <div>
             <div className="rounded-xl border border-terminal-border bg-terminal-panel-soft p-3 text-sm">
@@ -650,6 +775,44 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: stri
       <span className="text-terminal-muted">{label}</span>
       <span className={`tabular ${tone ?? ''}`}>{value}</span>
     </div>
+  );
+}
+
+function PlanInput({
+  label,
+  value,
+  tone,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+  onChange: (value: number) => void;
+  onCommit: () => void;
+}) {
+  return (
+    <label className="rounded-lg border border-terminal-border bg-terminal-panel px-2 py-1.5">
+      <span className={`block text-[9px] uppercase tracking-wide ${tone}`}>{label}</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step="any"
+        value={value}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (Number.isFinite(next) && next > 0) onChange(next);
+        }}
+        onBlur={onCommit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.currentTarget.blur();
+          }
+        }}
+        className="mt-0.5 w-full bg-transparent text-xs tabular text-terminal-text outline-none"
+      />
+    </label>
   );
 }
 

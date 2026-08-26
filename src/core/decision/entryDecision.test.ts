@@ -67,6 +67,7 @@ function input(overrides: Partial<EntryDecisionInput> = {}): EntryDecisionInput 
     robotEnabled: true,
     liveDenial: null,
     persistenceAvailable: true,
+    timeframeEnabled: true,
     autoTrade: AUTO,
     openAutomatic: [],
     symbolCooldownUntil: null,
@@ -92,6 +93,17 @@ test('robô desligado produz decisão gravável, não um silêncio', () => {
   assert.ok(codigos(decision).includes('ROBOT_DISABLED'));
   // o essencial: existe uma decisão com motivo, e não um `return null`
   assert.ok(decision.blockers[0]?.message.length ?? 0 > 0);
+});
+
+test('timeframe desligado não pode gerar entrada automática', () => {
+  const decision = evaluateEntryDecision(input({ timeframeEnabled: false }));
+
+  assert.equal(decision.allowed, false);
+  assert.ok(codigos(decision).includes('TIMEFRAME_DISABLED'));
+  assert.match(
+    decision.blockers.find((item) => item.code === 'TIMEFRAME_DISABLED')?.message ?? '',
+    /gatilho de 1h está desligado/,
+  );
 });
 
 test('estratégia não validada é bloqueada mesmo com score alto', () => {

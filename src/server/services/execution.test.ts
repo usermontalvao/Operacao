@@ -288,6 +288,8 @@ test('compra manual no DEMO entra agora, mesmo com o preço acima da antiga zona
     entryHigh: 1.44,
     stopLoss: 1.37,
     target1: 1.75,
+    target2: null,
+    target3: null,
   });
 
   const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
@@ -308,21 +310,18 @@ test('compra manual no DEMO entra agora, mesmo com o preço acima da antiga zona
   assert.ok(trade.fills.some((item) => item.kind === 'ENTRY'));
 });
 
-test('token de outro setup ou com plano alterado é recusado', async (t) => {
+test('token preserva o plano aprovado mesmo se o radar mudar depois', async (t) => {
   const context = await harness();
   t.after(context.cleanup);
   const setup = makeSetup();
   const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
   const token = preview.confirmationToken as string;
 
-  // mesmo setup, mas o stop mudou desde a confirmação
-  await assert.rejects(
-    context.execution.execute(
-      { setupId: setup.id, confirmationToken: token, idempotencyKey: 'plano-mudou' },
-      { ...setup, stopLoss: 1.39 },
-    ),
-    /plano do setup mudou/i,
+  const trade = await context.execution.execute(
+    { setupId: setup.id, confirmationToken: token, idempotencyKey: 'plano-mudou' },
+    { ...setup, stopLoss: 1.39 },
   );
+  assert.equal(trade.stopLoss, setup.stopLoss, 'quem manda é o plano assinado que apareceu na confirmação');
 
   // token válido apontando para outro setup
   await assert.rejects(
@@ -342,6 +341,46 @@ test('token de outro setup ou com plano alterado é recusado', async (t) => {
     ),
     /não conferem/i,
   );
+});
+
+test('plano ajustado no gráfico atravessa preview, token e operação', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const adjusted = {
+    stopLoss: 1.39,
+    target1: 1.55,
+    target2: 1.62,
+    target3: 1.7,
+  };
+
+  const preview = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 200, ...adjusted },
+    setup,
+  );
+  assert.deepEqual(
+    {
+      stopLoss: preview.setup.stopLoss,
+      target1: preview.setup.target1,
+      target2: preview.setup.target2,
+      target3: preview.setup.target3,
+    },
+    adjusted,
+  );
+  assert.ok(preview.confirmationToken, preview.blockers.join(' | '));
+
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'plano-personalizado',
+    },
+    setup,
+  );
+  assert.equal(trade.stopLoss, adjusted.stopLoss);
+  assert.equal(trade.target1, adjusted.target1);
+  assert.equal(trade.target2, adjusted.target2);
+  assert.equal(trade.target3, adjusted.target3);
 });
 
 test('robô compra na conta de teste e não empilha no mesmo ativo', async (t) => {

@@ -262,8 +262,10 @@ export class ScannerService {
    */
   async reconsiderAll(mode: TradingMode): Promise<void> {
     if (!this.autoTrader) return;
-    const setups = await this.repository.listSetups();
-    await this.autoTrader.reconsiderExisting(setups, mode);
+    // Só o radar vivo. A lista do repositório também contém teses antigas,
+    // expiradas e de timeframes já desligados; reavaliá-la fazia o clique em
+    // "ligar robô" percorrer sinais que a própria tela já tinha retirado.
+    await this.autoTrader.reconsiderExisting(this.getSetups(), mode);
   }
 
   /** Quando a última varredura TERMINOU — a idade disto é saúde do sistema. */

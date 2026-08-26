@@ -253,6 +253,7 @@ export function Performance() {
                             stopLoss: position.stopLoss,
                             target1: position.target1,
                           }}
+                          timeframe={position.timeframe}
                           note={position.status === 'PENDING' ? 'ordem aguardando entrada' : 'posição aberta'}
                           className="font-medium"
                         />

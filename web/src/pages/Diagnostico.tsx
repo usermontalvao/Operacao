@@ -56,6 +56,9 @@ export function Diagnostico() {
 
 function Saude({ health }: { health: SystemHealth }) {
   const persistenciaOk = health.persistencia.disponivel;
+  // Compatibilidade durante uma atualização: a API antiga não enviava este
+  // bloco. A tela deve avisar, não derrubar o React inteiro com `.map`.
+  const coberturaTimeframes = health.timeframes?.cobertura ?? [];
   return (
     <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
       <h2 className="text-sm font-semibold">Saúde do sistema</h2>
@@ -94,6 +97,35 @@ function Saude({ health }: { health: SystemHealth }) {
         <Info label="Estratégia" value={health.versoes.estrategia} />
         <Info label="Política de risco" value={health.versoes.risco} />
       </dl>
+
+      <h3 className="mt-5 text-xs font-semibold">Cobertura dos timeframes</h3>
+      <p className="mt-0.5 text-[11px] text-terminal-muted">
+        “Ativo” significa que o scanner procura teses nesse candle. A automação é mais estreita:
+        nos gatilhos de tendência, somente Explosão de força comprada em spot; o micro scalp de 1m
+        continua manual.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {coberturaTimeframes.map((item) => {
+          const automatico = item.automacao === 'MOMENTUM_BURST_SPOT';
+          return (
+            <div
+              key={item.timeframe}
+              className="rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-2"
+            >
+              <span className="text-xs font-bold tabular">{item.timeframe}</span>
+              <span className="ml-2 text-[10px] text-bull">scanner ligado</span>
+              <span className={`ml-2 text-[10px] ${automatico ? 'text-info' : 'text-terminal-muted'}`}>
+                {automatico ? 'auto: explosão spot' : 'somente manual'}
+              </span>
+            </div>
+          );
+        })}
+        {coberturaTimeframes.length === 0 ? (
+          <p className="text-[11px] text-warn">
+            O servidor ainda não informou a cobertura. Reinicie a API para carregar esta versão.
+          </p>
+        ) : null}
+      </div>
 
       <h3 className="mt-5 text-xs font-semibold">Sessões operando agora</h3>
       <p className="mt-0.5 text-[11px] text-terminal-muted">

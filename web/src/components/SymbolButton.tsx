@@ -13,6 +13,8 @@ export function SymbolButton({
   plan = null,
   timeframe,
   note,
+  tradeId,
+  side,
   className = '',
   children,
 }: ChartRequest & { className?: string; children?: React.ReactNode }) {
@@ -23,7 +25,7 @@ export function SymbolButton({
       type="button"
       onClick={(event) => {
         event.stopPropagation();
-        chart.open({ symbol, plan, timeframe, note });
+        chart.open({ symbol, plan, timeframe, note, tradeId, side });
       }}
       title={`Ver o gráfico de ${symbol}`}
       className={`cursor-pointer text-left underline-offset-4 transition hover:text-info hover:underline ${className}`}

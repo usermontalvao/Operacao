@@ -92,6 +92,10 @@ export function diagnosticsRoutes(context: ApiContext): Router {
       const scan = evaluateFreshness(context.scanner.getLastScanAt(), SCAN_THRESHOLDS);
 
       const trades = context.persistence.degraded ? [] : await context.repository.listTrades();
+      const timeframesAtivos = [
+        ...settings.scanner.triggerTimeframes,
+        ...(settings.scanner.microScalp.enabled ? (['1m'] as const) : []),
+      ];
 
       response.json({
         persistencia: {
@@ -106,6 +110,16 @@ export function diagnosticsRoutes(context: ApiContext): Router {
           streamPrecos: context.market.getConnectionState(),
         },
         dados: { tick, scan },
+        timeframes: {
+          ativos: timeframesAtivos,
+          cobertura: timeframesAtivos.map((timeframe) => ({
+            timeframe,
+            automacao:
+              timeframe === '1m'
+                ? 'SOMENTE_MANUAL'
+                : 'MOMENTUM_BURST_SPOT',
+          })),
+        },
         // o coração da mudança que o usuário pediu: as sessões que operam AGORA
         sessoes: sessoes.map((mode) => {
           const policy = context.settings.forMode(mode);

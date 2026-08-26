@@ -247,17 +247,21 @@ function buildEvidence(
 }
 
 /**
- * Um setup por tipo, ativo e LADO: fica o de maior score.
+ * Um setup por tipo, ativo, TIMEFRAME e lado: fica o de maior score.
  *
- * O lado entra na chave porque comprado e vendido no mesmo ativo são teses
- * opostas, não duas versões da mesma. Sem ele, a que chegasse depois apagaria
- * a outra em silêncio — e qual das duas sobreviveria dependeria da ordem em
- * que os detectores rodaram.
+ * Timeframes diferentes são teses diferentes. Sem o timeframe na chave, um
+ * pullback de 15m apagava silenciosamente o de 1h (ou vice-versa) antes de o
+ * scanner, o radar e o robô sequer receberem os resultados. Isso fazia a
+ * configuração dizer que vários gatilhos estavam ligados enquanto apenas um
+ * sobrevivia por estratégia e ativo.
+ *
+ * O lado também entra porque comprado e vendido são teses opostas, não duas
+ * versões da mesma operação.
  */
 function dedupe(setups: TradeSetup[]): TradeSetup[] {
   const best = new Map<string, TradeSetup>();
   for (const setup of setups) {
-    const key = `${setup.symbol}:${setup.setupType}:${setup.side}`;
+    const key = `${setup.symbol}:${setup.setupType}:${setup.timeframe}:${setup.side}:${setup.market}`;
     const current = best.get(key);
     if (!current || setup.score > current.score) best.set(key, setup);
   }
