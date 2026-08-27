@@ -391,7 +391,9 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
       paperCapitalCurrency: 'BRL',
       maxPositionPercent: 25,
       riskPerTradePercent: 1,
-      maxOpenTrades: 3,
+      // sem teto de contagem: quem segura o número de posições é o capital
+      // (mínimo de 5 USDT por ordem) e os limites de risco, não um contador
+      maxOpenTrades: 20,
       dailyLossLimitPercent: 5,
       minimumRiskReward: 2,
       minimumScoreToAlert: 75,
@@ -405,10 +407,14 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
       minimumScore: 75,
       minimumRiskReward: 2.5,
       percentOfCapital: 10,
-      // explosões em altcoins costumam vir juntas; até existir backtest de
-      // carteira/correlação, uma posição automática por vez evita contar o
-      // mesmo risco de mercado como se fossem apostas independentes.
-      maxConcurrentTrades: 3,
+      /*
+       * Sem teto de posições automáticas simultâneas (20 é o máximo do
+       * schema). O aviso que estava aqui continua verdadeiro e agora é só
+       * aviso: explosões em altcoin vêm juntas, então várias posições
+       * abertas ao mesmo tempo NÃO são apostas independentes — é uma aposta
+       * grande no mesmo risco de mercado, repartida.
+       */
+      maxConcurrentTrades: 20,
       cooldownMinutes: 180,
       requireInsideEntryZone: true,
       allowLive: false,

@@ -95,9 +95,31 @@ export const DEFAULT_GUARD: GuardSettings = {
   maxConsecutiveLosses: 3,
   lossPauseMinutes: 60,
   maxDrawdownPercent: 10,
-  maxDailyTrades: 6,
-  maxTotalExposurePercent: 60,
-  maxAltExposurePercent: 40,
+  /*
+   * Contagem deixou de limitar; quem limita é o RISCO.
+   *
+   * Pedido explícito do usuário em 27/08/2026: mínimo de 5 entradas por dia e
+   * sem teto quando houver oportunidade, mantendo só a pausa por perdas
+   * seguidas. O teto de 6 operações/dia era a trava que tornava a meta
+   * impossível por construção — e era a única das travas que não olhava para
+   * dinheiro nenhum, só para o contador.
+   *
+   * O que continua de pé, e é o que importa: pausa por perdas seguidas
+   * (`maxConsecutiveLosses`/`lossPauseMinutes`), limite de perda diária,
+   * rebaixamento máximo, risco por operação e o regime do BTC.
+   */
+  maxDailyTrades: 100,
+  /*
+   * ATENÇÃO — estes dois deixaram de ser conservadores por decisão do usuário.
+   *
+   * Com 60%/40% e um capital pequeno, o teto de altcoin cabia UMA posição de
+   * 5 USDT: o robô recusava a segunda entrada do dia mesmo com sinal bom, e
+   * a meta de 5 entradas não existia. A 95% o capital inteiro pode estar
+   * exposto ao mesmo tempo — e altcoin cai junto quando o BTC cai, então um
+   * dia ruim atinge todas as posições de uma vez.
+   */
+  maxTotalExposurePercent: 95,
+  maxAltExposurePercent: 95,
   blockWhenBtcBearish: true,
   highVolatilitySizeFactor: 0.5,
   lossCooldownMinutes: 60,
