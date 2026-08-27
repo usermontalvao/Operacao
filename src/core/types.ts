@@ -959,6 +959,8 @@ export interface PerformanceStats {
   profitFactor: number;
   expectancy: number;
   totalPnl: number;
+  /** separa o que mede o robô do que foi decidido pelo usuário */
+  byOrigin: PerformanceBucket[];
   bySymbol: PerformanceBucket[];
   bySetupType: PerformanceBucket[];
   byTimeframe: PerformanceBucket[];

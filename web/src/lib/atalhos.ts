@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * Os atalhos que toda janela do painel entende.
@@ -35,6 +35,20 @@ export function useAtalhosDeModal({
   /** false desliga os atalhos (janela coberta por outra, por exemplo) */
   ativo?: boolean;
 }): void {
+  /*
+    O ouvinte é registrado UMA vez, e as funções chegam por referência.
+
+    Com `onClose`/`onConfirm` nas dependências — e as duas nascem novas a cada
+    render, porque são arrow inline na janela — o efeito rodava a cada tique de
+    preço: remove e adiciona o ouvinte de novo. Numa fase de captura, quem
+    adiciona por último passa a ser chamado por último, então a janela ia
+    escorregando para o FIM da fila e o gráfico em tela cheia (registrado
+    depois dela, uma vez só) passava a ser chamado ANTES. Era essa inversão que
+    fazia um Esc fechar a janela junto com o gráfico.
+  */
+  const atual = useRef({ onClose, onConfirm, confirmHabilitado });
+  atual.current = { onClose, onConfirm, confirmHabilitado };
+
   useEffect(() => {
     if (!ativo) return;
 
@@ -53,25 +67,27 @@ export function useAtalhosDeModal({
       */
       if (document.body.dataset.graficoAmpliado === 'sim') return;
 
-      if (event.key === 'Escape' && onClose) {
+      if (event.key === 'Escape' && atual.current.onClose) {
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        atual.current.onClose();
         return;
       }
 
-      if (event.key !== 'Enter' || !onConfirm || !confirmHabilitado) return;
+      if (event.key !== 'Enter' || !atual.current.onConfirm || !atual.current.confirmHabilitado) {
+        return;
+      }
       // combinação de teclas é outro gesto: deixa passar
       if (event.shiftKey || event.altKey) return;
       if (digitando(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
-      onConfirm();
+      atual.current.onConfirm();
     };
 
     window.addEventListener('keydown', aoTeclar, true);
     return () => window.removeEventListener('keydown', aoTeclar, true);
-  }, [onClose, onConfirm, confirmHabilitado, ativo]);
+  }, [ativo]);
 }
 
 /**

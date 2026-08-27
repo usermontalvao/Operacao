@@ -56,6 +56,7 @@ export function Performance() {
   const growth = janela.percent;
   const rotuloDaJanela = periodId === 'TUDO' ? 'desde o início' : period.label.toLowerCase();
   const livePnl = equity.realizedPnl + equity.unrealizedPnl;
+  const automaticClosed = stats.byOrigin.find((row) => row.key === 'Robô')?.trades ?? 0;
   const openPositions = equity.positions.filter((position) => position.status === 'OPEN');
   const pendingOrders = equity.positions.filter((position) => position.status === 'PENDING');
 
@@ -74,11 +75,14 @@ export function Performance() {
     <div className="space-y-5 pb-6">
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-terminal-muted">
               Carteira {equity.mode === 'PAPER' ? 'demo' : equity.mode === 'TESTNET' ? 'testnet' : 'real'}
             </h2>
-            <p className="mt-1 text-3xl font-semibold tabular">
+            {/* "US$ 24,98 · R$ 128,96" a 30px encosta nas duas bordas de um
+                celular; o número continua sendo o maior da tela, só que na
+                medida da tela */}
+            <p className="mt-1 text-2xl font-semibold tabular sm:text-3xl">
               {usdWithBrl(equity.currentEquity, equity.brlRate)}
             </p>
             <p
@@ -214,6 +218,11 @@ export function Performance() {
             Nenhuma operação encerrada neste recorte — os números acima só ganham sentido com
             amostra. Uma dúzia de operações ainda é ruído.
           </p>
+        ) : automaticClosed === 0 ? (
+          <p className="mt-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[11px] text-warn">
+            Estes resultados são de operações manuais. Ainda não há trade automático encerrado
+            nesta conta e neste período para medir o desempenho do robô.
+          </p>
         ) : null}
       </section>
 
@@ -290,6 +299,7 @@ export function Performance() {
         </section>
       ) : null}
 
+      <Bucket title="Por origem" rows={stats.byOrigin} />
       <Bucket title="Por ativo" rows={stats.bySymbol} />
       <Bucket title="Por tipo de setup" rows={stats.bySetupType} />
       <Bucket title="Por timeframe" rows={stats.byTimeframe} />

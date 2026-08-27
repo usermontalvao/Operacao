@@ -61,8 +61,14 @@ export function PeriodFilter({
   value: PeriodId;
   onChange: (id: PeriodId) => void;
 }) {
+  /*
+    Sete recortes não cabem lado a lado num celular. Antes eles quebravam em
+    duas fileiras dentro da moldura, e a segunda ficava com dois botões soltos
+    à esquerda — parecia defeito. Agora a faixa rola na horizontal: uma linha
+    só em qualquer largura, e o dedo empurra para ver o resto.
+  */
   return (
-    <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-terminal-border bg-terminal-panel p-0.5">
+    <div className="-mx-0.5 flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-terminal-border bg-terminal-panel p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {PERIOD_IDS.map((id) => {
         const selected = id === value;
         return (
@@ -71,7 +77,7 @@ export function PeriodFilter({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(id)}
-            className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+            className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
               selected
                 ? 'bg-terminal-panel-soft text-terminal-text'
                 : 'text-terminal-muted hover:text-terminal-text'

@@ -147,17 +147,34 @@ export function NavTabs({
               aria-current={selected ? 'page' : undefined}
               onClick={() => onChange(tab.id)}
               {...adiantar(tab.id)}
-              className={`relative flex min-w-[64px] flex-1 flex-col items-center gap-1.5 px-1 py-2.5 transition-colors ${
+              className={`relative flex min-w-0 flex-1 flex-col items-center gap-1.5 px-0.5 py-2.5 transition-colors ${
                 selected ? 'bg-bull/[0.045]' : ''
               }`}
             >
               {selected ? (
                 <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-bull shadow-[0_0_10px_rgba(22,199,132,0.45)]" />
               ) : null}
-              <tab.icon className={`h-5 w-5 ${selected ? 'text-bull' : 'text-terminal-muted'}`} />
-              <span className={`text-[9px] font-medium ${selected ? 'text-white' : 'text-terminal-muted'}`}>
+              {/*
+                O número ficava colado no rótulo com um ponto no meio, e
+                "Operações · 0" não cabia na coluna de um celular: quebrava em
+                duas linhas e desalinhava a barra inteira. Agora ele é um selo
+                sobre o ícone — sai da linha do texto e para de disputar
+                largura com ela.
+              */}
+              <span className="relative">
+                <tab.icon className={`h-5 w-5 ${selected ? 'text-bull' : 'text-terminal-muted'}`} />
+                {counts?.[tab.id] ? (
+                  <span className="absolute -right-2 -top-1 min-w-[14px] rounded-full bg-bull px-1 text-center text-[9px] font-bold leading-[14px] text-black">
+                    {counts[tab.id]}
+                  </span>
+                ) : null}
+              </span>
+              <span
+                className={`whitespace-nowrap text-[9px] font-medium ${
+                  selected ? 'text-white' : 'text-terminal-muted'
+                }`}
+              >
                 {tab.label}
-                {counts?.[tab.id] !== undefined ? ` · ${counts[tab.id]}` : ''}
               </span>
             </button>
           );

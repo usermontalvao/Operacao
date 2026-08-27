@@ -286,34 +286,43 @@ function MarketColumn({
         inteira. O interruptor do robô continua, porque ele não é rótulo: é
         controle, e some com ele seria perder função para ganhar limpeza.
       */}
+      {/* uma linha só, em qualquer largura: nome, contagem e o robô */}
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide">
-          <span className={sozinha ? 'text-terminal-muted' : futuros ? 'text-info' : 'text-terminal-text'}>
+        <h2 className="flex min-w-0 items-baseline gap-2 overflow-hidden text-xs font-semibold uppercase tracking-wide">
+          <span
+            className={`whitespace-nowrap ${sozinha ? 'text-terminal-muted' : futuros ? 'text-info' : 'text-terminal-text'}`}
+          >
             {sozinha ? 'Setups na mesa' : MARKET_LABEL[market]}
           </span>
           <span className="text-terminal-text">{visiveis.length}</span>
           {/* com filtro ativo, o total continua visível: sumir com ele faria a
               lista encolhida parecer o mercado inteiro */}
           {visiveis.length !== setups.length ? (
-            <span className="text-[10px] font-normal normal-case text-terminal-muted">
+            <span className="whitespace-nowrap text-[10px] font-normal normal-case text-terminal-muted">
               de {setups.length}
             </span>
           ) : null}
           {vendidas > 0 ? (
-            <span className="text-[10px] font-normal normal-case text-bear">
+            <span className="whitespace-nowrap text-[10px] font-normal normal-case text-bear">
               {vendidas} vendida{vendidas > 1 ? 's' : ''}
             </span>
           ) : null}
+        </h2>
+        <RobotSwitch market={market} robot={robot} busy={robotBusy} onToggle={onToggleRobot} />
+      </div>
 
-          {/*
-            Os tempos gráficos ficam ao LADO do título, não numa linha própria:
-            eles são a legenda da contagem que está logo antes deles. Só
-            aparecem com mais de um tempo na mesa — com um só, seriam um
-            controle que não controla nada.
-          */}
-          {presentes.length > 1 ? (
-            <span className="flex flex-wrap items-center gap-1">
-              <button
+      {/*
+        A barra de tempo ganhou linha própria.
+
+        Ela morava DENTRO do título, alinhada pela base de um texto em caixa
+        alta — no monitor passava, num celular explodia o cabeçalho em três
+        linhas e ainda empurrava o interruptor do robô para uma quarta. Filtro
+        é controle, não legenda: linha própria, rolando na horizontal quando os
+        tempos não couberem, e o cabeçalho volta a ser uma linha só.
+      */}
+      {presentes.length > 1 ? (
+        <div className="-mx-1 mb-2 flex items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <button
                 type="button"
                 onClick={() => setFiltro('TODOS')}
                 title="Mostrar teses de todos os timeframes"
@@ -334,7 +343,7 @@ function MarketColumn({
                     type="button"
                     onClick={() => setFiltro(tf)}
                     title={`Mostrar somente as teses de ${tf}`}
-                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold normal-case tabular ${
+                    className={`shrink-0 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold normal-case tabular ${
                       selecionado
                         ? micro
                           ? 'border-bull/60 bg-bull/10 text-bull'
@@ -346,16 +355,8 @@ function MarketColumn({
                   </button>
                 );
               })}
-            </span>
-          ) : null}
-        </h2>
-        <RobotSwitch
-          market={market}
-          robot={robot}
-          busy={robotBusy}
-          onToggle={onToggleRobot}
-        />
-      </div>
+        </div>
+      ) : null}
 
       {!futuros && robot.enabled ? (
         <p className="mb-2 text-[10px] leading-relaxed text-terminal-muted">
@@ -509,7 +510,7 @@ function SetupRow({
         */}
         {setup.side === 'SELL' ? (
           <span
-            className={`rounded border px-1 py-0.5 text-[9px] font-bold ${sideTone(setup.side)}`}
+            className={`shrink-0 whitespace-nowrap rounded border px-1 py-0.5 text-[9px] font-bold ${sideTone(setup.side)}`}
             title="tese vendida — ganha na queda"
           >
             {SIDE_LABEL[setup.side]}
@@ -517,12 +518,12 @@ function SetupRow({
         ) : null}
 
         {inTrade || bought ? (
-          <span className="rounded border border-info/50 bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
+          <span className="shrink-0 whitespace-nowrap rounded border border-info/50 bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
             EM OPERAÇÃO
           </span>
         ) : (
           <span
-            className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${stateTone(
+            className={`shrink-0 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold ${stateTone(
               setup.visualState,
               setup.side,
             )}`}
@@ -531,7 +532,7 @@ function SetupRow({
           </span>
         )}
 
-        <span className="rounded border border-terminal-border bg-terminal-panel-soft px-1.5 py-0.5 text-[10px] font-bold tabular text-terminal-text">
+        <span className="shrink-0 whitespace-nowrap rounded border border-terminal-border bg-terminal-panel-soft px-1.5 py-0.5 text-[10px] font-bold tabular text-terminal-text">
           {setup.timeframe}
         </span>
         <span className="hidden min-w-0 truncate text-[11px] text-terminal-muted sm:inline">
@@ -545,8 +546,11 @@ function SetupRow({
         */}
         {!inTrade && !bought ? <DecisionBadge decision={decision} /> : null}
 
-        <span className="ml-auto flex items-center gap-3 text-[11px] tabular text-terminal-muted">
-          <span>R/R 1:{setup.riskReward.toFixed(1)}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] tabular text-terminal-muted sm:gap-3">
+          {/* no celular o R/R sai da linha para o motivo da recusa caber
+              inteiro — ele está na ficha, a duas batidas de distância, e ler
+              "score b…" cortado não informa ninguém */}
+          <span className="hidden whitespace-nowrap sm:inline">R/R 1:{setup.riskReward.toFixed(1)}</span>
           <span className={`text-base font-bold ${scoreTone(setup.score)}`}>{setup.score}</span>
         </span>
       </div>

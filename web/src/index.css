@@ -19,6 +19,29 @@ body,
   height: 100%;
 }
 
+/*
+ * A escala do celular.
+ *
+ * O painel foi desenhado num monitor, e quase toda medida do Tailwind — texto,
+ * espaçamento, raio de canto — sai em `rem`. Baixar a raiz encolhe TUDO junto e
+ * na mesma proporção: é o "diminuir o zoom" feito uma vez, no lugar certo, em
+ * vez de mil ajustes soltos que se desencontram na primeira tela nova.
+ *
+ * Os degraus são os aparelhos reais: 430px cobre o iPhone Pro Max para baixo,
+ * 380px pega os telefones estreitos e o iPhone SE.
+ */
+@media (max-width: 430px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 380px) {
+  html {
+    font-size: 14px;
+  }
+}
+
 body {
   background-color: var(--color-terminal-bg);
   color: var(--color-terminal-text);
@@ -167,12 +190,25 @@ body {
     0 32px 80px -16px rgba(0, 0, 0, 0.85),
     0 8px 24px -8px rgba(0, 0, 0, 0.6);
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 120px);
-  animation: modal-folha-sobe 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  /*
+   * `backwards`, nunca `both`.
+   *
+   * Com `both` a folha fica com o último quadro grudado para sempre — e o
+   * último quadro tem `transform: none`, que o navegador resolve como a matriz
+   * identidade. Matriz identidade continua sendo UM transform: a folha vira
+   * bloco de contenção, e todo `position: fixed` lá dentro passa a se medir por
+   * ela em vez de pela tela. Era isso que espremia o gráfico em tela cheia
+   * dentro da janela e cortava fora a escala de preço e a barra de tempo.
+   *
+   * `backwards` dá o mesmo quadro inicial e, ao terminar, devolve a folha ao
+   * estilo dela — sem transform nenhum.
+   */
+  animation: modal-folha-sobe 280ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 @media (min-width: 640px) {
   .modal-folha {
-    animation: modal-folha-aproxima 200ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    animation: modal-folha-aproxima 200ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
   }
 }
 

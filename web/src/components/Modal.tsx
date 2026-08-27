@@ -169,11 +169,11 @@ export function ModalTitulo({
     <div>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="truncate text-[19px] font-semibold leading-tight tracking-[-0.01em] sm:text-xl">
+          <h2 className="truncate text-[1.1875rem] font-semibold leading-tight tracking-[-0.01em] sm:text-xl">
             {titulo}
           </h2>
           {subtitulo ? (
-            <p className="mt-1 truncate text-[13px] leading-snug text-terminal-muted">{subtitulo}</p>
+            <p className="mt-1 truncate text-[0.8125rem] leading-snug text-terminal-muted">{subtitulo}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -295,12 +295,12 @@ export function Linha({
   return (
     <div className="flex items-baseline justify-between gap-4 px-3 py-2">
       <div className="min-w-0">
-        <div className={`text-[13px] ${forte ? 'font-medium text-terminal-text' : 'text-terminal-muted'}`}>
+        <div className={`text-[0.8125rem] ${forte ? 'font-medium text-terminal-text' : 'text-terminal-muted'}`}>
           {rotulo}
         </div>
         {nota ? <div className="mt-0.5 text-[11px] text-terminal-muted/70">{nota}</div> : null}
       </div>
-      <div className={`shrink-0 tabular text-[13px] ${forte ? 'font-semibold' : ''} ${tom ?? 'text-terminal-text'}`}>
+      <div className={`shrink-0 tabular text-[0.8125rem] ${forte ? 'font-semibold' : ''} ${tom ?? 'text-terminal-text'}`}>
         {valor}
       </div>
     </div>
@@ -324,7 +324,7 @@ export function Numero({
       <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-terminal-muted">
         {rotulo}
       </div>
-      <div className={`mt-1 truncate tabular text-[17px] font-semibold leading-none ${tom}`}>
+      <div className={`mt-1 truncate tabular text-[1.0625rem] font-semibold leading-none ${tom}`}>
         {valor}
       </div>
       {nota ? <div className="mt-1 text-[11px] text-terminal-muted">{nota}</div> : null}
@@ -356,9 +356,9 @@ export function Aviso({
   } as const;
   return (
     <div className={`rounded-r-lg border-l-2 py-2 pl-3 pr-3 ${tons[tom]}`}>
-      {titulo ? <p className="text-[12px] font-semibold leading-snug">{titulo}</p> : null}
+      {titulo ? <p className="text-[0.75rem] font-semibold leading-snug">{titulo}</p> : null}
       {children ? (
-        <div className="text-[12px] leading-relaxed text-terminal-muted [&_strong]:text-current">
+        <div className="text-[0.75rem] leading-relaxed text-terminal-muted [&_strong]:text-current">
           {children}
         </div>
       ) : null}
@@ -401,7 +401,7 @@ export function Botao({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`rounded-xl px-4 py-2.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-35 ${tipos[tipo]} ${className}`}
+      className={`rounded-xl px-4 py-2.5 text-[0.8125rem] font-semibold transition disabled:cursor-not-allowed disabled:opacity-35 ${tipos[tipo]} ${className}`}
     >
       {children}
     </button>

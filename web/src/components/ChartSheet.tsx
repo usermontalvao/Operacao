@@ -157,8 +157,8 @@ export function ChartSheet({
   const rodape = confirmandoSaida ? (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="text-[13px] font-semibold text-bear">Encerrar {asset} agora?</p>
-        <p className="mt-0.5 text-[12px] leading-snug text-terminal-muted">{avisoDeSaida}</p>
+        <p className="text-[0.8125rem] font-semibold text-bear">Encerrar {asset} agora?</p>
+        <p className="mt-0.5 text-[0.75rem] leading-snug text-terminal-muted">{avisoDeSaida}</p>
       </div>
       <div className="flex shrink-0 gap-2">
         <Botao tipo="fantasma" disabled={encerrando} onClick={() => setConfirmandoSaida(false)}>
@@ -182,7 +182,7 @@ export function ChartSheet({
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* o plano em três números soltos, sem moldura: é legenda do gráfico,
             não um painel à parte */}
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-[12px] tabular">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.75rem] tabular">
           {plan?.stopLoss ? (
             <span className="text-terminal-muted">
               stop <span className="text-bear">{formatPrice(plan.stopLoss)}</span>
@@ -263,7 +263,7 @@ export function ChartSheet({
               target="_blank"
               rel="noreferrer"
               title="Abrir no TradingView"
-              className="hidden rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-terminal-muted transition hover:bg-white/[0.06] hover:text-terminal-text sm:inline-block"
+              className="hidden rounded-lg px-2.5 py-1.5 text-[0.75rem] font-medium text-terminal-muted transition hover:bg-white/[0.06] hover:text-terminal-text sm:inline-block"
             >
               TradingView ↗
             </a>

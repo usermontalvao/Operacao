@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { DecisionRecord, Trade, TradeSetup } from '../../core/types.ts';
 import { postMortemOf } from '../../core/journal/postMortem.ts';
 import { logger } from '../logger.ts';
@@ -42,7 +41,13 @@ export function buildDecision(trade: Trade, setup: TradeSetup): DecisionRecord {
     (new Date(closedAt).getTime() - new Date(trade.openedAt).getTime()) / 60_000;
 
   return {
-    id: randomUUID(),
+    /*
+     * Um trade só pode ter uma autópsia. O id estável também fecha a corrida
+     * entre o monitor da Binance e o encerramento manual: se os dois receberem
+     * a notícia, o registro mais completo atualiza o mesmo diário em vez de
+     * disputar a restrição única de trade_id com dois UUIDs diferentes.
+     */
+    id: trade.id,
     tradeId: trade.id,
     setupId: setup.id,
     symbol: trade.symbol,

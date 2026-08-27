@@ -433,7 +433,18 @@ export function PriceChart({
       // impede que o mesmo Esc feche a janela ATRÁS do gráfico: quem amplia
       // quer voltar para a janela, não perder o que estava fazendo nela.
       if (event.key !== 'Escape') return;
-      event.stopPropagation();
+      /*
+        `stopImmediatePropagation`, não `stopPropagation`.
+
+        Os dois ouvintes vivem no MESMO alvo (window, fase de captura), e
+        `stopPropagation` só impede o evento de descer para os alvos abaixo —
+        os outros ouvintes do próprio window continuam sendo chamados. Era por
+        isso que a janela de trás fechava junto mesmo com o aviso no `body`
+        posto. `preventDefault` fecha o cerco pelo outro lado: quem for
+        chamado antes deste desiste ao ver o evento já tratado.
+      */
+      event.preventDefault();
+      event.stopImmediatePropagation();
       setAmpliado(false);
     };
     // trava a rolagem de trás enquanto o gráfico ocupa a tela: rolar a janela

@@ -34,6 +34,7 @@ export function computePerformance(trades: Trade[], setups: TradeSetup[]): Perfo
     profitFactor: grossLoss > 0 ? round(grossProfit / grossLoss, 2) : grossProfit > 0 ? 99 : 0,
     expectancy: round(expectancy, 2),
     totalPnl: round(closed.reduce((acc, trade) => acc + trade.realizedPnl, 0), 2),
+    byOrigin: bucketBy(closed, (trade) => (trade.automatic === true ? 'Robô' : 'Manual')),
     bySymbol: bucketBy(closed, (trade) => trade.symbol),
     bySetupType: bucketBy(closed, (trade) => trade.setupType),
     byTimeframe: bucketBy(closed, (trade) => trade.timeframe),

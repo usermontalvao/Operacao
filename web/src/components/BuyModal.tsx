@@ -282,7 +282,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
     step === 'SIZE' ? (
       <div className="space-y-2.5">
         {detalhes && (bloqueios.length > 0 || avisos.length > 0) ? (
-          <ul className="modal-rolagem max-h-28 space-y-1.5 overflow-y-auto rounded-xl bg-white/[0.03] px-3 py-2.5 text-[12px] leading-relaxed">
+          <ul className="modal-rolagem max-h-28 space-y-1.5 overflow-y-auto rounded-xl bg-white/[0.03] px-3 py-2.5 text-[0.75rem] leading-relaxed">
             {bloqueios.map((item) => (
               <li key={item} className="flex gap-2 text-bear">
                 <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-bear" />
@@ -305,7 +305,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
             type="button"
             onClick={() => setDetalhes((atual) => !atual)}
             disabled={bloqueios.length === 0 && avisos.length === 0}
-            className="flex min-w-0 items-center gap-2 text-left text-[12px] leading-snug text-terminal-muted transition enabled:hover:text-terminal-text disabled:cursor-default"
+            className="flex min-w-0 items-center gap-2 text-left text-[0.75rem] leading-snug text-terminal-muted transition enabled:hover:text-terminal-text disabled:cursor-default"
           >
             {bloqueios.length > 0 ? (
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-bear" />
@@ -359,7 +359,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                   ? [...preview.blockers, ...preview.filterErrors].join(' · ')
                   : undefined
               }
-              className={`rounded-xl px-6 py-2.5 text-[13px] font-bold transition max-sm:flex-1 disabled:cursor-not-allowed ${
+              className={`rounded-xl px-6 py-2.5 text-[0.8125rem] font-bold transition max-sm:flex-1 disabled:cursor-not-allowed ${
                 !preview?.canExecute || loading
                   ? 'bg-white/[0.06] text-terminal-muted'
                   : sideButton(side)
@@ -387,7 +387,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
           type="button"
           onClick={() => void confirm()}
           disabled={sending || !preview?.canExecute}
-          className={`rounded-xl px-6 py-2.5 text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-35 ${
+          className={`rounded-xl px-6 py-2.5 text-[0.8125rem] font-bold transition disabled:cursor-not-allowed disabled:opacity-35 ${
             preview?.overridden && !manualComPoliticaEmAviso ? 'bg-bear text-white' : sideButton(side)
           }`}
         >
@@ -554,7 +554,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
               <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-terminal-muted">
                 Capital disponível
               </span>
-              <span className="tabular text-[13px] font-medium">
+              <span className="tabular text-[0.8125rem] font-medium">
                 {preview ? usdWithBrl(preview.available, preview.brlRate) : '—'}
               </span>
             </div>
@@ -622,7 +622,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                   min={0}
                   value={amount ?? ''}
                   onChange={(event) => applyAmount(Number(event.target.value))}
-                  className="w-full bg-transparent text-right text-[21px] font-semibold tabular outline-none placeholder:text-terminal-muted/40"
+                  className="w-full bg-transparent text-right text-[1.3125rem] font-semibold tabular outline-none placeholder:text-terminal-muted/40"
                   placeholder="0,00"
                 />
               </div>
@@ -730,11 +730,11 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                   ? 'Confirmar ordem forçada'
                   : 'Confirmar operação'}
             </p>
-            <p className="mt-2 text-[22px] font-semibold leading-tight">
+            <p className="mt-2 text-[1.375rem] font-semibold leading-tight">
               {verbo} {quantity(preview?.sizing.quantity ?? 0)} {ativo}
               {preview && preview.leverage > 1 ? ` com ${preview.leverage}x` : ''}
             </p>
-            <p className="mt-1 text-[13px] text-terminal-muted">
+            <p className="mt-1 text-[0.8125rem] text-terminal-muted">
               {usdWithBrl(preview?.sizing.notional ?? 0, preview?.brlRate ?? null)}
             </p>
           </div>
@@ -777,7 +777,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
             <Linha rotulo="Conta" valor={preview?.mode ?? '—'} />
           </Lista>
 
-          <p className={`text-[12px] leading-relaxed ${preview?.mode === 'PAPER' ? 'text-terminal-muted' : 'text-warn'}`}>
+          <p className={`text-[0.75rem] leading-relaxed ${preview?.mode === 'PAPER' ? 'text-terminal-muted' : 'text-warn'}`}>
             {preview?.mode === 'PAPER'
               ? 'Operação simulada com entrada imediata: nada é enviado à Binance. O acompanhamento usa o preço real.'
               : `Ordem real na Binance (${preview?.mode}): entrada limite com stop e alvo vinculados.${
@@ -857,7 +857,7 @@ function Segmento({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`flex-1 rounded-lg px-2 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-25 ${
+      className={`flex-1 rounded-lg px-2 py-2 text-[0.8125rem] font-semibold transition disabled:cursor-not-allowed disabled:opacity-25 ${
         ativo
           ? `bg-white/[0.09] shadow-[0_1px_2px_rgba(0,0,0,0.5)] ${tinta[tom]}`
           : `hover:bg-white/[0.05] ${tom === 'bear' ? 'text-bear/55' : 'text-terminal-muted'}`
@@ -902,7 +902,7 @@ function PlanInput({
             event.currentTarget.blur();
           }
         }}
-        className="mt-0.5 w-full bg-transparent text-[13px] tabular text-terminal-text outline-none"
+        className="mt-0.5 w-full bg-transparent text-[0.8125rem] tabular text-terminal-text outline-none"
       />
     </label>
   );
@@ -946,7 +946,7 @@ function Messages({ preview, error }: { preview: PreviewResponse | null; error: 
             type="button"
             onClick={() => setAbertos((atual) => !atual)}
             aria-expanded={abertos}
-            className="flex w-full items-center gap-2 rounded-lg py-1 text-left text-[12px] font-medium text-warn transition hover:text-warn/80"
+            className="flex w-full items-center gap-2 rounded-lg py-1 text-left text-[0.75rem] font-medium text-warn transition hover:text-warn/80"
           >
             <span
               aria-hidden
@@ -962,7 +962,7 @@ function Messages({ preview, error }: { preview: PreviewResponse | null; error: 
             </span>
           </button>
           {abertos ? (
-            <ul className="mt-1 space-y-1 pl-4 text-[12px] leading-relaxed text-terminal-muted">
+            <ul className="mt-1 space-y-1 pl-4 text-[0.75rem] leading-relaxed text-terminal-muted">
               {warnings.map((item) => (
                 <li key={item}>{item}</li>
               ))}

@@ -258,14 +258,21 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
 
       <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
         <h2 className="text-sm font-semibold">Conta e modo de operação</h2>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        {/*
+          Três colunas num celular dão 110 px cada, e "simulação com preço
+          real" vira quatro linhas dentro do botão — a escolha mais importante
+          do painel lida em pedaços. Empilhado, cada conta ocupa a largura toda
+          e diz de uma vez o que é; da tela de tablet para cima voltam a ser
+          três, lado a lado, como sempre foram.
+        */}
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
           {(['PAPER', 'TESTNET', 'LIVE'] as TradingMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
               disabled={busy}
               onClick={() => void run(() => api.updateSettings({ mode }), `Modo ${mode} ativo`)}
-              className={`rounded-xl border px-3 py-3 text-xs font-bold ${
+              className={`rounded-xl border px-3 py-3 text-left text-xs font-bold sm:text-center ${
                 settings.mode === mode
                   ? mode === 'LIVE'
                     ? 'border-bear/60 bg-bear/10 text-bear'
@@ -305,7 +312,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
           </p>
         ) : null}
 
-        <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
           <Info label="Ambiente ativo" value={settings.binance.activeEnvironment} />
           <Info
             label={futuros ? 'Chaves de futuros (produção)' : 'Chaves de produção'}
@@ -461,7 +468,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
             </button>
           ))}
         </div>
-        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
           <Info label="Pares do universo" value={String(settings.universe.total)} />
           <Info label="Na varredura por lotes" value={String(settings.universe.liquid)} />
           <Info
@@ -824,7 +831,7 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
 
         {riskState ? (
           <>
-            <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-5">
+            <dl className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-5">
               <Info
                 label="Resultado do dia"
                 value={usd(riskState.dailyRealizedPnl)}

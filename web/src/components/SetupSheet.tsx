@@ -55,7 +55,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       {/* a dica de teclado só existe onde há teclado */}
       <p
-        className={`min-w-0 text-[12px] leading-snug text-terminal-muted ${
+        className={`min-w-0 text-[0.75rem] leading-snug text-terminal-muted ${
           inTrade || dead ? '' : 'hidden sm:block'
         }`}
       >
@@ -78,7 +78,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           type="button"
           onClick={() => onBuy(setup)}
           disabled={dead || inTrade}
-          className={`rounded-xl px-6 py-2.5 text-[13px] font-bold transition max-sm:flex-1 disabled:cursor-not-allowed ${
+          className={`rounded-xl px-6 py-2.5 text-[0.8125rem] font-bold transition max-sm:flex-1 disabled:cursor-not-allowed ${
             dead || inTrade ? 'bg-white/[0.06] text-terminal-muted' : sideButton(setup.side)
           }`}
         >
@@ -117,7 +117,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
                 href={`https://www.tradingview.com/chart/?symbol=BINANCE:${setup.symbol}`}
                 target="_blank"
                 rel="noreferrer"
-                className="hidden rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-terminal-muted transition hover:bg-white/[0.06] hover:text-terminal-text lg:inline-block"
+                className="hidden rounded-lg px-2.5 py-1.5 text-[0.75rem] font-medium text-terminal-muted transition hover:bg-white/[0.06] hover:text-terminal-text lg:inline-block"
               >
                 TradingView ↗
               </a>
@@ -149,7 +149,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           <Secao titulo="Por que este setup existe">
             <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
               {setup.reasons.map((reason) => (
-                <li key={reason} className="flex gap-2 text-[13px] leading-snug">
+                <li key={reason} className="flex gap-2 text-[0.8125rem] leading-snug">
                   <span className="mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full bg-bull/70" />
                   <span>{reason}</span>
                 </li>
@@ -192,7 +192,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
                     max={0}
                   />
                 ))}
-                <div className="flex items-center justify-between py-2.5 text-[13px] font-semibold">
+                <div className="flex items-center justify-between py-2.5 text-[0.8125rem] font-semibold">
                   <span>Total</span>
                   <span className={scoreTone(setup.score)}>{setup.score}/100</span>
                 </div>
@@ -207,11 +207,11 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           <div className="flex items-start justify-between gap-4">
             <Numero
               rotulo="Preço agora"
-              valor={<span className="text-[28px]">{price(current)}</span>}
+              valor={<span className="text-[1.75rem]">{price(current)}</span>}
               nota={distance === 0 ? 'dentro da zona de entrada' : `${percent(distance)} da zona`}
             />
             <div className="text-right">
-              <div className={`tabular text-[34px] font-bold leading-none ${scoreTone(setup.score)}`}>
+              <div className={`tabular text-[2.125rem] font-bold leading-none ${scoreTone(setup.score)}`}>
                 {setup.score}
               </div>
               <div className="mt-1 text-[11px] text-terminal-muted">
@@ -287,7 +287,7 @@ function ScoreRow({
 }) {
   const positive = points >= 0;
   return (
-    <div className="flex items-start justify-between gap-4 py-2 text-[12px]">
+    <div className="flex items-start justify-between gap-4 py-2 text-[0.75rem]">
       <div className="min-w-0">
         <div className="font-medium">{label}</div>
         <div className="text-terminal-muted">{detail}</div>
@@ -385,7 +385,7 @@ function MicroLinha({ label, valor }: { label: string; valor: string }) {
       <dt className="text-[10px] font-medium uppercase tracking-[0.08em] text-terminal-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 truncate tabular text-[13px]">{valor}</dd>
+      <dd className="mt-0.5 truncate tabular text-[0.8125rem]">{valor}</dd>
     </div>
   );
 }

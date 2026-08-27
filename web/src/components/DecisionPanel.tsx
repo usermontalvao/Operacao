@@ -39,7 +39,7 @@ export function DecisionBadge({ decision }: { decision: EntryDecision | undefine
   if (!decision) return null;
   if (decision.allowed) {
     return (
-      <span className="rounded border border-bull/50 bg-bull/10 px-1.5 py-0.5 text-[10px] font-semibold text-bull">
+      <span className="shrink-0 whitespace-nowrap rounded border border-bull/50 bg-bull/10 px-1.5 py-0.5 text-[10px] font-semibold text-bull">
         robô entraria
       </span>
     );
@@ -70,7 +70,7 @@ export function DecisionBadge({ decision }: { decision: EntryDecision | undefine
   }
   return (
     <span
-      className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${toneFor(principal.code)}`}
+      className={`min-w-0 shrink truncate whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold ${toneFor(principal.code)}`}
       title={principal.message}
     >
       {rotuloCurto(principal, decision)}

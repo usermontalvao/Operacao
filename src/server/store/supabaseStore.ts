@@ -353,7 +353,10 @@ export class SupabaseStore implements Repository {
           opened_at: decision.openedAt,
           closed_at: decision.closedAt,
         },
-        { onConflict: 'id' },
+        // A tabela já garante uma decisão por (user_id, trade_id). Usar só o
+        // id deixava duas notícias do mesmo fechamento disputarem a restrição
+        // única e a segunda — muitas vezes a classificação correta — falhar.
+        { onConflict: 'user_id,trade_id' },
       );
     if (error) throw new Error(error.message);
   }

@@ -71,7 +71,7 @@ function Saude({ health }: { health: SystemHealth }) {
         </p>
       ) : null}
 
-      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
         <Info
           label="Persistência"
           value={persistenciaOk ? health.persistencia.tipo : 'INDISPONÍVEL'}

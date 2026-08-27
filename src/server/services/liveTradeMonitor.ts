@@ -1,5 +1,5 @@
 import type { AppSettings, SymbolFilters, Trade } from '../../core/types.ts';
-import { isFavorable } from '../../core/direction.ts';
+import { gainPerUnit, isFavorable } from '../../core/direction.ts';
 import { round } from '../../core/risk/index.ts';
 import { feeFor, netPnl } from '../../core/risk/costs.ts';
 import { nextProtectiveStop } from '../../core/risk/stops.ts';
@@ -42,6 +42,12 @@ interface OrderState {
   isStop: boolean;
   executedQuantity: number;
   averagePrice: number;
+  /**
+   * Saída identificada pela própria ordem. É especialmente importante no
+   * encerramento manual: o stream pode enxergar a MARKET antes de o botão
+   * terminar e, sem este rótulo, arquivava a venda como TARGET1.
+   */
+  exitKind?: 'STOP' | 'MANUAL';
   /**
    * Taxa cobrada nesta execução e em que moeda. Sem BNB, a Binance cobra a
    * comissão da COMPRA na moeda comprada — e aí a quantidade que entra na
@@ -173,6 +179,7 @@ export class LiveTradeMonitor {
       orderId: String(event.orderId),
       side: event.side,
       isStop: event.orderType.includes('STOP'),
+      exitKind: exitKindForOrder(event.orderType, event.clientOrderId, trade.clientOrderId),
       executedQuantity: event.cumulativeFilledQuantity,
       averagePrice: price,
       commission: event.commission,
@@ -309,6 +316,7 @@ export class LiveTradeMonitor {
           orderId,
           side: order.side === 'SELL' ? 'SELL' : 'BUY',
           isStop: order.type.includes('STOP'),
+          exitKind: exitKindForOrder(order.type, order.clientOrderId, trade.clientOrderId),
           executedQuantity: executed,
           averagePrice,
         });
@@ -330,6 +338,7 @@ export class LiveTradeMonitor {
         if (await this.ensureProtection(trade)) changed = true;
         const price = this.market.getPrice(trade.symbol);
         if (price !== null) {
+          if (updateTradeExcursions(trade, price)) changed = true;
           if (trade.highWaterPrice === null || isFavorable(trade.side, price, trade.highWaterPrice)) {
             trade.highWaterPrice = price;
             changed = true;
@@ -397,6 +406,7 @@ export class LiveTradeMonitor {
           orderId,
           side: order.side === 'SELL' ? 'SELL' : 'BUY',
           isStop: order.type.includes('STOP'),
+          exitKind: exitKindForOrder(order.type, order.clientOrderId, trade.clientOrderId),
           executedQuantity: executed,
           averagePrice: average,
         });
@@ -415,6 +425,7 @@ export class LiveTradeMonitor {
         if (await this.ensureProtection(trade)) changed = true;
         const price = this.market.getPrice(trade.symbol);
         if (price !== null) {
+          if (updateTradeExcursions(trade, price)) changed = true;
           if (trade.highWaterPrice === null || isFavorable(trade.side, price, trade.highWaterPrice)) {
             trade.highWaterPrice = price;
             changed = true;
@@ -500,10 +511,12 @@ export class LiveTradeMonitor {
        * quantidade nova, que é rara.
        */
       let isStop = false;
+      let exitKind: OrderState['exitKind'];
       if (!somado.compra) {
         try {
           const ordem = await getOrderById(trade.symbol, orderId);
           isStop = ordem.type.includes('STOP');
+          exitKind = exitKindForOrder(ordem.type, ordem.clientOrderId, trade.clientOrderId);
         } catch {
           // sem o tipo, o rótulo cai no padrão; o resultado financeiro não muda
         }
@@ -513,6 +526,7 @@ export class LiveTradeMonitor {
         orderId,
         side: somado.compra ? 'BUY' : 'SELL',
         isStop,
+        exitKind,
         executedQuantity: somado.quantidade,
         averagePrice: somado.financeiro / somado.quantidade,
         commission: somado.comissao,
@@ -608,6 +622,7 @@ export class LiveTradeMonitor {
     }
 
     const entry = trade.averageFillPrice ?? trade.entryPrice;
+    updateTradeExcursions(trade, averagePrice);
     // soma, nunca substitui: saída em duas partes tem dois resultados
     trade.realizedPnl = round(
       trade.realizedPnl +
@@ -618,14 +633,18 @@ export class LiveTradeMonitor {
     trade.remainingQuantity = round(Math.max(trade.remainingQuantity - delta, 0), 10);
     trade.realizedPnlPercent =
       trade.notional > 0 ? round((trade.realizedPnl / trade.notional) * 100, 2) : 0;
+    const exitKind = state.exitKind ?? (state.isStop ? 'STOP' : this.nextTargetKind(trade));
     trade.fills.push({
-      kind: state.isStop ? 'STOP' : this.nextTargetKind(trade),
+      kind: exitKind,
       price: round(averagePrice, 8),
       quantity: delta,
       time: new Date().toISOString(),
       orderId,
     });
-    trade.outcome = state.isStop ? 'STOP' : (this.lastFillKind(trade) as Trade['outcome']);
+    trade.outcome = exitKind as Trade['outcome'];
+    if (exitKind === 'MANUAL') {
+      trade.closeReason = trade.closeReason ?? 'encerramento manual pelo usuário';
+    }
     if (trade.remainingQuantity <= 1e-10) {
       trade.status = 'CLOSED';
       trade.closedAt = new Date().toISOString();
@@ -643,10 +662,6 @@ export class LiveTradeMonitor {
     if (!used.has('TARGET1')) return 'TARGET1';
     if (!used.has('TARGET2')) return 'TARGET2';
     return 'TARGET3';
-  }
-
-  private lastFillKind(trade: Trade): string {
-    return trade.fills[trade.fills.length - 1]?.kind ?? 'TARGET1';
   }
 
   /**
@@ -844,4 +859,43 @@ export class LiveTradeMonitor {
     });
     return true;
   }
+}
+
+/**
+ * Identifica a saída enviada pelo botão antes que a corrida entre REST e
+ * stream consiga chamá-la de alvo. O id é determinístico e limitado a 36
+ * caracteres exatamente como em CloseService.
+ */
+export function exitKindForOrder(
+  orderType: string,
+  clientOrderId: string | null | undefined,
+  tradeClientOrderId: string,
+): 'STOP' | 'MANUAL' | undefined {
+  if (orderType.includes('STOP')) return 'STOP';
+  const manualClientOrderId = `${tradeClientOrderId}x`.slice(0, 36);
+  if (clientOrderId === manualClientOrderId) return 'MANUAL';
+  return undefined;
+}
+
+/**
+ * Maior excursão favorável/adversa da posição real.
+ *
+ * O papel já media estes dois números; a conta real atualizava apenas o preço
+ * máximo usado no trailing stop. Como consequência, todas as autópsias reais
+ * diziam 0%/0% e não conseguiam responder se o alvo estava longe ou se houve
+ * lucro devolvido. A conta usa o sentido da tese, portanto também funciona
+ * para uma posição vendida em futuros.
+ */
+export function updateTradeExcursions(trade: Trade, price: number): boolean {
+  const entry = trade.averageFillPrice ?? trade.entryPrice;
+  if (!Number.isFinite(entry) || entry <= 0 || !Number.isFinite(price) || price <= 0) return false;
+
+  const excursion = round((gainPerUnit(trade.side, entry, price) / entry) * 100, 2);
+  const favorable = Math.max(0, trade.maxFavorablePercent ?? 0, excursion);
+  const adverse = Math.min(0, trade.maxAdversePercent ?? 0, excursion);
+  if (favorable === trade.maxFavorablePercent && adverse === trade.maxAdversePercent) return false;
+
+  trade.maxFavorablePercent = favorable;
+  trade.maxAdversePercent = adverse;
+  return true;
 }
