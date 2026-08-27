@@ -115,6 +115,12 @@ export class BalanceFeed {
         payload: {
           capital: capital.capital,
           available: capital.available,
+          // O topo chama o número de patrimônio, portanto precisa receber o
+          // valor das moedas junto com o caixa. Sem isto, o evento rápido de
+          // saldo substituía a resposta completa da API por uma parcial e a
+          // tela passava a mostrar apenas USDT.
+          holdingsValue: capital.holdingsValue,
+          idleAssets: capital.idleAssets,
           source: capital.source,
           currency: capital.currency,
           brlRate: capital.brlRate,

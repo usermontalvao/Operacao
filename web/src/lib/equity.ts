@@ -1,5 +1,5 @@
 import type { AccountBalanceResponse } from './api.ts';
-import type { Trade, TradingMode } from './types.ts';
+import type { MarketKind, Trade, TradingMode } from './types.ts';
 
 export interface LiveEquity {
   /** patrimônio agora: caixa + o que as posições valem neste preço */
@@ -36,6 +36,7 @@ export function computeLiveEquity(input: {
   trades: Trade[];
   prices: Record<string, number>;
   mode: TradingMode;
+  market: MarketKind;
   /**
    * Retrato do servidor. O canal ao vivo só manda preço dos pares que estão
    * na watchlist — uma posição em par fora dela nunca receberia tique, e o
@@ -45,7 +46,7 @@ export function computeLiveEquity(input: {
    */
   serverPositions?: Array<{ symbol: string; currentPrice: number | null }>;
 }): LiveEquity {
-  const { balance, trades, prices, mode, serverPositions } = input;
+  const { balance, trades, prices, mode, market, serverPositions } = input;
   const capital = balance?.capital ?? 0;
 
   const fallback: Record<string, number> = {};
@@ -59,12 +60,14 @@ export function computeLiveEquity(input: {
   let invested = 0;
   let reserved = 0;
   let marketValue = 0;
+  let holdingsAdjustment = 0;
   let partial = false;
   let positions = 0;
   let pendingOrders = 0;
 
   for (const trade of trades) {
     if (trade.mode !== mode) continue;
+    if ((trade.market ?? 'SPOT') !== market) continue;
     if (trade.status !== 'OPEN' && trade.status !== 'PENDING') continue;
 
     const entry = trade.averageFillPrice ?? trade.entryPrice;
@@ -90,9 +93,30 @@ export function computeLiveEquity(input: {
     }
     unrealized += (price - entry) * quantity;
     marketValue += price * quantity;
+
+    /*
+     * O saldo spot já inclui o valor agregado das moedas em holdingsValue.
+     * Somar marketValue de novo duplicava toda posição durante a pequena
+     * janela entre o evento de saldo e o evento de encerramento: foi assim
+     * que 24,76 USDT viraram 48,69 USDT na tela.
+     *
+     * Para o patrimônio continuar andando a cada tique, aplica-se somente a
+     * variação desde o último preço calculado pelo servidor.
+     */
+    const serverPrice = fallback[trade.symbol];
+    if (market === 'SPOT' && serverPrice !== undefined && serverPrice > 0) {
+      holdingsAdjustment += (price - serverPrice) * quantity;
+    }
   }
 
-  const equity = mode === 'PAPER' ? capital + unrealized : capital + marketValue;
+  const hasHoldingsSnapshot = typeof balance?.holdingsValue === 'number';
+  const equity =
+    mode === 'PAPER' || market === 'FUTURES'
+      ? capital + unrealized
+      : hasHoldingsSnapshot
+        ? capital + (balance?.holdingsValue ?? 0) + holdingsAdjustment
+        // compatibilidade com um servidor antigo durante atualização da tela
+        : capital + marketValue;
   return {
     equity: Math.round(equity * 100) / 100,
     unrealized: Math.round(unrealized * 100) / 100,

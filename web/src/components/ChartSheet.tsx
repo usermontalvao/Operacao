@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { price as formatPrice } from '../lib/format.ts';
 import { api } from '../lib/api.ts';
 import { useAtalhosDeModal } from '../lib/atalhos.ts';
+import { Aviso, Botao, Modal, ModalTitulo } from './Modal.tsx';
 import type { Side, Timeframe, TradingMode } from '../lib/types.ts';
 import {
   PriceChart,
@@ -153,153 +154,147 @@ export function ChartSheet({
       ? 'Na conta DEMO a saída é simulada pelo preço atual.'
       : 'As proteções serão canceladas e a quantidade restante vendida a mercado. O preço final pode variar.';
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-6"
-      onClick={onClose}
-    >
-      {/*
-        Coluna, não bloco rolante.
+  const rodape = confirmandoSaida ? (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-[13px] font-semibold text-bear">Encerrar {asset} agora?</p>
+        <p className="mt-0.5 text-[12px] leading-snug text-terminal-muted">{avisoDeSaida}</p>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <Botao tipo="fantasma" disabled={encerrando} onClick={() => setConfirmandoSaida(false)}>
+          Manter posição
+        </Botao>
+        <Botao
+          tipo="quieto"
+          disabled={encerrando}
+          onClick={() => void encerrar()}
+          className="bg-bear text-white hover:bg-bear/90"
+        >
+          {encerrando ? 'Encerrando…' : 'Confirmar encerramento'}
+        </Botao>
+      </div>
+    </div>
+  ) : (
+    <div className="space-y-3">
+      {error ? <Aviso tom="bear" titulo={error} /> : null}
+      {message ? <Aviso tom="bull" titulo={message} /> : null}
 
-        A janela inteira rolava: para chegar em "aplicar" — ou agora em
-        "encerrar" — era preciso rolar para longe do gráfico, que é justamente
-        o que sustenta a decisão. Aqui o cabeçalho e as ações ficam parados, o
-        gráfico ocupa o que sobra, e a rolagem só existe se o conteúdo do meio
-        realmente não couber.
-      */}
-      <div
-        className="flex max-h-[95vh] w-full max-w-4xl flex-col rounded-t-2xl border border-terminal-border bg-terminal-panel p-5 sm:rounded-2xl sm:p-6 lg:max-w-5xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="flex shrink-0 items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold">
-              {asset}
-              <span className="text-terminal-muted">/USDT</span>
-            </h2>
-            <p className="mt-0.5 text-sm text-terminal-muted">
-              {livePrice === null ? 'sem preço agora' : formatPrice(livePrice)}
-              {request.note ? ` · ${request.note}` : ''}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-terminal-border px-3 py-1.5 text-xs text-terminal-muted hover:text-terminal-text"
-          >
-            Fechar
-          </button>
-        </header>
-
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-          <PriceChart
-            symbol={request.symbol}
-            timeframe={request.timeframe ?? '1h'}
-            plan={plan}
-            markers={request.markers ?? null}
-            focusTime={request.focusTime ?? null}
-            livePrice={livePrice}
-            editableLevels={editable ? ['stopLoss', 'target1', 'target2', 'target3'] : []}
-            onLevelChange={editable ? (level, value) => moveLevel(level, value) : undefined}
-          />
-
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* o plano em três números soltos, sem moldura: é legenda do gráfico,
+            não um painel à parte */}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-[12px] tabular">
+          {plan?.stopLoss ? (
+            <span className="text-terminal-muted">
+              stop <span className="text-bear">{formatPrice(plan.stopLoss)}</span>
+            </span>
+          ) : null}
+          {plan?.entryLow ? (
+            <span className="text-terminal-muted">
+              entrada <span className="text-terminal-text">{formatPrice(plan.entryLow)}</span>
+            </span>
+          ) : null}
+          {plan?.target1 ? (
+            <span className="text-terminal-muted">
+              alvo <span className="text-bull">{formatPrice(plan.target1)}</span>
+            </span>
+          ) : null}
+          {dirty ? <span className="text-warn">plano alterado — falta aplicar</span> : null}
         </div>
 
-        <div className="shrink-0">
-        {editable ? (
-          <div className="mt-3 rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
-            <p className="text-[11px] text-terminal-muted">
-              Arraste uma linha e revise os preços. A corretora só muda depois de clicar em aplicar.
-            </p>
-            {error ? <p className="mt-2 text-xs text-bear">{error}</p> : null}
-            {message ? <p className="mt-2 text-xs text-bull">{message}</p> : null}
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                type="button"
+        <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-1.5 sm:w-auto">
+          {request.tradeId !== undefined && !encerrada ? (
+            <Botao tipo="perigo" onClick={() => setConfirmandoSaida(true)} className="mr-auto sm:mr-0">
+              Encerrar<span className="hidden sm:inline"> posição</span>
+            </Botao>
+          ) : null}
+          {editable ? (
+            <>
+              <Botao
+                tipo="fantasma"
                 disabled={!dirty || saving}
                 onClick={() => {
                   setDraftPlan(savedPlan);
                   setError(null);
                 }}
-                className="rounded-lg border border-terminal-border px-3 py-2 text-xs text-terminal-muted disabled:opacity-40"
               >
                 Desfazer
-              </button>
-              <button
-                type="button"
-                disabled={!dirty || saving}
-                onClick={() => void applyPlan()}
-                className="rounded-lg bg-warn px-3 py-2 text-xs font-bold text-black disabled:opacity-40"
-              >
-                {saving ? 'Rearmando…' : 'Aplicar stop e alvos'}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {request.tradeId !== undefined && !encerrada ? (
-          <div className="mt-3 rounded-lg border border-bear/30 bg-bear/[0.04] p-3">
-            {confirmandoSaida ? (
-              <>
-                <p className="text-xs font-semibold text-bear">Encerrar {asset} agora?</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-terminal-muted">{avisoDeSaida}</p>
-                <div className="mt-2 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    disabled={encerrando}
-                    onClick={() => setConfirmandoSaida(false)}
-                    className="rounded-lg border border-terminal-border px-3 py-2 text-xs text-terminal-muted disabled:opacity-40"
-                  >
-                    Manter posição
-                  </button>
-                  <button
-                    type="button"
-                    disabled={encerrando}
-                    onClick={() => void encerrar()}
-                    className="rounded-lg bg-bear px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
-                  >
-                    {encerrando ? 'Encerrando…' : 'Confirmar encerramento'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[11px] text-terminal-muted">
-                  Sair agora, a mercado, em vez de esperar alvo ou stop.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setConfirmandoSaida(true)}
-                  className="shrink-0 rounded-lg border border-bear/50 px-3 py-2 text-xs font-bold text-bear transition hover:bg-bear/10"
-                >
-                  Encerrar posição
-                </button>
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        {plan ? (
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] tabular text-terminal-muted">
-            {plan.stopLoss ? <span className="text-bear">stop {formatPrice(plan.stopLoss)}</span> : null}
-            {plan.entryLow ? <span>entrada {formatPrice(plan.entryLow)}</span> : null}
-            {plan.target1 ? <span className="text-bull">alvo {formatPrice(plan.target1)}</span> : null}
-          </div>
-        ) : null}
-
-        <div className="mt-4 flex justify-end">
-          <a
-            href={`https://www.tradingview.com/chart/?symbol=BINANCE:${request.symbol}`}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-lg border border-terminal-border px-3 py-2 text-xs text-terminal-muted hover:text-terminal-text"
-          >
-            Abrir no TradingView
-          </a>
-        </div>
+              </Botao>
+              <Botao tipo="forte" disabled={!dirty || saving} onClick={() => void applyPlan()}>
+                {saving ? (
+                  'Rearmando…'
+                ) : (
+                  <>
+                    Aplicar<span className="hidden sm:inline"> stop e alvos</span>
+                  </>
+                )}
+              </Botao>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
+  );
+
+  return (
+    <Modal
+      onClose={onClose}
+      largura="lg"
+      rolar={false}
+      altura="cheia"
+      rotulo={`Gráfico de ${asset}`}
+      cabecalho={
+        <ModalTitulo
+          onClose={onClose}
+          titulo={
+            <>
+              {asset}
+              <span className="font-normal text-terminal-muted">/USDT</span>
+            </>
+          }
+          subtitulo={
+            <>
+              {livePrice === null ? 'sem preço agora' : formatPrice(livePrice)}
+              {request.note ? ` · ${request.note}` : ''}
+            </>
+          }
+          etiquetas={
+            <a
+              href={`https://www.tradingview.com/chart/?symbol=BINANCE:${request.symbol}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Abrir no TradingView"
+              className="hidden rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-terminal-muted transition hover:bg-white/[0.06] hover:text-terminal-text sm:inline-block"
+            >
+              TradingView ↗
+            </a>
+          }
+        />
+      }
+      rodape={rodape}
+    >
+      {/*
+        O gráfico ocupa a altura inteira do miolo.
+
+        Antes ele tinha altura fixa e tudo o mais vinha empilhado embaixo em
+        faixas com moldura — aplicar, encerrar, o resumo do plano, o link do
+        TradingView: quatro caixas para três ações. Agora a decisão está no
+        rodapé, numa linha só, e o gráfico fica com o que sobra.
+      */}
+      <div className="flex min-h-[320px] flex-1 flex-col">
+        <PriceChart
+          symbol={request.symbol}
+          timeframe={request.timeframe ?? '1h'}
+          plan={plan}
+          markers={request.markers ?? null}
+          focusTime={request.focusTime ?? null}
+          livePrice={livePrice}
+          preencher
+          moldura={false}
+          editableLevels={editable ? ['stopLoss', 'target1', 'target2', 'target3'] : []}
+          onLevelChange={editable ? (level, value) => moveLevel(level, value) : undefined}
+        />
+      </div>
+    </Modal>
   );
 }
 

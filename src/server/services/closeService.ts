@@ -1,6 +1,7 @@
 import type { Trade } from '../../core/types.ts';
 import { round, roundDownToStep, formatQuantity } from '../../core/risk/index.ts';
 import { netPnl } from '../../core/risk/costs.ts';
+import { restoEhPo } from '../../core/execution/posicaoReal.ts';
 import {
   BinanceError,
   cancelAllOpenOrders,
@@ -264,9 +265,38 @@ export class CloseService {
     });
     trade.outcome = 'MANUAL';
     trade.closeReason = reason;
-    if (trade.remainingQuantity <= 1e-10) {
+    /*
+     * A venda a mercado pode deixar uma fração que existe na carteira, mas
+     * que a Binance nunca aceitará em outra ordem. Isso não é uma posição em
+     * andamento: é pó. Esperar o monitor periódico reconhecê-lo deixava o
+     * card aberto por até um minuto, mostrando US$ 0,22 como se fosse a
+     * operação inteira e dividindo o lucro total por essa sobra.
+     *
+     * Os filtros já estão em mãos neste ponto, portanto o encerramento pode e
+     * deve terminar na mesma resposta que confirmou a venda.
+     */
+    const sobraEhPo = restoEhPo(trade.remainingQuantity, averagePrice, filters);
+    if (trade.remainingQuantity <= 1e-10 || sobraEhPo) {
+      const sobra = trade.remainingQuantity;
       trade.status = 'CLOSED';
+      trade.remainingQuantity = 0;
       trade.closedAt = new Date().toISOString();
+      if (sobra > 1e-10) {
+        this.audit.record({
+          action: 'LIVE_TRADE_DUST_CLOSED',
+          mode: trade.mode,
+          symbol: trade.symbol,
+          setupId: trade.setupId,
+          tradeId: trade.id,
+          detail: {
+            sobra,
+            minimoDeLote: filters.minQty,
+            nocionalMinimo: filters.minNotional,
+            resultado: trade.realizedPnl,
+            motivo: 'a sobra foi reconhecida no próprio encerramento manual',
+          },
+        });
+      }
     }
     trade.updatedAt = new Date().toISOString();
 

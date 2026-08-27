@@ -14,6 +14,8 @@ import type { MicroBlock } from '../core/engines/microScalpEngine.ts';
 export interface BalanceEventPayload {
   capital: number;
   available: number;
+  holdingsValue: number;
+  idleAssets?: Array<{ asset: string; free: number; locked?: number }>;
   source: string;
   currency: 'USDT';
   brlRate: number | null;

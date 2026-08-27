@@ -11,13 +11,13 @@ import {
   price,
   scoreTone,
   sideButton,
-  sideTone,
   stateLabel,
   stateTone,
 } from '../lib/format.ts';
 import { PriceChart } from './PriceChart.tsx';
 import { DecisionPanel } from './DecisionPanel.tsx';
 import { useAtalhosDeModal } from '../lib/atalhos.ts';
+import { Aviso, Botao, Etiqueta, Linha, Lista, Modal, ModalTitulo, Numero, Secao } from './Modal.tsx';
 
 interface SetupSheetProps {
   setup: TradeSetup;
@@ -51,266 +51,226 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
     confirmHabilitado: !dead && !inTrade,
   });
 
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-6"
-      onClick={onClose}
-    >
-      {/*
-        No monitor a ficha vira coluna; no celular continua uma página rolante.
-
-        Ela rolava inteira, e o botão de comprar — que mora na coluna da
-        direita, depois de score, custos e economia da operação — ficava abaixo
-        da dobra. Decidir exigia rolar para baixo, e conferir o gráfico exigia
-        rolar de volta. Agora cada coluna rola por si, o cabeçalho e a
-        explicação do robô ficam parados, e a ação fica colada embaixo.
-
-        No celular nada disso vale: duas áreas de rolagem empilhadas num
-        telefone são piores que uma página comprida.
-      */}
-      <div
-        className="max-h-[92vh] w-full max-w-6xl overflow-y-auto overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5 lg:flex lg:flex-col lg:overflow-hidden"
-        onClick={(event) => event.stopPropagation()}
+  const acao = (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* a dica de teclado só existe onde há teclado */}
+      <p
+        className={`min-w-0 text-[12px] leading-snug text-terminal-muted ${
+          inTrade || dead ? '' : 'hidden sm:block'
+        }`}
       >
-        <header className="flex shrink-0 items-start justify-between gap-3">
-          <div>
-            <h2 className="flex flex-wrap items-center gap-1.5 text-lg font-semibold">
-              <span>
-                {setup.symbol.replace('USDT', '')}
-                <span className="text-terminal-muted">/USDT</span>
-              </span>
-              {/* direção e modalidade no título: quem abre esta tela decide
-                  aqui, e decidir sem saber o lado é decidir outra coisa */}
-              <span
-                className={`rounded border px-2 py-0.5 text-xs font-bold ${sideTone(setup.side)}`}
-              >
-                {SIDE_LABEL[setup.side]}
-              </span>
-              <span className="rounded border border-terminal-border px-2 py-0.5 text-[10px] font-semibold tracking-wide text-terminal-muted">
-                {MARKET_LABEL[setup.market]}
-              </span>
-            </h2>
-            <p className="mt-0.5 text-sm text-terminal-muted">
+        {inTrade
+          ? `Você já tem posição aberta em ${setup.symbol.replace('USDT', '')} — acompanhe na aba Operações.`
+          : dead
+            ? 'Esta tese não vale mais: foi invalidada ou expirou.'
+            : 'Enter confirma · Esc fecha'}
+      </p>
+      <div className="flex shrink-0 items-center justify-end gap-1.5">
+        <Botao tipo="fantasma" onClick={() => onIgnore(setup)}>
+          Ignorar
+        </Botao>
+        {/*
+          O verbo e a cor saem do LADO. Um botão verde escrito COMPRAR numa
+          tese vendida é o pior erro possível desta tela: o usuário confirma
+          lendo o botão.
+        */}
+        <button
+          type="button"
+          onClick={() => onBuy(setup)}
+          disabled={dead || inTrade}
+          className={`rounded-xl px-6 py-2.5 text-[13px] font-bold transition max-sm:flex-1 disabled:cursor-not-allowed ${
+            dead || inTrade ? 'bg-white/[0.06] text-terminal-muted' : sideButton(setup.side)
+          }`}
+        >
+          {inTrade ? 'JÁ EM OPERAÇÃO' : `${SIDE_VERB[setup.side].toUpperCase()} SETUP`}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Modal
+      onClose={onClose}
+      largura="xl"
+      rotulo={`Setup de ${setup.symbol}`}
+      rodape={acao}
+      cabecalho={
+        <ModalTitulo
+          onClose={onClose}
+          titulo={
+            <>
+              {setup.symbol.replace('USDT', '')}
+              <span className="font-normal text-terminal-muted">/USDT</span>
+            </>
+          }
+          subtitulo={
+            <>
               {SETUP_LABEL[setup.setupType]} · gatilho {setup.timeframe} · viés {setup.anchorTimeframe}
               {vendida ? ' · ganha quando o preço cai' : ''}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-terminal-border px-3 py-1.5 text-xs text-terminal-muted hover:text-terminal-text"
-          >
-            Fechar
-          </button>
-        </header>
+            </>
+          }
+          etiquetas={
+            <>
+              <Etiqueta tom={setup.side === 'SELL' ? 'bear' : 'bull'}>{SIDE_LABEL[setup.side]}</Etiqueta>
+              <Etiqueta>{MARKET_LABEL[setup.market]}</Etiqueta>
+              <a
+                href={`https://www.tradingview.com/chart/?symbol=BINANCE:${setup.symbol}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-terminal-muted transition hover:bg-white/[0.06] hover:text-terminal-text lg:inline-block"
+              >
+                TradingView ↗
+              </a>
+            </>
+          }
+        />
+      }
+    >
+      {/*
+        Duas colunas de leitura, não duas colunas de caixas.
 
-        <div className="mt-3 shrink-0">
+        A ficha era uma grade de retângulos: cada número num quadro com borda
+        e fundo próprios, sete deles empilhados. Agora o preço e o score são os
+        dois números grandes que abrem a coluna, o plano vira uma lista com
+        fios entre as linhas, e o resto do desenho some.
+      */}
+      <div className="grid gap-5 pb-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <div className="order-2 space-y-5 lg:order-1">
+          <PriceChart
+            symbol={setup.symbol}
+            timeframe={setup.timeframe}
+            plan={setup}
+            livePrice={livePrice}
+            height={330}
+          />
+
+          {setup.micro ? <MicroScalpPanel micro={setup.micro} /> : null}
+
+          <Secao titulo="Por que este setup existe">
+            <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+              {setup.reasons.map((reason) => (
+                <li key={reason} className="flex gap-2 text-[13px] leading-snug">
+                  <span className="mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full bg-bull/70" />
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </Secao>
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowBreakdown((value) => !value)}
+              aria-expanded={showBreakdown}
+              className="flex w-full items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-terminal-muted transition hover:text-terminal-text"
+            >
+              <span>Como o score foi montado</span>
+              <span
+                aria-hidden
+                className={`text-[9px] transition-transform duration-150 ${showBreakdown ? 'rotate-90' : ''}`}
+              >
+                ▶
+              </span>
+            </button>
+            {showBreakdown ? (
+              <div className="mt-2 divide-y divide-white/[0.05] rounded-xl bg-white/[0.025] px-3">
+                {setup.scoreBreakdown.components.map((component) => (
+                  <ScoreRow
+                    key={component.key}
+                    label={component.label}
+                    points={component.points}
+                    detail={component.detail}
+                    max={component.maxPoints}
+                  />
+                ))}
+                {setup.scoreBreakdown.penalties.map((penalty) => (
+                  <ScoreRow
+                    key={penalty.key}
+                    label={penalty.label}
+                    points={penalty.points}
+                    detail={penalty.detail}
+                    max={0}
+                  />
+                ))}
+                <div className="flex items-center justify-between py-2.5 text-[13px] font-semibold">
+                  <span>Total</span>
+                  <span className={scoreTone(setup.score)}>{setup.score}/100</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <aside className="order-1 space-y-4 lg:order-2 lg:border-l lg:border-white/[0.05] lg:pl-5">
+          {/* os dois números que abrem a leitura: onde o preço está e quanto
+              a tese vale. Sem moldura — o tamanho já diz a hierarquia */}
+          <div className="flex items-start justify-between gap-4">
+            <Numero
+              rotulo="Preço agora"
+              valor={<span className="text-[28px]">{price(current)}</span>}
+              nota={distance === 0 ? 'dentro da zona de entrada' : `${percent(distance)} da zona`}
+            />
+            <div className="text-right">
+              <div className={`tabular text-[34px] font-bold leading-none ${scoreTone(setup.score)}`}>
+                {setup.score}
+              </div>
+              <div className="mt-1 text-[11px] text-terminal-muted">
+                {CLASSIFICATION_LABEL[setup.classification]}
+              </div>
+              <span
+                className={`mt-2 inline-block rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${stateTone(
+                  setup.visualState,
+                  setup.side,
+                )}`}
+              >
+                {stateLabel(setup.visualState, setup.side)}
+              </span>
+            </div>
+          </div>
+
+          <Lista>
+            <Linha
+              rotulo="Entrada"
+              valor={`${price(setup.entryLow)} – ${price(setup.entryHigh)}`}
+              forte
+            />
+            <Linha
+              rotulo={vendida ? 'Invalidação (acima)' : 'Invalidação'}
+              valor={price(setup.stopLoss)}
+              tom="text-bear"
+            />
+            <Linha rotulo="Alvo 1" valor={price(setup.target1)} tom="text-bull" />
+            {setup.target2 ? (
+              <Linha rotulo="Alvo 2" valor={price(setup.target2)} tom="text-bull" />
+            ) : null}
+            {setup.target3 ? (
+              <Linha rotulo="Alvo 3" valor={price(setup.target3)} tom="text-bull" />
+            ) : null}
+            <Linha rotulo="Risco / retorno" valor={`1:${setup.riskReward.toFixed(1)}`} forte />
+            <Linha rotulo="Contexto BTC" valor={setup.btcContext.replace('BTC_', '')} />
+          </Lista>
+
+          {setup.extended ? (
+            <Aviso tom="warn" titulo="Esticado — aguardar pullback">
+              <ul className="mt-1 space-y-0.5">
+                {setup.extensionReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </Aviso>
+          ) : null}
+
+          {setup.invalidationNote ? <Aviso tom="bear" titulo={setup.invalidationNote} /> : null}
+
           <DecisionPanel
             decision={decision}
             entryLow={setup.entryLow}
             entryHigh={setup.entryHigh}
             currentPrice={current}
           />
-        </div>
-
-        <div className="mt-3 grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] lg:overflow-hidden">
-          <section className="order-2 space-y-3 lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-            <PriceChart
-              symbol={setup.symbol}
-              timeframe={setup.timeframe}
-              plan={setup}
-              livePrice={livePrice}
-              height={270}
-            />
-
-            {setup.micro ? <MicroScalpPanel micro={setup.micro} /> : null}
-
-            <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-terminal-muted">
-                Por que este setup existe
-              </h3>
-              <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                {setup.reasons.map((reason) => (
-                  <li key={reason} className="flex gap-2 text-sm">
-                    <span className="text-bull">✓</span>
-                    <span>{reason}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowBreakdown((value) => !value)}
-                className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wide text-terminal-muted"
-              >
-                <span>Como o score foi montado</span>
-                <span>{showBreakdown ? '−' : '+'}</span>
-              </button>
-              {showBreakdown ? (
-                <div className="mt-1.5 space-y-1 rounded-lg border border-terminal-border bg-terminal-panel-soft px-2.5 py-2">
-                  {setup.scoreBreakdown.components.map((component) => (
-                    <ScoreRow
-                      key={component.key}
-                      label={component.label}
-                      points={component.points}
-                      detail={component.detail}
-                      max={component.maxPoints}
-                    />
-                  ))}
-                  {setup.scoreBreakdown.penalties.map((penalty) => (
-                    <ScoreRow
-                      key={penalty.key}
-                      label={penalty.label}
-                      points={penalty.points}
-                      detail={penalty.detail}
-                      max={0}
-                    />
-                  ))}
-                  <div className="flex items-center justify-between border-t border-terminal-border pt-2 text-sm font-semibold">
-                    <span>Total</span>
-                    <span className={scoreTone(setup.score)}>{setup.score}/100</span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </section>
-
-          <aside className="order-1 space-y-2.5 lg:order-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-            <div className="flex items-center justify-between rounded-lg border border-terminal-border bg-terminal-panel-soft p-2.5">
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-terminal-muted">Preço agora</div>
-                <div className="text-2xl font-semibold tabular">{price(current)}</div>
-                <div className="mt-0.5 text-xs text-terminal-muted tabular">
-                  {distance === 0 ? 'dentro da zona de entrada' : `${percent(distance)} da zona`}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className={`text-4xl font-bold tabular ${scoreTone(setup.score)}`}>{setup.score}</div>
-                <div className="text-[10px] text-terminal-muted">
-                  {CLASSIFICATION_LABEL[setup.classification]}
-                </div>
-                <span
-                  className={`mt-1.5 inline-block rounded border px-2 py-0.5 text-[10px] font-semibold ${stateTone(
-                    setup.visualState,
-                    setup.side,
-                  )}`}
-                >
-                  {stateLabel(setup.visualState, setup.side)}
-                </span>
-              </div>
-            </div>
-
-            <dl className="grid grid-cols-2 gap-2.5 text-sm">
-              <Field
-                label="Entrada"
-                value={`${price(setup.entryLow)} – ${price(setup.entryHigh)}`}
-                tone="text-terminal-text"
-                wide
-              />
-              <Field
-                label={vendida ? 'Invalidação (acima)' : 'Invalidação'}
-                value={price(setup.stopLoss)}
-                tone="text-bear"
-              />
-              <Field label="Risco / retorno" value={`1:${setup.riskReward.toFixed(1)}`} tone="text-terminal-text" />
-              <Field label="Alvo 1" value={price(setup.target1)} tone="text-bull" />
-              <Field label="Alvo 2" value={setup.target2 ? price(setup.target2) : '—'} tone="text-bull" />
-              <Field label="Alvo 3" value={setup.target3 ? price(setup.target3) : '—'} tone="text-bull" />
-              <Field label="Contexto BTC" value={setup.btcContext.replace('BTC_', '')} tone="text-terminal-muted" />
-            </dl>
-
-            {setup.extended ? (
-              <div className="rounded-lg border border-warn/40 bg-warn/10 px-2.5 py-2 text-[11px] text-warn">
-                <strong>Esticado — aguardar pullback.</strong>
-                <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                  {setup.extensionReasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {setup.invalidationNote ? (
-              <p className="rounded-lg border border-bear/40 bg-bear/10 px-2.5 py-2 text-[11px] text-bear">
-                {setup.invalidationNote}
-              </p>
-            ) : null}
-
-            <div className="space-y-2 lg:sticky lg:bottom-0 lg:-mx-1 lg:bg-terminal-panel lg:px-1 lg:pb-1 lg:pt-3">
-              {/*
-                Entrar de novo no que já está aberto dobraria o risco no mesmo
-                ativo. O servidor recusa — mas o botão precisa dizer isso ANTES
-                do clique, não depois do erro.
-
-                O verbo e a cor saem do LADO. Um botão verde escrito COMPRAR
-                numa tese vendida é o pior erro possível desta tela: o usuário
-                confirma lendo o botão.
-              */}
-              <button
-                type="button"
-                onClick={() => onBuy(setup)}
-                disabled={dead || inTrade}
-                className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold disabled:opacity-40 ${sideButton(
-                  setup.side,
-                )}`}
-              >
-                {inTrade
-                  ? 'JÁ EM OPERAÇÃO'
-                  : `${SIDE_VERB[setup.side].toUpperCase()} SETUP`}
-              </button>
-              {inTrade ? (
-                <p className="text-center text-[11px] text-terminal-muted">
-                  Você já tem posição aberta em {setup.symbol.replace('USDT', '')}. Acompanhe na aba
-                  Operações.
-                </p>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2">
-                <a
-                  href={`https://www.tradingview.com/chart/?symbol=BINANCE:${setup.symbol}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-xl border border-terminal-border px-3 py-3 text-center text-xs text-terminal-muted hover:text-terminal-text"
-                >
-                  Abrir no TradingView
-                </a>
-                <button
-                  type="button"
-                  onClick={() => onIgnore(setup)}
-                  className="rounded-xl border border-terminal-border px-3 py-3 text-center text-xs text-terminal-muted hover:text-terminal-text"
-                >
-                  Ignorar
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
+        </aside>
       </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  tone,
-  wide,
-}: {
-  label: string;
-  value: string;
-  tone: string;
-  wide?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-lg border border-terminal-border bg-terminal-panel-soft px-2.5 py-2 ${
-        wide ? 'col-span-2' : ''
-      }`}
-    >
-      <dt className="text-[10px] uppercase tracking-wide text-terminal-muted">{label}</dt>
-      <dd className={`mt-0.5 tabular text-base font-medium ${tone}`}>{value}</dd>
-    </div>
+    </Modal>
   );
 }
 
@@ -327,15 +287,15 @@ function ScoreRow({
 }) {
   const positive = points >= 0;
   return (
-    <div className="flex items-start justify-between gap-3 text-xs">
-      <div>
+    <div className="flex items-start justify-between gap-4 py-2 text-[12px]">
+      <div className="min-w-0">
         <div className="font-medium">{label}</div>
         <div className="text-terminal-muted">{detail}</div>
       </div>
       <div className={`shrink-0 tabular font-semibold ${positive ? 'text-bull' : 'text-bear'}`}>
         {positive ? '+' : ''}
         {points}
-        {max > 0 ? <span className="text-terminal-muted">/{max}</span> : null}
+        {max > 0 ? <span className="text-terminal-muted/60">/{max}</span> : null}
       </div>
     </div>
   );
@@ -352,24 +312,17 @@ function ScoreRow({
 function MicroScalpPanel({ micro }: { micro: MicroScalpDetail }) {
   const { regime, economics, scalpability } = micro;
   return (
-    <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded bg-bull/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-bull">
-          MICRO SCALP · 1M
+    <Secao
+      titulo="Micro scalp · 1m"
+      acao={
+        <span className="text-[11px] text-terminal-muted">
+          {regime.verdict} · scalp {scalpability.score}/100 {scalpability.grade}
         </span>
-        <span className="text-xs text-terminal-muted">
-          Regime: <span className="font-semibold text-terminal-text">{regime.verdict}</span>
-        </span>
-        <span className="text-xs text-terminal-muted">
-          Scalp Score:{' '}
-          <span className="font-semibold text-terminal-text">{scalpability.score}/100</span>{' '}
-          {scalpability.grade}
-        </span>
-      </div>
-
-      <dl className="mt-2 grid grid-cols-2 gap-1.5 text-xs sm:grid-cols-4">
-        <Linha label="Spread" valor={`${scalpability.liquidity.spreadPercent.toFixed(3)}%`} />
-        <Linha
+      }
+    >
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-4">
+        <MicroLinha label="Spread" valor={`${scalpability.liquidity.spreadPercent.toFixed(3)}%`} />
+        <MicroLinha
           label="Escorregamento"
           valor={
             scalpability.liquidity.slippagePercent === null
@@ -377,18 +330,15 @@ function MicroScalpPanel({ micro }: { micro: MicroScalpDetail }) {
               : `${scalpability.liquidity.slippagePercent.toFixed(3)}%`
           }
         />
-        <Linha label="Amplitude da faixa" valor={`${regime.amplitudePercent.toFixed(3)}%`} />
-        <Linha
-          label="ADX"
-          valor={regime.adx === null ? '—' : regime.adx.toFixed(0)}
-        />
-        <Linha label="Suporte" valor={regime.support.toPrecision(6)} />
-        <Linha label="Resistência" valor={regime.resistance.toPrecision(6)} />
-        <Linha
+        <MicroLinha label="Amplitude" valor={`${regime.amplitudePercent.toFixed(3)}%`} />
+        <MicroLinha label="ADX" valor={regime.adx === null ? '—' : regime.adx.toFixed(0)} />
+        <MicroLinha label="Suporte" valor={regime.support.toPrecision(6)} />
+        <MicroLinha label="Resistência" valor={regime.resistance.toPrecision(6)} />
+        <MicroLinha
           label="Testes na faixa"
           valor={`${regime.supportTouches} / ${regime.resistanceTouches}`}
         />
-        <Linha label="Posição na faixa" valor={`${(regime.position * 100).toFixed(0)}%`} />
+        <MicroLinha label="Posição na faixa" valor={`${(regime.position * 100).toFixed(0)}%`} />
       </dl>
 
       {/*
@@ -398,51 +348,44 @@ function MicroScalpPanel({ micro }: { micro: MicroScalpDetail }) {
         problema" é exatamente esta faixa.
       */}
       {economics.warning ? (
-        <p className="mt-2 rounded-lg border border-bear/50 bg-bear/10 px-2.5 py-2 text-xs text-bear">
-          <span className="font-bold">Sem margem pelos seus limites:</span> {economics.warning}
-        </p>
+        <div className="mt-3">
+          <Aviso tom="bear" titulo="Sem margem pelos seus limites">
+            {economics.warning}
+          </Aviso>
+        </div>
       ) : null}
 
-      <div className="mt-2 space-y-1 rounded-lg border border-terminal-border px-2.5 py-2 text-xs">
-        <div className="flex justify-between">
-          <span className="text-terminal-muted">Lucro bruto estimado</span>
-          <span className="tabular">{economics.grossExpectedProfitPercent.toFixed(3)}%</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-terminal-muted">
-            Custos (taxa {economics.entryFeePercent}% × 2 + spread + escorregamento)
-          </span>
-          <span className="tabular text-bear">−{economics.allInCostPercent.toFixed(3)}%</span>
-        </div>
-        <div className="flex justify-between border-t border-terminal-border pt-1 font-semibold">
-          <span>Lucro líquido estimado</span>
-          <span
-            className={`tabular ${
-              economics.netExpectedProfitPercent > 0 ? 'text-bull' : 'text-bear'
-            }`}
-          >
-            {economics.netExpectedProfitPercent >= 0 ? '+' : ''}
-            {economics.netExpectedProfitPercent.toFixed(3)}%
-          </span>
-        </div>
-        <div className="flex justify-between text-terminal-muted">
-          <span>O alvo paga o custo</span>
-          <span className="tabular">{economics.costMultiple.toFixed(1)}×</span>
-        </div>
-        <div className="flex justify-between text-terminal-muted">
-          <span>Net R/R</span>
-          <span className="tabular">{economics.netRiskReward.toFixed(2)}</span>
-        </div>
-      </div>
-    </div>
+      <Lista className="mt-3">
+        <Linha
+          rotulo="Lucro bruto estimado"
+          valor={`${economics.grossExpectedProfitPercent.toFixed(3)}%`}
+        />
+        <Linha
+          rotulo="Custos"
+          nota={`taxa ${economics.entryFeePercent}% × 2 + spread + escorregamento`}
+          valor={`−${economics.allInCostPercent.toFixed(3)}%`}
+          tom="text-bear"
+        />
+        <Linha
+          rotulo="Lucro líquido estimado"
+          forte
+          valor={`${economics.netExpectedProfitPercent >= 0 ? '+' : ''}${economics.netExpectedProfitPercent.toFixed(3)}%`}
+          tom={economics.netExpectedProfitPercent > 0 ? 'text-bull' : 'text-bear'}
+        />
+        <Linha rotulo="O alvo paga o custo" valor={`${economics.costMultiple.toFixed(1)}×`} />
+        <Linha rotulo="Net R/R" valor={economics.netRiskReward.toFixed(2)} />
+      </Lista>
+    </Secao>
   );
 }
 
-function Linha({ label, valor }: { label: string; valor: string }) {
+function MicroLinha({ label, valor }: { label: string; valor: string }) {
   return (
-    <div>
-      <dt className="text-[10px] uppercase tracking-wide text-terminal-muted">{label}</dt>
-      <dd className="tabular">{valor}</dd>
+    <div className="min-w-0">
+      <dt className="text-[10px] font-medium uppercase tracking-[0.08em] text-terminal-muted">
+        {label}
+      </dt>
+      <dd className="mt-0.5 truncate tabular text-[13px]">{valor}</dd>
     </div>
   );
 }

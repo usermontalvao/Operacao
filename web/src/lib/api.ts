@@ -245,8 +245,11 @@ export interface RiskResponse {
 }
 
 export interface AccountBalanceResponse {
+  /** caixa em USDT */
   capital: number;
   available: number;
+  /** valor das moedas spot fora do caixa; ausente só em servidor antigo */
+  holdingsValue?: number;
   source: string;
   currency: 'USDT';
   brlRate: number | null;

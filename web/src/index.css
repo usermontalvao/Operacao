@@ -123,3 +123,84 @@ body {
   }
   /* a barra continua: ela não é enfeite, é o relógio da espera */
 }
+
+/* ==========================================================================
+ * JANELAS (modais)
+ *
+ * A folha precisa ENTRAR. Sem isso ela é uma div que apareceu: o olho não
+ * acompanha de onde veio, perde o ponto em que estava e a tela parece uma
+ * página nova. No celular ela sobe do rodapé, como toda folha de aplicativo;
+ * no monitor ela se aproxima — um passo curto, dois quadros de escala.
+ * ========================================================================== */
+@keyframes modal-fundo-entra {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-folha-sobe {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes modal-folha-aproxima {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.modal-fundo {
+  background: rgba(4, 5, 7, 0.62);
+  animation: modal-fundo-entra 160ms ease-out both;
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .modal-fundo {
+    background: rgba(4, 5, 7, 0.5);
+    backdrop-filter: blur(10px) saturate(120%);
+  }
+}
+
+.modal-folha {
+  /* a sombra é o que separa a folha do fundo desfocado; sem ela a janela
+     parece impressa no vidro em vez de estar por cima dele */
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 32px 80px -16px rgba(0, 0, 0, 0.85),
+    0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 120px);
+  animation: modal-folha-sobe 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (min-width: 640px) {
+  .modal-folha {
+    animation: modal-folha-aproxima 200ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+}
+
+/* Barra de rolagem que não vira moldura: fina, sem seta, e só quando há o que
+ * rolar. A barra larga e clara do sistema desenhava uma listra na lateral de
+ * toda janela — a primeira coisa que se via era o enfeite do navegador. */
+.modal-rolagem {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.modal-rolagem::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.modal-rolagem::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.modal-rolagem::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-fundo,
+  .modal-folha {
+    animation: none;
+  }
+}

@@ -32,6 +32,7 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
   const [robotBusy, setRobotBusy] = useState<MarketKind | null>(null);
 
   const mode = live.snapshot?.mode ?? 'PAPER';
+  const market = live.snapshot?.settings.market ?? 'SPOT';
   // recalcula a cada preço novo: é o que faz o número do topo andar sozinho
   const liveEquity = useMemo(
     () =>
@@ -40,10 +41,11 @@ export function App({ userLabel, onLoggedOut }: { userLabel: string | null; onLo
         trades: live.trades,
         prices: live.prices,
         mode,
+        market,
         // segunda fonte de preço: par fora da watchlist não recebe tique
         serverPositions: live.equity?.positions,
       }),
-    [live.balance, live.trades, live.prices, live.equity, mode],
+    [live.balance, live.trades, live.prices, live.equity, mode, market],
   );
 
   const sair = useCallback(async (): Promise<void> => {

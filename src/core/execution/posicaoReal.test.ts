@@ -72,6 +72,14 @@ test('o resto abaixo do mínimo da corretora é pó, e pó encerra a operação'
   assert.equal(restoEhPo(0, 0.00476, JASMY), true);
 });
 
+test('a sobra real de NVDAB é encerrada no mesmo ciclo da venda', () => {
+  // 0,001 NVDAB × 219,58 = US$ 0,22: a quantidade alcança o passo do lote,
+  // mas não o nocional de US$ 5. O card não pode continuar aberto esperando
+  // a próxima reconciliação da conta.
+  const NVDAB = { stepSize: 0.001, minQty: 0.001, minNotional: 5 };
+  assert.equal(restoEhPo(0.001, 219.58, NVDAB), true);
+});
+
 test('posição de verdade não é confundida com pó', () => {
   assert.equal(restoEhPo(1156.9, 0.00476, JASMY), false);
 });

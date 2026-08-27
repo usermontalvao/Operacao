@@ -33,7 +33,15 @@ function bancada(capital = 250): {
   const execution = {
     getCapital: async () => {
       leituras += 1;
-      return { capital, available: capital, source: 'BINANCE', currency: 'USDT', brlRate: 5 };
+      return {
+        capital,
+        available: capital,
+        holdingsValue: 0.22,
+        idleAssets: [{ asset: 'NVDAB', free: 0.001, locked: 0 }],
+        source: 'BINANCE',
+        currency: 'USDT',
+        brlRate: 5,
+      };
     },
   } as unknown as ExecutionService;
   const settings = {
@@ -48,6 +56,8 @@ test('o saldo vai para a tela com o número que veio da conta', async () => {
   const saldo = eventos.find((event) => event.type === 'balance');
   assert.ok(saldo, 'nenhum evento de saldo foi ao ar');
   assert.equal(saldo.payload.capital, 250);
+  assert.equal(saldo.payload.holdingsValue, 0.22);
+  assert.deepEqual(saldo.payload.idleAssets, [{ asset: 'NVDAB', free: 0.001, locked: 0 }]);
   assert.equal(saldo.payload.mode, 'LIVE');
   assert.equal(saldo.payload.market, 'SPOT');
 });

@@ -67,6 +67,22 @@ interface PriceChartProps {
   focusTime?: number | null;
   livePrice: number | null;
   height?: number;
+  /**
+   * O gráfico ocupa a altura que sobrar em vez de uma altura fixa.
+   *
+   * É o que permite a janela caber inteira sem barra de rolagem: quem manda no
+   * tamanho passa a ser a folha, e o gráfico se acomoda no que restou depois
+   * do cabeçalho, dos números e do rodapé.
+   */
+  preencher?: boolean;
+  /**
+   * A moldura em volta do gráfico.
+   *
+   * Faz sentido quando ele divide a tela com outras coisas. Numa janela em que
+   * o gráfico É o conteúdo, a moldura vira caixa dentro de caixa: a folha já
+   * separa o gráfico do resto do mundo.
+   */
+  moldura?: boolean;
   /** níveis que respondem ao gesto de arrastar; entrada nunca é editável */
   editableLevels?: EditableChartLevel[];
   /** `committed` só fica true quando o dedo/mouse é solto */
@@ -106,6 +122,8 @@ export function PriceChart({
   focusTime = null,
   livePrice,
   height = 340,
+  preencher = false,
+  moldura = true,
   editableLevels = [],
   onLevelChange,
 }: PriceChartProps) {
@@ -139,7 +157,7 @@ export function PriceChart({
    * que sobrou. Adivinhar `window.innerHeight - 150` também deixava um vão
    * morto embaixo e não sobrevivia a redimensionar a janela.
    */
-  const alturaFixa = ampliado ? null : height;
+  const alturaFixa = ampliado || preencher ? null : height;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   /** muda a cada carga de candles: é o gatilho para redesenhar o que é sobreposto */
@@ -440,7 +458,9 @@ export function PriceChart({
             // por baixo do gráfico, e um gráfico com outra tela atravessando
             // não se lê
             'fixed inset-0 z-[60] flex h-[100dvh] w-screen flex-col bg-terminal-bg p-3'
-          : 'rounded-xl border border-terminal-border bg-terminal-panel-soft p-2'
+          : `${
+              moldura ? 'rounded-xl border border-white/[0.06] bg-white/[0.02] p-2' : ''
+            } ${preencher ? 'flex h-full min-h-0 flex-col' : ''}`
       }
     >
       <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
@@ -490,7 +510,7 @@ export function PriceChart({
         className={`${loading ? 'opacity-40' : ''} ${draggingLevel ? 'cursor-ns-resize' : ''} ${
           // em tela cheia quem dá altura é o flex; `min-h-0` é o que impede o
           // filho de empurrar o pai e deixar a barra de tempo fora da tela
-          ampliado ? 'min-h-0 flex-1' : ''
+          ampliado || preencher ? 'min-h-0 flex-1' : ''
         }`}
         ref={container}
         onPointerDownCapture={startLevelDrag}

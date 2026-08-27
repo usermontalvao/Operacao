@@ -1,4 +1,5 @@
 import type { DecisionReason, EntryDecision } from '../lib/types.ts';
+import { price } from '../lib/format.ts';
 
 /**
  * "Por que o robô não entrou?"
@@ -126,20 +127,20 @@ interface DecisionPanelProps {
 export function DecisionPanel({ decision, entryLow, entryHigh, currentPrice }: DecisionPanelProps) {
   if (!decision) {
     return (
-      <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft p-3 text-xs text-terminal-muted">
+      <p className="text-[12px] leading-snug text-terminal-muted">
         Sem decisão registrada para este setup — o robô ainda não o considerou nesta sessão.
-      </div>
+      </p>
     );
   }
 
   return (
-    <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold">
-          {decision.allowed ? 'O robô entraria neste setup' : 'Por que o robô não entrou'}
+    <div>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-terminal-muted">
+          {decision.allowed ? 'O robô entraria' : 'Por que o robô não entrou'}
         </h3>
-        <span className="text-[10px] text-terminal-muted">
-          avaliado {new Date(decision.evaluatedAt).toLocaleTimeString('pt-BR')}
+        <span className="shrink-0 text-[11px] text-terminal-muted/70">
+          {new Date(decision.evaluatedAt).toLocaleTimeString('pt-BR')}
         </span>
       </div>
 
@@ -150,20 +151,24 @@ export function DecisionPanel({ decision, entryLow, entryHigh, currentPrice }: D
         distance={decision.distanceToEntryPercent}
       />
 
+      {/*
+        O motivo é uma frase com um ponto colorido, não um retângulo pintado.
+        Empilhados, os retângulos viravam um semáforo de três cores dentro de
+        uma janela que já tem verde e vermelho com significado — e o código da
+        regra, escrito em monoespaçado ao lado, roubava a linha inteira para
+        dizer algo que só interessa a quem vai procurar a regra no código. Ele
+        continua ali, no passar do mouse.
+      */}
       {decision.blockers.length > 0 ? (
         <ul className="mt-3 space-y-1.5">
           {decision.blockers.map((motivo) => (
             <li
               key={motivo.code + motivo.message}
-              className={`flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded border px-2 py-1 text-[11px] ${toneFor(motivo.code)}`}
+              title={`${motivo.code} · ${motivo.rule}`}
+              className="flex gap-2 text-[12px] leading-snug text-terminal-muted"
             >
-              {/* o código na MESMA linha do motivo: em segunda linha ele
-                  custava três linhas de altura no modal para dizer algo que
-                  só interessa a quem vai procurar a regra no código */}
+              <span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${pontoDe(motivo.code)}`} />
               <span className="min-w-0">{motivo.message}</span>
-              <span className="shrink-0 font-mono text-[9px] opacity-50">
-                {motivo.code} · {motivo.rule}
-              </span>
             </li>
           ))}
         </ul>
@@ -172,14 +177,27 @@ export function DecisionPanel({ decision, entryLow, entryHigh, currentPrice }: D
       {decision.warnings.length > 0 ? (
         <ul className="mt-2 space-y-1">
           {decision.warnings.map((aviso) => (
-            <li key={aviso.code + aviso.message} className="text-[11px] text-terminal-muted">
-              ⚠ {aviso.message}
+            <li
+              key={aviso.code + aviso.message}
+              className="flex gap-2 text-[12px] leading-snug text-terminal-muted/80"
+            >
+              <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-white/15" />
+              <span className="min-w-0">{aviso.message}</span>
             </li>
           ))}
         </ul>
       ) : null}
     </div>
   );
+}
+
+/** A cor do ponto — a mesma escala de gravidade das faixas de antes. */
+function pontoDe(code: string): string {
+  const tone = CODE_TONE[code] ?? 'warn';
+  if (tone === 'bull') return 'bg-bull';
+  if (tone === 'bear') return 'bg-bear';
+  if (tone === 'muted') return 'bg-white/20';
+  return 'bg-warn';
 }
 
 /**
@@ -209,19 +227,35 @@ function ZonaRegua({
 
   const dentro = distance === 0;
   return (
-    <div className="mt-3">
-      <div className="relative h-6 rounded bg-terminal-panel">
+    <div>
+      {/*
+        Um trilho fino, não uma barra.
+
+        A versão anterior era um retângulo de 24px cujo FUNDO tinha a mesma cor
+        da folha: o trilho sumia e sobrava um tijolo verde flutuando no meio da
+        coluna, sem começo nem fim visíveis. Aqui o trilho aparece, a zona é um
+        trecho dele e o preço é uma bolinha — a leitura é imediata mesmo antes
+        de ler os números embaixo.
+      */}
+      <div className="relative h-1.5 rounded-full bg-white/[0.07]">
         <div
-          className="absolute inset-y-0 rounded bg-bull/20 ring-1 ring-inset ring-bull/40"
-          style={{ left: `${posicao(entryLow)}%`, width: `${posicao(entryHigh) - posicao(entryLow)}%` }}
+          className="absolute inset-y-0 rounded-full bg-bull/40"
+          style={{
+            left: `${posicao(entryLow)}%`,
+            width: `${Math.max(posicao(entryHigh) - posicao(entryLow), 1.5)}%`,
+          }}
         />
-        <div
-          className={`absolute inset-y-0 w-0.5 ${dentro ? 'bg-bull' : 'bg-warn'}`}
+        <span
+          className={`absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-terminal-panel ${
+            dentro ? 'bg-bull' : 'bg-warn'
+          }`}
           style={{ left: `${posicao(currentPrice)}%` }}
         />
       </div>
-      <div className="mt-1 flex justify-between text-[10px] text-terminal-muted">
-        <span>zona {entryLow} – {entryHigh}</span>
+      <div className="mt-2 flex justify-between gap-3 text-[11px] tabular">
+        <span className="text-terminal-muted">
+          zona {price(entryLow)} – {price(entryHigh)}
+        </span>
         <span className={dentro ? 'text-bull' : 'text-warn'}>
           {dentro
             ? 'preço dentro da zona'
