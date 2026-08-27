@@ -144,6 +144,8 @@ const guardSchema = z.object({
   feePercent: z.number().min(0).max(1),
   stopSlippagePercent: z.number().min(0).max(5),
   exitSlippagePercent: z.number().min(0).max(5),
+  // margem curta e manual: 0 desliga; acima de 2% já seria perseguir movimento
+  manualEntryTolerancePercent: z.number().min(0).max(2),
   maxConsecutiveLosses: z.number().int().min(1).max(20),
   // teto de 12h: a partir daí não é intervalo, é parar o dia
   lossPauseMinutes: z.number().int().min(5).max(720),
@@ -236,6 +238,7 @@ const FIELD_LABELS: Record<string, string> = {
   'guard.feePercent': 'Taxa por lado (%)',
   'guard.stopSlippagePercent': 'Escorregamento do stop (%)',
   'guard.exitSlippagePercent': 'Escorregamento a mercado (%)',
+  'guard.manualEntryTolerancePercent': 'Tolerância da entrada manual (%)',
   'guard.minNetRiskReward': 'R/R líquido mínimo',
   'guard.maxConsecutiveLosses': 'Perdas seguidas até pausar',
   'guard.lossPauseMinutes': 'Duração da pausa (min)',

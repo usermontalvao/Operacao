@@ -69,6 +69,18 @@ test('capital e disjuntor são de cada conta; a watchlist é das três', async (
   }
 });
 
+test('tolerância manual nasce pequena e não aceita virar perseguição', () => {
+  assert.equal(defaultStoredSettings().byMarket.SPOT.LIVE.guard.manualEntryTolerancePercent, 0.5);
+  assert.equal(
+    settingsUpdateSchema.safeParse({ guard: { manualEntryTolerancePercent: 2 } }).success,
+    true,
+  );
+  assert.equal(
+    settingsUpdateSchema.safeParse({ guard: { manualEntryTolerancePercent: 2.1 } }).success,
+    false,
+  );
+});
+
 test('parar o disjuntor de um modo não silencia o do outro', async () => {
   const { settings, cleanup } = await servico();
   const ate = new Date(Date.now() + 3_600_000).toISOString();

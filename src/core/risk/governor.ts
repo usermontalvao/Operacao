@@ -14,6 +14,8 @@ import type { CostSettings } from './costs.ts';
 import { round } from './riskReward.ts';
 
 export interface GuardSettings extends CostSettings {
+  /** quanto a entrada manual pode aceitar além da zona, em % (o robô nunca usa) */
+  manualEntryTolerancePercent: number;
   /** perdas seguidas que mandam o robô para o intervalo (o pânico não entra na conta) */
   maxConsecutiveLosses: number;
   /**
@@ -89,6 +91,7 @@ export const DEFAULT_GUARD: GuardSettings = {
   feePercent: 0.1,
   stopSlippagePercent: 0.15,
   exitSlippagePercent: 0.1,
+  manualEntryTolerancePercent: 0.5,
   maxConsecutiveLosses: 3,
   lossPauseMinutes: 60,
   maxDrawdownPercent: 10,

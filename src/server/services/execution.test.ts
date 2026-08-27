@@ -7,7 +7,12 @@ import type { SymbolFilters, TradeSetup } from '../../core/types.ts';
 import { EventBus } from '../events.ts';
 import { JsonStore } from '../store/jsonStore.ts';
 import { AuditService } from './auditService.ts';
-import { ExecutionService, hasActiveLiveArm, patrimonio } from './executionService.ts';
+import {
+  ExecutionService,
+  hasActiveLiveArm,
+  manualLimitPrice,
+  patrimonio,
+} from './executionService.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import { PaperTradingEngine } from './paperTradingEngine.ts';
 import { RiskService } from './riskService.ts';
@@ -312,6 +317,40 @@ test('compra manual no DEMO entra agora, mesmo com o preço acima da antiga zona
   assert.equal(trade.status, 'OPEN');
   assert.equal(trade.averageFillPrice, 1.5);
   assert.ok(trade.fills.some((item) => item.kind === 'ENTRY'));
+});
+
+test('entrada manual aceita só a pequena tolerância além da zona', () => {
+  const compra = makeSetup({ side: 'BUY', entryLow: 1, entryHigh: 1.1 });
+  assert.equal(manualLimitPrice(1.105, compra, 0.5), 1.105, '0,45% acima deve entrar agora');
+  assert.equal(manualLimitPrice(1.106, compra, 0.5), 1.1, '0,55% acima deve esperar na zona');
+
+  const venda = makeSetup({ side: 'SELL', entryLow: 1, entryHigh: 1.1 });
+  assert.equal(manualLimitPrice(0.996, venda, 0.5), 0.996, '0,4% abaixo deve entrar agora');
+  assert.equal(manualLimitPrice(0.994, venda, 0.5), 1, '0,6% abaixo deve esperar na zona');
+});
+
+test('tolerância manual não é herdada pelo robô', async (t) => {
+  const context = await harness(1.445);
+  t.after(context.cleanup);
+  await context.settings.update({ mode: 'TESTNET' });
+  const setup = makeAutomaticSetup({
+    currentPrice: 1.445,
+    entryLow: 1.41,
+    entryHigh: 1.44,
+    stopLoss: 1.37,
+    target1: 1.7,
+  });
+
+  const manual = await context.execution.preview({ setupId: setup.id, quoteAmount: 20 }, setup);
+  const automatic = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 20 },
+    setup,
+    true,
+  );
+
+  assert.equal(manual.entryPrice, 1.445, '0,35% acima está dentro da margem manual');
+  assert.equal(automatic.entryPrice, 1.44, 'o robô continua sem perseguir o preço');
+  assert.ok(manual.warnings.some((item) => /dentro da tolerância/i.test(item)));
 });
 
 test('token preserva o plano aprovado mesmo se o radar mudar depois', async (t) => {

@@ -19,6 +19,26 @@ export function intervalMs(timeframe: Timeframe): number {
   return MS[timeframe] ?? 3_600_000;
 }
 
+/**
+ * Um arquivo histórico não fica correto para sempre.
+ *
+ * O cache antigo devolvia imediatamente qualquer arquivo não vazio. Assim,
+ * `540d` baixado hoje e `900d` baixado ontem terminavam em instantes
+ * diferentes e produziam sinais diferentes NA MESMA janela de teste. O
+ * último candle completamente encerrado é a fronteira objetiva de frescor.
+ */
+export function klineCacheIsFresh(
+  candles: Candle[],
+  timeframe: Timeframe,
+  now = Date.now(),
+): boolean {
+  const last = candles[candles.length - 1];
+  if (!last) return false;
+  const step = intervalMs(timeframe);
+  const latestClosedAt = Math.floor(now / step) * step - 1;
+  return last.closeTime >= latestClosedAt;
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -63,17 +83,21 @@ function toCandle(row: RawRow): Candle {
 export async function loadKlines(symbol: string, timeframe: Timeframe, days: number): Promise<Candle[]> {
   await mkdir(CACHE_DIR, { recursive: true });
   const file = join(CACHE_DIR, `${symbol}-${timeframe}-${days}d.json`);
+  let cached: Candle[] = [];
   try {
-    const cached = JSON.parse(await readFile(file, 'utf8')) as Candle[];
-    if (Array.isArray(cached) && cached.length > 0) return cached;
+    const parsed = JSON.parse(await readFile(file, 'utf8')) as Candle[];
+    if (Array.isArray(parsed)) cached = parsed;
+    if (klineCacheIsFresh(cached, timeframe)) return cached;
   } catch {
     // sem cache: baixa
   }
 
   const step = intervalMs(timeframe);
   const start = Date.now() - days * 86_400_000;
-  const candles: Candle[] = [];
-  let cursor = start;
+  // Se já há histórico, completa a partir da barra seguinte. A deduplicação
+  // no fim também torna seguro repetir a última página depois de uma queda.
+  const candles: Candle[] = [...cached];
+  let cursor = cached.length > 0 ? (cached[cached.length - 1] as Candle).openTime + step : start;
 
   for (let guard = 0; guard < 200; guard += 1) {
     const url = `${BASE}/api/v3/klines?symbol=${symbol}&interval=${timeframe}&startTime=${cursor}&limit=${PAGE}`;

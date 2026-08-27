@@ -50,10 +50,25 @@ const TREND_TIMEFRAMES: Array<{ id: Timeframe; hint: string }> = [
   { id: '1d', hint: 'posição · o mais lento' },
 ];
 
-const GUARD_FIELDS: Array<{ key: keyof GuardSettings; label: string; hint: string; step: number }> = [
+const GUARD_FIELDS: Array<{
+  key: keyof GuardSettings;
+  label: string;
+  hint: string;
+  step: number;
+  min?: number;
+  max?: number;
+}> = [
   { key: 'feePercent', label: 'Taxa por lado (%)', hint: 'Corretagem da Binance; entra em todo resultado', step: 0.01 },
   { key: 'stopSlippagePercent', label: 'Escorregamento do stop (%)', hint: 'Quanto o stop preenche abaixo do gatilho', step: 0.05 },
   { key: 'exitSlippagePercent', label: 'Escorregamento a mercado (%)', hint: 'Custo de sair correndo', step: 0.05 },
+  {
+    key: 'manualEntryTolerancePercent',
+    label: 'Tolerância da entrada manual (%)',
+    hint: 'Conta real/testnet; 0 desliga, o robô continua preso à zona',
+    step: 0.1,
+    min: 0,
+    max: 2,
+  },
   { key: 'minNetRiskReward', label: 'R/R líquido mínimo', hint: 'Já descontadas taxa e escorregamento', step: 0.1 },
   { key: 'maxConsecutiveLosses', label: 'Alerta após perdas seguidas', hint: 'Somente informa; não pausa o robô', step: 1 },
   { key: 'maxDrawdownPercent', label: 'Alerta de queda do topo (%)', hint: 'Somente informa; não pausa o robô', step: 1 },
@@ -869,6 +884,8 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
               <input
                 type="number"
                 step={field.step}
+                min={field.min}
+                max={field.max}
                 value={guard[field.key] as number}
                 onChange={(event) =>
                   setGuard({ ...guard, [field.key]: Number(event.target.value) } as GuardSettings)

@@ -454,14 +454,17 @@ export class ExecutionService {
       : 1;
     const currentPrice = this.market.getPrice(setup.symbol) ?? setup.currentPrice;
     /*
-     * Clique manual no DEMO significa entrar agora.
-     *
-     * Antes o clique criava uma ordem no limite da zona quando o preço já
-     * tinha passado dali. A tela dizia "comprar", mas a operação ficava horas
-     * em AGUARDANDO. O robô continua usando a zona — ele não tem autorização
-     * para perseguir preço — e conta real/testnet continuam como ordem limite.
+     * Clique manual no DEMO significa entrar agora. Em conta real/testnet a
+     * ordem continua LIMIT, mas o usuário pode aceitar uma folga curta além
+     * da zona. A folga nasce em 0,5%, tem teto de 2% no schema e nunca chega
+     * ao robô: entrada automática continua estritamente presa à tese.
      */
-    const entryPrice = mode === 'PAPER' && !automatic ? currentPrice : clampToZone(currentPrice, setup);
+    const entryPrice =
+      mode === 'PAPER' && !automatic
+        ? currentPrice
+        : !automatic
+          ? manualLimitPrice(currentPrice, setup, policy.guard.manualEntryTolerancePercent)
+          : clampToZone(currentPrice, setup);
     const requestedSetup: TradeSetup = {
       ...setup,
       stopLoss: request.stopLoss ?? setup.stopLoss,
@@ -700,6 +703,13 @@ export class ExecutionService {
     }
 
     const warnings = [...sizing.warnings, ...gateFinal.warnings];
+    const manualDistance =
+      !automatic && mode !== 'PAPER' ? unfavorableDistancePercent(currentPrice, setup) : 0;
+    if (manualDistance > 0 && entryPrice === currentPrice) {
+      warnings.push(
+        `Entrada manual ${manualDistance.toFixed(2)}% além da zona, dentro da tolerância de ${policy.guard.manualEntryTolerancePercent.toFixed(2)}%. Risco e R/R foram recalculados nesse preço`,
+      );
+    }
     if (alvos.dropped.length > 0) {
       warnings.push(`Alvo descartado — ${alvos.dropped.join('; ')}. A posição vive do alvo 1 e do stop`);
     }
@@ -1614,11 +1624,39 @@ export function missingCredentialsMessage(mode: TradingMode, market: MarketKind)
     : 'Configure BINANCE_TESTNET_API_KEY e BINANCE_TESTNET_API_SECRET para usar o testnet';
 }
 
-/** A entrada nunca sai da zona aprovada, mesmo com o preço correndo. */
+/** O robô nunca sai da zona aprovada, mesmo com o preço correndo. */
 function clampToZone(price: number, setup: TradeSetup): number {
   if (price < setup.entryLow) return setup.entryLow;
   if (price > setup.entryHigh) return setup.entryHigh;
   return price;
+}
+
+/**
+ * Distância além da zona no sentido que piora a entrada.
+ *
+ * Comprar acima do teto e vender abaixo do piso são os dois casos em que o
+ * preço correu contra quem vai entrar. O lado oposto continua no limite da
+ * zona: tolerância não serve para antecipar sinal ainda não acionado.
+ */
+function unfavorableDistancePercent(price: number, setup: TradeSetup): number {
+  if (setup.side === 'BUY' && price > setup.entryHigh) {
+    return ((price - setup.entryHigh) / setup.entryHigh) * 100;
+  }
+  if (setup.side === 'SELL' && price < setup.entryLow) {
+    return ((setup.entryLow - price) / setup.entryLow) * 100;
+  }
+  return 0;
+}
+
+/** Limite manual com folga curta; fora dela volta ao limite original da tese. */
+export function manualLimitPrice(
+  price: number,
+  setup: TradeSetup,
+  tolerancePercent: number,
+): number {
+  const distance = unfavorableDistancePercent(price, setup);
+  if (distance > 0 && distance <= tolerancePercent) return price;
+  return clampToZone(price, setup);
 }
 
 export function buildClientOrderId(idempotencyKey: string): string {
