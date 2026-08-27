@@ -1,3 +1,4 @@
+import { CORPO_DE_SINAL_FORTE } from '../setups/momentumBurst.ts';
 import type { MarketKind, Side } from '../direction.ts';
 import type { AutoTradeSettings, SetupType } from '../types.ts';
 
@@ -25,6 +26,8 @@ const validated = new Set<SetupType>(VALIDATED_AUTOMATIC_SETUP_TYPES);
 export interface AutomaticStrategyCandidate {
   setupType: SetupType;
   score: number;
+  /** corpo da barra de explosão em ATRs; ausente = trata como sinal médio */
+  burstBodyAtr?: number | null;
   /** ausente = comprado, que é o único lado medido */
   side?: Side;
   /** ausente = spot, que é o único mercado medido */
@@ -137,20 +140,38 @@ export function automaticStrategyRejectionReason(
 }
 
 /**
- * Sinais no piso operam menores; os mais fortes ganham o tamanho integral.
- * Isto não altera o risco máximo: só reduz o orçamento que depois ainda passa
- * pelo dimensionamento por stop, exposição, saldo e filtros da corretora.
+ * Fração do tamanho cheio, conforme a FORÇA do sinal.
+ *
+ * O grau saiu do score, e isso não é preferência: é medição. Em 62 pares
+ * negociáveis e 9 anos de explosões, a faixa de score 85-89 rendeu +0,369R e
+ * a de 95-100 rendeu +0,296R. Não existe escada ali — graduar aposta por
+ * score é apostar mais em ruído, com a aparência de critério.
+ *
+ * O que tem escada é o CORPO da explosão, e ela sobe e desce:
+ *
+ *   2,0 a 2,5 ATR ... +0,016R   (por isso o piso do detector subiu para 2,5)
+ *   2,5 a 3,5 ATR ... +0,356R   <- "médio"
+ *   3,5 ATR ou mais . +0,263R   <- "forte"
+ *
+ * A escolha do usuário em 27/08/2026 foi apostar MAIS no forte (70% da banca)
+ * que no médio (30%), sabendo que o forte rendeu menos. Fica registrado que
+ * a medição não sustenta essa direção — o que ela sustenta é o piso de 2,5.
+ *
+ * Fora da explosão, nenhum detector tem grau medido: eles operam com o
+ * tamanho médio, nunca com o cheio.
  */
+export const FRACAO_SINAL_MEDIO = 30 / 70;
+
 export function strategyConfidenceSizeFactor(
   setup: AutomaticStrategyCandidate,
-  autoTrade: AutoTradeSettings,
+  _autoTrade: AutoTradeSettings,
 ): number {
-  const policy = autoTrade.strategies?.[setup.setupType];
-  const floor = policy?.minimumScore ?? autoTrade.minimumScore;
-  const margin = setup.score - floor;
-  if (margin >= 10) return 1;
-  if (margin >= 5) return 0.75;
-  return 0.5;
+  if (setup.setupType !== 'MOMENTUM_BURST') return FRACAO_SINAL_MEDIO;
+  const corpo = setup.burstBodyAtr;
+  // sem a medida do corpo (setup antigo, ou vindo do laboratório) vale o
+  // tamanho médio: o benefício da dúvida nunca aumenta a aposta
+  if (corpo === null || corpo === undefined || !Number.isFinite(corpo)) return FRACAO_SINAL_MEDIO;
+  return corpo >= CORPO_DE_SINAL_FORTE ? 1 : FRACAO_SINAL_MEDIO;
 }
 
 /**

@@ -239,8 +239,18 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
     code,
     blockers,
     warnings,
+    /*
+     * O corpo da explosão vem de `evidence`, e passá-lo explicitamente não é
+     * detalhe: `TradeSetup` não tem o campo no topo, então a chamada compilava
+     * e silenciosamente tratava TODO sinal como médio — um grau que nunca
+     * chegaria a "forte" e ninguém veria falhar.
+     */
     sizeFactor:
-      (input.sizeFactor ?? 1) * strategyConfidenceSizeFactor(setup, autoTrade),
+      (input.sizeFactor ?? 1) *
+      strategyConfidenceSizeFactor(
+        { ...setup, burstBodyAtr: setup.evidence?.burstBodyAtr ?? null },
+        autoTrade,
+      ),
     stage: stageForCode(code),
     evaluatedAt: now.toISOString(),
     setupId: setup.id,

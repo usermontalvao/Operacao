@@ -59,8 +59,25 @@ import { normalizeEntryZone } from './shared.ts';
  * ---------------------------------------------------------------------------
  */
 
-/** Corpo mínimo do candle, em ATRs. Abaixo disto a medição vira negativa. */
-export const MIN_BODY_ATR = 2;
+/**
+ * Corpo mínimo do candle, em ATRs.
+ *
+ * Subiu de 2,0 para 2,5 em 27/08/2026, e o motivo é o achado mais limpo da
+ * pesquisa de grau: medidas nos 62 pares NEGOCIÁVEIS ao longo de 9 anos, as
+ * explosões de corpo entre 2,0 e 2,5 ATR rendem +0,016R — dentro do ruído,
+ * ou seja, nada. De 2,5 para cima a expectativa salta para +0,356R. O piso
+ * antigo deixava passar 65 operações que só pagavam corretagem.
+ *
+ *   2,0 a 2,5 ATR ....  65 operações · +0,016R · PF 1,02
+ *   2,5 a 3,5 ATR ... 379 operações · +0,356R · PF 1,52
+ *   3,5 ATR ou mais . 224 operações · +0,263R · PF 1,39
+ *
+ * Repare que a escada SOBE E DESCE: explosão gigante rende menos que a
+ * média. Quem quiser apostar mais nas maiores está contrariando a medição.
+ */
+export const MIN_BODY_ATR = 2.5;
+/** Fronteira entre sinal médio e forte, em ATRs de corpo. */
+export const CORPO_DE_SINAL_FORTE = 3.5;
 /** Volume mínimo, em múltiplos da média de 20 barras. */
 export const MIN_VOLUME_MULTIPLE = 3;
 /** O fechamento precisa romper a máxima destas últimas barras. */

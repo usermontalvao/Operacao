@@ -328,6 +328,15 @@ export interface SetupEvidence {
   volumeConfirmation: boolean;
   momentumTurning: boolean;
   btcScoreModifier: number;
+  /**
+   * Corpo da barra de explosão em ATRs — só a entrada por força preenche.
+   *
+   * Viaja com o setup porque é o ÚNICO grau de sinal que a medição sustenta.
+   * O score não serve para isso: em 62 pares negociáveis e 9 anos, a faixa
+   * 85-89 rendeu +0,369R e a 95-100 rendeu +0,296R — não há escada. O corpo
+   * tem: abaixo de 2,5 ATR a expectativa é +0,016R, ou seja, nada.
+   */
+  burstBodyAtr?: number | null;
 }
 
 /* ==========================================================================

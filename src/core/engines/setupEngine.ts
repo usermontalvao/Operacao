@@ -257,6 +257,9 @@ function buildEvidence(
     anchorTrend: anchor.structure.trend,
     anchorStructure: anchor.structure.structure,
     levelQuality: round(candidate.qualityHints.levelQuality, 3),
+    burstBodyAtr: candidate.qualityHints.burst
+      ? round(candidate.qualityHints.burst.bodyAtr, 2)
+      : null,
     volumeConfirmation: candidate.qualityHints.volumeConfirmation,
     momentumTurning: candidate.qualityHints.momentumTurning,
     btcScoreModifier: context?.scoreModifier ?? 0,
