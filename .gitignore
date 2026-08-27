@@ -8,3 +8,6 @@ data/*.json
 .DS_Store
 data/cache/
 migracao.sql
+
+# dumps de histórico gerados por scripts/preparar-producao.mjs
+data/backup/
