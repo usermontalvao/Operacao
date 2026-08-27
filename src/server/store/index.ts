@@ -70,7 +70,7 @@ export async function createRepository(): Promise<RepositoryHandle> {
  * buscado pelo e-mail do painel. Copiar uuid à mão é o tipo de passo que se
  * erra em silêncio e só aparece muito depois como "sumiu tudo".
  */
-async function resolveOwnerId(): Promise<string> {
+export async function resolveOwnerId(): Promise<string> {
   const supabase = config.supabase;
   if (!supabase) throw new Error('Supabase não configurado');
   if (supabase.ownerId) return supabase.ownerId;

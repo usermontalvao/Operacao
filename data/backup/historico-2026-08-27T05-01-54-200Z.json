@@ -1,0 +1,5567 @@
+{
+  "trades": [],
+  "setups": [
+    {
+      "id": "6b614292-a938-45b9-b903-e87f6bbd3b8c",
+      "symbol": "BONKUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.00000299,
+      "entryLow": 0.00000296,
+      "entryHigh": 0.00000301,
+      "stopLoss": 0.00000296,
+      "target1": 0.00000309,
+      "target2": 0.00000316,
+      "target3": 0.00000321,
+      "riskReward": 3.33,
+      "score": 73,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 73,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 49 · MACD positivo",
+            "points": 10,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.00000298000",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:3.2",
+            "points": 15,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.9% desde o topo recente",
+        "Preço na região de suporte do 1h (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 49"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 48.958703606618876,
+        "atrPercent": 1.643846889265822,
+        "anchorTrend": "UP",
+        "levelQuality": 0.643,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": 1.1989571805592382e-8,
+        "relativeVolume": 0.39087787291596193,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.06
+      },
+      "fingerprint": "BONKUSDT:PULLBACK:1h:0.00000298000",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:01:46.958+00:00",
+      "updatedAt": "2026-08-27T05:01:47.98+00:00",
+      "expiresAt": "2026-08-27T17:01:46.958+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "7b31d781-abe6-4afc-8797-f33756b66ea7",
+      "symbol": "ORDIUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 4.214,
+      "entryLow": 4.17038757,
+      "entryHigh": 4.23458031,
+      "stopLoss": 4.15983938,
+      "target1": 4.30716667,
+      "target2": 4.343,
+      "target3": 4.448,
+      "riskReward": 1.72,
+      "score": 65,
+      "classification": "OBSERVAR",
+      "scoreBreakdown": {
+        "total": 65,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 52 · MACD positivo",
+            "points": 10,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 4.19500",
+            "points": 7,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.5",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "OBSERVAR"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.9% desde o topo recente",
+        "Preço na região de suporte do 1h (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 52"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 51.860590565549614,
+        "atrPercent": 1.667565454879761,
+        "anchorTrend": "UP",
+        "levelQuality": 0.523,
+        "triggerTrend": "UP",
+        "macdHistogram": 0.005518950250768498,
+        "relativeVolume": 0.4155950559772209,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.06
+      },
+      "fingerprint": "ORDIUSDT:PULLBACK:1h:4.19500",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:01:45.307+00:00",
+      "updatedAt": "2026-08-27T05:01:46.445+00:00",
+      "expiresAt": "2026-08-27T17:01:45.307+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "a542073e-7720-441d-a283-065e8b9c0dfc",
+      "symbol": "ZROUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 1.153,
+      "entryLow": 1.14303031,
+      "entryHigh": 1.15583549,
+      "stopLoss": 1.14132901,
+      "target1": 1.1746,
+      "target2": 1.189,
+      "target3": 1.2155,
+      "riskReward": 1.85,
+      "score": 71,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 71,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 48",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 1.14700",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:3.1",
+            "points": 15,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.1% desde o topo recente",
+        "Preço na região de suporte do 15m (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 48"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 48.247661447436336,
+        "atrPercent": 0.9836923258694881,
+        "anchorTrend": "UP",
+        "levelQuality": 0.655,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": -0.0010310179121708922,
+        "relativeVolume": 0.41673370716440705,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": -0.44
+      },
+      "fingerprint": "ZROUSDT:PULLBACK:15m:1.14700",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:00:41.198+00:00",
+      "updatedAt": "2026-08-27T05:00:41.998+00:00",
+      "expiresAt": "2026-08-27T17:00:41.198+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "61aaaf02-0b64-4e43-a720-ac3d7678c760",
+      "symbol": "WIFUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "BREAKOUT_RETEST",
+      "currentPrice": 0.2108,
+      "entryLow": 0.20786432,
+      "entryHigh": 0.20982489,
+      "stopLoss": 0.20437885,
+      "target1": 0.2227,
+      "target2": 0.2313,
+      "target3": 0.235926,
+      "riskReward": 3.1,
+      "score": 83,
+      "classification": "SETUP_FORTE",
+      "scoreBreakdown": {
+        "total": 83,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 63 · MACD positivo",
+            "points": 10,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume dentro da média · pressão vendedora cedendo",
+            "points": 9,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do rompimento",
+            "detail": "Nível em 0.208300",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:3.1",
+            "points": 15,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_FORTE"
+      },
+      "reasons": [
+        "Rompimento da resistência de 0.208300 no 1h",
+        "Reteste do nível 4 candle(s) depois",
+        "Fechamento de volta acima de 0.208300 2 candle(s) após o toque",
+        "Fundo mais alto que o do toque",
+        "Volume 1.2x a média na confirmação",
+        "Volume 1.5x a média no rompimento",
+        "Fechamento do rompimento em 0.212400",
+        "Tendência de alta no 4h"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "ACTIVE",
+      "visualState": "ROMPENDO",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 62.5939457619051,
+        "atrPercent": 2.0541385633737335,
+        "anchorTrend": "UP",
+        "levelQuality": 0.559,
+        "triggerTrend": "UP",
+        "macdHistogram": 0.001505704682798023,
+        "relativeVolume": 0.8852654695704754,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 1.5
+      },
+      "fingerprint": "WIFUSDT:BREAKOUT_RETEST:1h:0.208300",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:00:18.856+00:00",
+      "updatedAt": "2026-08-27T05:00:18.856+00:00",
+      "expiresAt": "2026-08-27T17:00:18.856+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "d37984cb-ebaf-4f43-99d0-64cff8dd10da",
+      "symbol": "PLUMEUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "BREAKOUT_RETEST",
+      "currentPrice": 0.01436,
+      "entryLow": 0.0140544,
+      "entryHigh": 0.0141896,
+      "stopLoss": 0.01384961,
+      "target1": 0.01496,
+      "target2": 0.01529,
+      "target3": 0.01578,
+      "riskReward": 3.08,
+      "score": 89,
+      "classification": "SETUP_FORTE",
+      "scoreBreakdown": {
+        "total": 89,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 64 · MACD melhorando · MACD positivo",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume dentro da média · pressão vendedora cedendo",
+            "points": 9,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do rompimento",
+            "detail": "Nível em 0.0140900",
+            "points": 10,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:3.1",
+            "points": 15,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_FORTE"
+      },
+      "reasons": [
+        "Rompimento da resistência de 0.0140900 no 1h",
+        "Reteste do nível 2 candle(s) depois",
+        "Fechamento de volta acima de 0.0141000 1 candle(s) após o toque",
+        "Fundo mais alto que o do toque",
+        "Volume 1.1x a média na confirmação",
+        "Volume 2.2x a média no rompimento",
+        "Fechamento do rompimento em 0.0142900",
+        "Tendência de alta no 4h"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "ACTIVE",
+      "visualState": "ROMPENDO",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 63.67664706944742,
+        "atrPercent": 1.7926672941742827,
+        "anchorTrend": "UP",
+        "levelQuality": 0.737,
+        "triggerTrend": "UP",
+        "macdHistogram": 0.00005619002686538057,
+        "relativeVolume": 1.080820614199222,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 1.47
+      },
+      "fingerprint": "PLUMEUSDT:BREAKOUT_RETEST:1h:0.0140900",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:00:16.046+00:00",
+      "updatedAt": "2026-08-27T05:00:16.046+00:00",
+      "expiresAt": "2026-08-27T17:00:16.046+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "3014241b-feb7-4391-8d04-ba586e946904",
+      "symbol": "FIDAUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.01962,
+      "entryLow": 0.01939485,
+      "entryHigh": 0.01983082,
+      "stopLoss": 0.01932835,
+      "target1": 0.02019,
+      "target2": 0.02128,
+      "target3": 0.02175,
+      "riskReward": 1.95,
+      "score": 69,
+      "classification": "OBSERVAR",
+      "scoreBreakdown": {
+        "total": 69,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 54 · MACD melhorando",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.0195500",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.0",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "OBSERVAR"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 9.3% desde o topo recente",
+        "Preço na região de suporte do 1h (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "MACD virando positivo",
+        "RSI normalizado em 54"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 54.04603650637001,
+        "atrPercent": 2.2479336270110126,
+        "anchorTrend": "UP",
+        "levelQuality": 0.664,
+        "triggerTrend": "UP",
+        "macdHistogram": -0.00002007094772127761,
+        "relativeVolume": 0.3960488183665271,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.35
+      },
+      "fingerprint": "FIDAUSDT:PULLBACK:1h:0.0195500",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:00:12.638+00:00",
+      "updatedAt": "2026-08-27T05:00:14.293+00:00",
+      "expiresAt": "2026-08-27T17:00:12.638+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "0ded77e9-b58d-4ada-8306-510052996235",
+      "symbol": "TUTUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.05237,
+      "entryLow": 0.05130216,
+      "entryHigh": 0.05221588,
+      "stopLoss": 0.05096507,
+      "target1": 0.05354,
+      "target2": 0.06287,
+      "target3": 0.06528,
+      "riskReward": 2.24,
+      "score": 74,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 74,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 56",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.0514150",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.2",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.2% desde o topo recente",
+        "Preço na região de suporte do 15m (2 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 56"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "WATCHING",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 56.282070654271386,
+        "atrPercent": 1.6991865083775517,
+        "anchorTrend": "UP",
+        "levelQuality": 0.829,
+        "triggerTrend": "UP",
+        "macdHistogram": -0.00002561069699156106,
+        "relativeVolume": 0.5621902389740135,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.48
+      },
+      "fingerprint": "TUTUSDT:PULLBACK:15m:0.0514150",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T05:00:00.54+00:00",
+      "updatedAt": "2026-08-27T05:00:00.54+00:00",
+      "expiresAt": "2026-08-27T17:00:00.54+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "381a3dec-2cc3-407f-a5a1-e4ef8ad25220",
+      "symbol": "HEIUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.1385,
+      "entryLow": 0.1358539,
+      "entryHigh": 0.14093293,
+      "stopLoss": 0.13493414,
+      "target1": 0.14706667,
+      "target2": 0.151,
+      "target3": 0.1605,
+      "riskReward": 2.4,
+      "score": 72,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 72,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 48",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.138000",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.5",
+            "points": 12,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "Dados do BTC indisponíveis — contexto neutro por segurança",
+            "points": 7,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 17.7% desde o topo recente",
+        "Preço na região de suporte do 1h (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 48"
+      ],
+      "btcContext": "BTC_NEUTRAL",
+      "status": "TRIGGERED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 48.4778375168563,
+        "atrPercent": 4.398646543241573,
+        "anchorTrend": "UP",
+        "levelQuality": 0.663,
+        "triggerTrend": "UP",
+        "macdHistogram": -0.0010895261655629123,
+        "relativeVolume": 0.23527423763624997,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 0,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": -0.39
+      },
+      "fingerprint": "HEIUSDT:PULLBACK:1h:0.138000",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T04:59:25.318+00:00",
+      "updatedAt": "2026-08-27T04:59:26.489+00:00",
+      "expiresAt": "2026-08-27T16:59:25.318+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "04c45890-4b6a-4d0f-a8e3-c571007c7ffb",
+      "symbol": "CATIUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "BREAKOUT_RETEST",
+      "currentPrice": 0.05209,
+      "entryLow": 0.05153176,
+      "entryHigh": 0.05179386,
+      "stopLoss": 0.0510658,
+      "target1": 0.05334,
+      "target2": 0.063,
+      "target3": 0.06426,
+      "riskReward": 2.81,
+      "score": 73,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 73,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI adiantado (67) · MACD positivo",
+            "points": 5,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume 1.1x a média · pressão vendedora cedendo",
+            "points": 12,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do rompimento",
+            "detail": "Nível em 0.0515900",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.8",
+            "points": 12,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Rompimento da resistência de 0.0515900 no 15m",
+        "Reteste do nível 3 candle(s) depois",
+        "Fechamento de volta acima de 0.0515900 0 candle(s) após o toque",
+        "Defesa na própria barra do toque",
+        "Volume 5.0x a média na confirmação",
+        "Volume 1.4x a média no rompimento",
+        "Fechamento do rompimento em 0.0518400",
+        "Tendência de alta no 4h"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "WATCHING",
+      "visualState": "ROMPENDO",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 66.82673473756948,
+        "atrPercent": 1.1175067141825679,
+        "anchorTrend": "UP",
+        "levelQuality": 0.653,
+        "triggerTrend": "UP",
+        "macdHistogram": 0.00010892438251037054,
+        "relativeVolume": 1.13224849677341,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 1.49
+      },
+      "fingerprint": "CATIUSDT:BREAKOUT_RETEST:15m:0.0515900",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T04:50:11.542+00:00",
+      "updatedAt": "2026-08-27T05:01:44.201+00:00",
+      "expiresAt": "2026-08-27T16:50:11.542+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "f54bc3d2-4b03-49cd-ae46-a1c92016a2f1",
+      "symbol": "TUTUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.05226,
+      "entryLow": 0.05123143,
+      "entryHigh": 0.05225143,
+      "stopLoss": 0.0509481,
+      "target1": 0.05354,
+      "target2": 0.06287,
+      "target3": 0.06528,
+      "riskReward": 0.99,
+      "score": 75,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 75,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 57 · MACD melhorando",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.0514200",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.3",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.2% desde o topo recente",
+        "Preço na região de suporte do 15m (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "Candle de defesa compradora",
+        "MACD virando positivo",
+        "RSI normalizado em 57"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 56.7855226378897,
+        "atrPercent": 1.765010965961244,
+        "anchorTrend": "UP",
+        "levelQuality": 0.663,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": -0.00004569388589795788,
+        "relativeVolume": 0.7462053934650805,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.56
+      },
+      "fingerprint": "TUTUSDT:PULLBACK:15m:0.0514200",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T04:15:00.325+00:00",
+      "updatedAt": "2026-08-27T05:01:06.212+00:00",
+      "expiresAt": "2026-08-27T16:15:00.325+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "6e8da426-f884-4924-b808-14ca16bc28fe",
+      "symbol": "MTLUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.232,
+      "entryLow": 0.2324531,
+      "entryHigh": 0.23439064,
+      "stopLoss": 0.23121872,
+      "target1": 0.238,
+      "target2": 0.24,
+      "target3": 0.301,
+      "riskReward": 4.49,
+      "score": 75,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 75,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 51 · MACD melhorando",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume dentro da média",
+            "points": 5,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.233000",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.1",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.9% desde o topo recente",
+        "Preço na região de suporte do 15m (5 toques)",
+        "Preço encostando na média móvel de referência",
+        "Candle de defesa compradora",
+        "MACD virando positivo",
+        "RSI normalizado em 51"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 50.72510508064673,
+        "atrPercent": 0.66776388543516,
+        "anchorTrend": "UP",
+        "levelQuality": 0.991,
+        "triggerTrend": "UP",
+        "macdHistogram": -0.0003156309949001269,
+        "relativeVolume": 0.8575926620615302,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": false,
+        "distanceToEma20InAtr": -0.03
+      },
+      "fingerprint": "MTLUSDT:PULLBACK:15m:0.233000",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T03:20:24.425+00:00",
+      "updatedAt": "2026-08-27T05:01:10.033+00:00",
+      "expiresAt": "2026-08-27T15:20:24.425+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "db6a44a2-47da-4a3c-89db-9544d266e30a",
+      "symbol": "IDUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "BREAKOUT_RETEST",
+      "currentPrice": 0.0329,
+      "entryLow": 0.03343672,
+      "entryHigh": 0.03372148,
+      "stopLoss": 0.03293048,
+      "target1": 0.0368,
+      "target2": 0.037536,
+      "target3": 0.03828672,
+      "riskReward": 6.64,
+      "score": 84,
+      "classification": "SETUP_FORTE",
+      "scoreBreakdown": {
+        "total": 84,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI adiantado (70) · MACD positivo",
+            "points": 5,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume 1.3x a média · pressão vendedora cedendo",
+            "points": 12,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do rompimento",
+            "detail": "Nível em 0.0335000",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:5.0",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_FORTE"
+      },
+      "reasons": [
+        "Rompimento da resistência de 0.0335000 no 1h",
+        "Reteste do nível 2 candle(s) depois",
+        "Fechamento de volta acima de 0.0335000 0 candle(s) após o toque",
+        "Defesa na própria barra do toque",
+        "Volume 5.0x a média na confirmação",
+        "Volume 2.8x a média no rompimento",
+        "Fechamento do rompimento em 0.0336000",
+        "Tendência de alta no 4h"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "INVALIDATED",
+      "visualState": "INVALIDADO",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 70.28552159298717,
+        "atrPercent": 1.8889422346250104,
+        "anchorTrend": "UP",
+        "levelQuality": 0.55,
+        "triggerTrend": "UP",
+        "macdHistogram": 0.0002606172630928642,
+        "relativeVolume": 1.261621349544044,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 2.31
+      },
+      "fingerprint": "IDUSDT:BREAKOUT_RETEST:1h:0.0335000",
+      "invalidationNote": "Invalidação atingida em 0.0329000 antes da entrada",
+      "createdAt": "2026-08-27T03:07:07.513+00:00",
+      "updatedAt": "2026-08-27T05:01:25.356+00:00",
+      "expiresAt": "2026-08-27T15:07:07.513+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "be897d84-6e28-4c4c-8342-b60a16d34451",
+      "symbol": "ENAUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.1457,
+      "entryLow": 0.1426344,
+      "entryHigh": 0.14349087,
+      "stopLoss": 0.14019767,
+      "target1": 0.1493,
+      "target2": 0.15275,
+      "target3": 0.155,
+      "riskReward": 1.76,
+      "score": 72,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 72,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 52 · MACD melhorando",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.141867",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.2",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 3.3% desde o topo recente",
+        "Preço na região de suporte do 15m (6 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "Candle de defesa compradora",
+        "MACD virando positivo",
+        "RSI normalizado em 52"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "AGUARDANDO",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 52.32402294638082,
+        "atrPercent": 1.2463170057630188,
+        "anchorTrend": "UP",
+        "levelQuality": 0.862,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": -0.0005619158014136144,
+        "relativeVolume": 0.2628232541615418,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0
+      },
+      "fingerprint": "ENAUSDT:PULLBACK:15m:0.141867",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T03:00:00.622+00:00",
+      "updatedAt": "2026-08-27T05:01:41.747+00:00",
+      "expiresAt": "2026-08-27T15:00:00.622+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "58a64452-17db-43de-9420-8d022ddcc673",
+      "symbol": "ORDIUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 4.214,
+      "entryLow": 4.23307779,
+      "entryHigh": 4.26451586,
+      "stopLoss": 4.22696827,
+      "target1": 4.297,
+      "target2": 4.343,
+      "target3": 4.39,
+      "riskReward": 0.87,
+      "score": 65,
+      "classification": "OBSERVAR",
+      "scoreBreakdown": {
+        "total": 65,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 51",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 4.24500",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.2",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "OBSERVAR"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.0% desde o topo recente",
+        "Preço na região de suporte do 15m (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 51"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "INVALIDATED",
+      "visualState": "INVALIDADO",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 50.66374040799158,
+        "atrPercent": 0.8003632058929575,
+        "anchorTrend": "UP",
+        "levelQuality": 0.65,
+        "triggerTrend": "UP",
+        "macdHistogram": -0.006637784260570646,
+        "relativeVolume": 0.44177925526732975,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": -0.18
+      },
+      "fingerprint": "ORDIUSDT:PULLBACK:15m:4.24500",
+      "invalidationNote": "Invalidação atingida em 4.21400 antes da entrada",
+      "createdAt": "2026-08-27T02:35:14.768+00:00",
+      "updatedAt": "2026-08-27T05:01:46.137+00:00",
+      "expiresAt": "2026-08-27T14:35:14.768+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "7f67f129-e714-45cf-8c86-d6367a01a5d1",
+      "symbol": "MTLUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.232,
+      "entryLow": 0.2322228,
+      "entryHigh": 0.23440329,
+      "stopLoss": 0.2311278,
+      "target1": 0.238,
+      "target2": 0.24,
+      "target3": 0.301,
+      "riskReward": 5.28,
+      "score": 69,
+      "classification": "OBSERVAR",
+      "scoreBreakdown": {
+        "total": 69,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 50",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.232833",
+            "points": 13,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.1",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "OBSERVAR"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 2.9% desde o topo recente",
+        "Preço na região de suporte do 15m (6 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 50"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 50.20438141441677,
+        "atrPercent": 0.745466859094567,
+        "anchorTrend": "UP",
+        "levelQuality": 0.918,
+        "triggerTrend": "UP",
+        "macdHistogram": -0.00014739100177944538,
+        "relativeVolume": 0.6749199389601694,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": -0.18
+      },
+      "fingerprint": "MTLUSDT:PULLBACK:15m:0.232833",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T02:16:13.066+00:00",
+      "updatedAt": "2026-08-27T05:01:09.761+00:00",
+      "expiresAt": "2026-08-27T14:16:13.066+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "f05abfa9-88d7-4234-adfe-14a68fb27e3a",
+      "symbol": "BARUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "SUPPORT_REVERSAL",
+      "currentPrice": 0.282,
+      "entryLow": 0.281,
+      "entryHigh": 0.28166329,
+      "stopLoss": 0.28022616,
+      "target1": 0.284,
+      "target2": 0.287,
+      "target3": 0.29274,
+      "riskReward": 1.63,
+      "score": 63,
+      "classification": "OBSERVAR",
+      "scoreBreakdown": {
+        "total": 63,
+        "penalties": [
+          {
+            "key": "triggerTrend",
+            "label": "Gatilho contra a tendência",
+            "detail": "15m em baixa",
+            "points": -5,
+            "maxPoints": 0
+          }
+        ],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h, mas 15m ainda corrigindo",
+            "points": 12,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 49 · MACD melhorando",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume dentro da média",
+            "points": 5,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.281000",
+            "points": 13,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.4",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "OBSERVAR"
+      },
+      "reasons": [
+        "Suporte de 0.281000 com 3 toques",
+        "Candle de rejeição com fechamento forte",
+        "Histograma do MACD melhorando",
+        "Timeframe 4h sem tendência de baixa",
+        "Preço voltou da banda inferior de Bollinger"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 48.7469123087669,
+        "atrPercent": 0.3920176684034468,
+        "anchorTrend": "UP",
+        "levelQuality": 0.94,
+        "triggerTrend": "DOWN",
+        "macdHistogram": -0.00007233748191229765,
+        "relativeVolume": 0.8702390804742357,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": false,
+        "distanceToEma20InAtr": -0.08
+      },
+      "fingerprint": "BARUSDT:SUPPORT_REVERSAL:15m:0.281000",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T02:10:02.595+00:00",
+      "updatedAt": "2026-08-27T05:00:42.58+00:00",
+      "expiresAt": "2026-08-27T14:10:02.595+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "4ec69e2a-a3e2-47a1-96c0-a0937745d84d",
+      "symbol": "IDUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "BREAKOUT_RETEST",
+      "currentPrice": 0.033,
+      "entryLow": 0.03306238,
+      "entryHigh": 0.03323166,
+      "stopLoss": 0.03276144,
+      "target1": 0.0351,
+      "target2": 0.035802,
+      "target3": 0.03651804,
+      "riskReward": 6.77,
+      "score": 92,
+      "classification": "SETUP_EXCEPCIONAL",
+      "scoreBreakdown": {
+        "total": 92,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura de topos e fundos ascendentes no 4h",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 62 · MACD positivo",
+            "points": 10,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume 1.6x a média",
+            "points": 12,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do rompimento",
+            "detail": "Nível em 0.0331000",
+            "points": 11,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:5.1",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_EXCEPCIONAL"
+      },
+      "reasons": [
+        "Rompimento da resistência de 0.0331000 no 15m",
+        "Reteste do nível 5 candle(s) depois",
+        "Fechamento de volta acima de 0.0331000 0 candle(s) após o toque",
+        "Defesa na própria barra do toque",
+        "Volume 1.2x a média na confirmação",
+        "Volume 1.2x a média no rompimento",
+        "Fechamento do rompimento em 0.0334000",
+        "Tendência de alta no 4h"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 62.40515491517091,
+        "atrPercent": 1.1296748472436442,
+        "anchorTrend": "UP",
+        "levelQuality": 0.82,
+        "triggerTrend": "UP",
+        "macdHistogram": 0.00005956865004498764,
+        "relativeVolume": 1.6499509037517632,
+        "anchorStructure": "HH_HL",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": false,
+        "distanceToEma20InAtr": 1.26
+      },
+      "fingerprint": "IDUSDT:BREAKOUT_RETEST:15m:0.0331000",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T01:52:03.715+00:00",
+      "updatedAt": "2026-08-27T05:01:20.358+00:00",
+      "expiresAt": "2026-08-27T13:52:03.715+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "294be7da-dc28-40c8-802b-916da546ce35",
+      "symbol": "SYRUPUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 0.1912,
+      "entryLow": 0.18902577,
+      "entryHigh": 0.19125567,
+      "stopLoss": 0.18758574,
+      "target1": 0.1955,
+      "target2": 0.19914,
+      "target3": 0.20256667,
+      "riskReward": 1.19,
+      "score": 67,
+      "classification": "OBSERVAR",
+      "scoreBreakdown": {
+        "total": 67,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI se recuperando (44) · MACD positivo",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.189250",
+            "points": 11,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.1",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "OBSERVAR"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 4.0% desde o topo recente",
+        "Preço na região de suporte do 1h (2 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "RSI normalizado em 44"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 43.53275645842219,
+        "atrPercent": 1.1625073566415496,
+        "anchorTrend": "UP",
+        "levelQuality": 0.763,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": 0.0002509986171844226,
+        "relativeVolume": 0.5048351713738228,
+        "anchorStructure": "RANGE",
+        "momentumTurning": false,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": -0.6
+      },
+      "fingerprint": "SYRUPUSDT:PULLBACK:1h:0.189250",
+      "invalidationNote": null,
+      "createdAt": "2026-08-27T01:11:57.903+00:00",
+      "updatedAt": "2026-08-27T05:01:53.279+00:00",
+      "expiresAt": "2026-08-27T13:11:57.903+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "395716d9-d234-45fb-b17a-c40393f75547",
+      "symbol": "BONKUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "15m",
+      "anchorTimeframe": "4h",
+      "setupType": "SUPPORT_REVERSAL",
+      "currentPrice": 0.00000299,
+      "entryLow": 0.000003,
+      "entryHigh": 0.00000301,
+      "stopLoss": 0.00000297,
+      "target1": 0.00000309,
+      "target2": 0.00000315,
+      "target3": 0.00000322,
+      "riskReward": 3,
+      "score": 79,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 79,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 15m acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 54 · MACD melhorando",
+            "points": 12,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume 2.0x a média · pressão vendedora cedendo",
+            "points": 12,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.00000300000",
+            "points": 11,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.5",
+            "points": 9,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Suporte de 0.00000300000 com 2 toques",
+        "Candle de rejeição com fechamento forte",
+        "Volume 2.0x a média na defesa",
+        "Histograma do MACD melhorando",
+        "Timeframe 4h sem tendência de baixa",
+        "Preço voltou da banda inferior de Bollinger"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 53.95676696005794,
+        "atrPercent": 0.7778392072106443,
+        "anchorTrend": "UP",
+        "levelQuality": 0.755,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": -7.083549829942229e-9,
+        "relativeVolume": 2.0192160705952555,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.22
+      },
+      "fingerprint": "BONKUSDT:SUPPORT_REVERSAL:15m:0.00000300000",
+      "invalidationNote": null,
+      "createdAt": "2026-08-26T22:03:35.304+00:00",
+      "updatedAt": "2026-08-27T05:01:47.644+00:00",
+      "expiresAt": "2026-08-27T10:03:35.304+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "619d8d21-4ad2-46d2-a365-d8b5a1186349",
+      "symbol": "PEPEUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "SUPPORT_REVERSAL",
+      "currentPrice": 0.0000038,
+      "entryLow": 0.00000372,
+      "entryHigh": 0.00000379,
+      "stopLoss": 0.00000367,
+      "target1": 0.000004,
+      "target2": 0.00000409,
+      "target3": 0.0000042,
+      "riskReward": 1.75,
+      "score": 84,
+      "classification": "SETUP_FORTE",
+      "scoreBreakdown": {
+        "total": 84,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI em 53 · MACD melhorando · MACD positivo",
+            "points": 14,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume 1.4x a média · pressão vendedora cedendo",
+            "points": 12,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 0.00000373500",
+            "points": 11,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.9",
+            "points": 12,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 9,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_FORTE"
+      },
+      "reasons": [
+        "Suporte de 0.00000373500 com 2 toques",
+        "Candle de rejeição com fechamento forte",
+        "Volume 1.4x a média na defesa",
+        "Histograma do MACD melhorando",
+        "Timeframe 4h sem tendência de baixa"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "TRIGGERED",
+      "visualState": "QUASE_LA",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 53.209791896663866,
+        "atrPercent": 1.8377194109683606,
+        "anchorTrend": "UP",
+        "levelQuality": 0.752,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": 1.1900475677073493e-8,
+        "relativeVolume": 1.3636287337310111,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 8,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": 0.76
+      },
+      "fingerprint": "PEPEUSDT:SUPPORT_REVERSAL:1h:0.00000373500",
+      "invalidationNote": null,
+      "createdAt": "2026-08-26T19:00:00.323+00:00",
+      "updatedAt": "2026-08-27T05:01:32.401+00:00",
+      "expiresAt": "2026-08-27T07:00:00.323+00:00",
+      "ignoredAt": null
+    },
+    {
+      "id": "b8b2c5cf-4e4b-4494-a297-c36999660d3b",
+      "symbol": "ETCUSDT",
+      "side": "BUY",
+      "market": "SPOT",
+      "timeframe": "1h",
+      "anchorTimeframe": "4h",
+      "setupType": "PULLBACK",
+      "currentPrice": 7.58,
+      "entryLow": 7.47344296,
+      "entryHigh": 7.60400381,
+      "stopLoss": 7.43777566,
+      "target1": 7.82,
+      "target2": 7.91,
+      "target3": 8.03285714,
+      "riskReward": 1.69,
+      "score": 71,
+      "classification": "SETUP_INTERESSANTE",
+      "scoreBreakdown": {
+        "total": 71,
+        "penalties": [],
+        "components": [
+          {
+            "key": "trend",
+            "label": "Tendência",
+            "detail": "Alta no 4h com 1h acompanhando",
+            "points": 18,
+            "maxPoints": 18
+          },
+          {
+            "key": "structure",
+            "label": "Estrutura",
+            "detail": "Estrutura lateral no 4h",
+            "points": 8,
+            "maxPoints": 14
+          },
+          {
+            "key": "momentum",
+            "label": "Momentum",
+            "detail": "RSI se recuperando (39) · MACD melhorando",
+            "points": 10,
+            "maxPoints": 14
+          },
+          {
+            "key": "volume",
+            "label": "Volume",
+            "detail": "Volume abaixo da média · pressão vendedora cedendo",
+            "points": 4,
+            "maxPoints": 12
+          },
+          {
+            "key": "level",
+            "label": "Qualidade do suporte",
+            "detail": "Nível em 7.51000",
+            "points": 9,
+            "maxPoints": 14
+          },
+          {
+            "key": "riskReward",
+            "label": "Risco / retorno",
+            "detail": "R/R de 1:2.8",
+            "points": 12,
+            "maxPoints": 18
+          },
+          {
+            "key": "btc",
+            "label": "Contexto BTC",
+            "detail": "BTC retomando tendência de alta",
+            "points": 10,
+            "maxPoints": 10
+          }
+        ],
+        "classification": "SETUP_INTERESSANTE"
+      },
+      "reasons": [
+        "Tendência de alta no 4h",
+        "Correção de 6.1% desde o topo recente",
+        "Preço na região de suporte do 1h (1 toques)",
+        "Preço encostando na média móvel de referência",
+        "Volume vendedor diminuindo",
+        "Candle de defesa compradora",
+        "MACD virando positivo",
+        "RSI normalizado em 39"
+      ],
+      "btcContext": "BTC_BULLISH",
+      "status": "EXPIRED",
+      "visualState": "COMPRAVEL",
+      "extended": false,
+      "extensionReasons": [],
+      "evidence": {
+        "rsi14": 38.66378448458822,
+        "atrPercent": 1.3779509313402387,
+        "anchorTrend": "UP",
+        "levelQuality": 0.647,
+        "triggerTrend": "SIDEWAYS",
+        "macdHistogram": -0.01678523816472157,
+        "relativeVolume": 0.42876573324129386,
+        "anchorStructure": "RANGE",
+        "momentumTurning": true,
+        "btcScoreModifier": 9,
+        "volumeConfirmation": true,
+        "distanceToEma20InAtr": -1.11
+      },
+      "fingerprint": "ETCUSDT:PULLBACK:1h:7.51000",
+      "invalidationNote": "Setup expirou sem acionar o gatilho",
+      "createdAt": "2026-08-26T17:01:06.211+00:00",
+      "updatedAt": "2026-08-27T05:01:14.572+00:00",
+      "expiresAt": "2026-08-27T05:01:06.211+00:00",
+      "ignoredAt": null
+    }
+  ],
+  "alerts": [
+    {
+      "id": "7cca9647-92b4-4437-bb2e-38d6376a42ed",
+      "setupId": "61aaaf02-0b64-4e43-a720-ac3d7678c760",
+      "symbol": "WIFUSDT",
+      "score": 83,
+      "title": "WIFUSDT — Rompimento com reteste",
+      "body": "Entrada 0.2079–0.2098 · Invalidação 0.2044 · Alvo 1 0.2227 · R/R 1:3.1 · Score 83/100 · 1h",
+      "createdAt": "2026-08-27T05:00:19.107+00:00",
+      "readAt": "2026-08-27T05:00:20.545+00:00"
+    },
+    {
+      "id": "7938b9fd-2022-498c-91e3-d6773548274a",
+      "setupId": "d37984cb-ebaf-4f43-99d0-64cff8dd10da",
+      "symbol": "PLUMEUSDT",
+      "score": 89,
+      "title": "PLUMEUSDT — Rompimento com reteste",
+      "body": "Entrada 0.01405–0.01419 · Invalidação 0.01385 · Alvo 1 0.01496 · R/R 1:3.1 · Score 89/100 · 1h",
+      "createdAt": "2026-08-27T05:00:16.317+00:00",
+      "readAt": "2026-08-27T05:00:26.488+00:00"
+    }
+  ],
+  "decisions": [],
+  "entryDecisions": [
+    {
+      "id": "ad298781-18d2-47b6-9f14-800d377c7e9f",
+      "setupId": "6b614292-a938-45b9-b903-e87f6bbd3b8c",
+      "symbol": "BONKUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 73,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 73,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 73,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 73 abaixo do mínimo configurado de 90"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.00000299,
+      "entryLow": 0.00000296,
+      "entryHigh": 0.00000301,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "6b614292-a938-45b9-b903-e87f6bbd3b8c|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM|0.0|73",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:47.407+00:00",
+      "lastSeenAt": "2026-08-27T05:01:47.407+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:47.407Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "c19c5dfd-adab-42b2-9039-816dceae7b2f",
+      "setupId": "6b614292-a938-45b9-b903-e87f6bbd3b8c",
+      "symbol": "BONKUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 73,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 73,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.00000299,
+      "entryLow": 0.00000296,
+      "entryHigh": 0.00000301,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "6b614292-a938-45b9-b903-e87f6bbd3b8c|STRATEGY_NOT_VALIDATED,MAX_CONCURRENT_TRADES|0.0|73",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:47.185+00:00",
+      "lastSeenAt": "2026-08-27T05:01:47.185+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:47.185Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "fb551c81-dee4-4ed5-b339-0350aad4c856",
+      "setupId": "7b31d781-abe6-4afc-8797-f33756b66ea7",
+      "symbol": "ORDIUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 65,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 65,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2,
+            "riskReward": 1.72
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.72 abaixo do mínimo de 2"
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 4.214,
+      "entryLow": 4.17038757,
+      "entryHigh": 4.23458031,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "7b31d781-abe6-4afc-8797-f33756b66ea7|STRATEGY_NOT_VALIDATED,RISK_REWARD_BELOW_MINIMUM,MAX_CONCURRENT_TRADES|0.0|65",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:46.67+00:00",
+      "lastSeenAt": "2026-08-27T05:01:46.67+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:46.670Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "efcbefe7-3f1e-40f5-98e0-510bb5f32e03",
+      "setupId": "7b31d781-abe6-4afc-8797-f33756b66ea7",
+      "symbol": "ORDIUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 65,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 65,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 65,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 65 abaixo do mínimo configurado de 90"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2.5,
+            "riskReward": 2.45
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 2.45 abaixo do mínimo de 2.5"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 4.214,
+      "entryLow": 4.17038757,
+      "entryHigh": 4.23458031,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "7b31d781-abe6-4afc-8797-f33756b66ea7|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM,RISK_REWARD_BELOW_MINIMUM|0.0|65",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:45.853+00:00",
+      "lastSeenAt": "2026-08-27T05:01:45.853+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:45.853Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "ad0e408b-0fd9-48fb-8c3c-be899cbd87e9",
+      "setupId": "7b31d781-abe6-4afc-8797-f33756b66ea7",
+      "symbol": "ORDIUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 65,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 65,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 4.214,
+      "entryLow": 4.17038757,
+      "entryHigh": 4.23458031,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "7b31d781-abe6-4afc-8797-f33756b66ea7|STRATEGY_NOT_VALIDATED,MAX_CONCURRENT_TRADES|0.0|65",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:45.546+00:00",
+      "lastSeenAt": "2026-08-27T05:01:45.546+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:45.546Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "88088b80-0284-46b6-9071-db869c657c8a",
+      "setupId": "04c45890-4b6a-4d0f-a8e3-c571007c7ffb",
+      "symbol": "CATIUSDT",
+      "timeframe": "15m",
+      "setupType": "BREAKOUT_RETEST",
+      "mode": "LIVE",
+      "score": 73,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 73,
+            "estrategia": "BREAKOUT_RETEST",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "BREAKOUT_RETEST está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 73,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 73 abaixo do mínimo configurado de 90"
+        },
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.05209,
+            "zonaMaxima": 0.05179386,
+            "zonaMinima": 0.05153176,
+            "distanciaPercent": 0.57
+          },
+          "rule": "autoTrader",
+          "message": "Preço 0.57% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.05209,
+      "entryLow": 0.05153176,
+      "entryHigh": 0.05179386,
+      "distanceToEntryPercent": 0.57,
+      "fingerprint": "04c45890-4b6a-4d0f-a8e3-c571007c7ffb|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM,PRICE_OUTSIDE_ENTRY_ZONE|0.5|73",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:45.029+00:00",
+      "lastSeenAt": "2026-08-27T05:01:45.029+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:45.029Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "13a485c7-dc77-409e-be72-59e33415b042",
+      "setupId": "04c45890-4b6a-4d0f-a8e3-c571007c7ffb",
+      "symbol": "CATIUSDT",
+      "timeframe": "15m",
+      "setupType": "BREAKOUT_RETEST",
+      "mode": "PAPER",
+      "score": 73,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 73,
+            "estrategia": "BREAKOUT_RETEST",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "BREAKOUT_RETEST está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.05209,
+            "zonaMaxima": 0.05179386,
+            "zonaMinima": 0.05153176,
+            "distanciaPercent": 0.57
+          },
+          "rule": "autoTrader",
+          "message": "Preço 0.57% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.05209,
+      "entryLow": 0.05153176,
+      "entryHigh": 0.05179386,
+      "distanceToEntryPercent": 0.57,
+      "fingerprint": "04c45890-4b6a-4d0f-a8e3-c571007c7ffb|STRATEGY_NOT_VALIDATED,PRICE_OUTSIDE_ENTRY_ZONE,MAX_CONCURRENT_TRADES|0.5|73",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:01:44.77+00:00",
+      "lastSeenAt": "2026-08-27T05:01:44.77+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:01:44.770Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "88aaef07-d79a-4912-9b16-366c1c290134",
+      "setupId": "a542073e-7720-441d-a283-065e8b9c0dfc",
+      "symbol": "ZROUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 71,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 71,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 71,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 71 abaixo do mínimo configurado de 90"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2.5,
+            "riskReward": 1.85
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.85 abaixo do mínimo de 2.5"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 1.153,
+      "entryLow": 1.14303031,
+      "entryHigh": 1.15583549,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "a542073e-7720-441d-a283-065e8b9c0dfc|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM,RISK_REWARD_BELOW_MINIMUM|0.0|71",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:42.729+00:00",
+      "lastSeenAt": "2026-08-27T05:00:42.729+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:42.729Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "449a7a35-2dfd-485b-bf15-69ea21534bf8",
+      "setupId": "a542073e-7720-441d-a283-065e8b9c0dfc",
+      "symbol": "ZROUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 71,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 71,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2,
+            "riskReward": 1.85
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.85 abaixo do mínimo de 2"
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 1.153,
+      "entryLow": 1.14303031,
+      "entryHigh": 1.15583549,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "a542073e-7720-441d-a283-065e8b9c0dfc|STRATEGY_NOT_VALIDATED,RISK_REWARD_BELOW_MINIMUM,MAX_CONCURRENT_TRADES|0.0|71",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:42.471+00:00",
+      "lastSeenAt": "2026-08-27T05:00:42.471+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:42.471Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "af2b8559-8f2e-46d6-8ddd-80217ea6889a",
+      "setupId": "a542073e-7720-441d-a283-065e8b9c0dfc",
+      "symbol": "ZROUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 71,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 71,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 71,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 71 abaixo do mínimo configurado de 90"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 1.153,
+      "entryLow": 1.14303031,
+      "entryHigh": 1.15583549,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "a542073e-7720-441d-a283-065e8b9c0dfc|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM|0.0|71",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:41.769+00:00",
+      "lastSeenAt": "2026-08-27T05:00:41.769+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:41.769Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "817dc675-2665-4fb6-b10b-d266f8cf2a05",
+      "setupId": "a542073e-7720-441d-a283-065e8b9c0dfc",
+      "symbol": "ZROUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 71,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 71,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 1.153,
+      "entryLow": 1.14303031,
+      "entryHigh": 1.15583549,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "a542073e-7720-441d-a283-065e8b9c0dfc|STRATEGY_NOT_VALIDATED,MAX_CONCURRENT_TRADES|0.0|71",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:41.471+00:00",
+      "lastSeenAt": "2026-08-27T05:00:41.471+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:41.471Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "d643a855-52c8-4e5f-b6e7-64cd7fb8353a",
+      "setupId": "f54bc3d2-4b03-49cd-ae46-a1c92016a2f1",
+      "symbol": "TUTUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 75,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 75,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 75,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 75 abaixo do mínimo configurado de 90"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2.5,
+            "riskReward": 1.07
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.07 abaixo do mínimo de 2.5"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.05225,
+      "entryLow": 0.05123143,
+      "entryHigh": 0.05225143,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "f54bc3d2-4b03-49cd-ae46-a1c92016a2f1|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM,RISK_REWARD_BELOW_MINIMUM|0.0|75",
+      "occurrences": 2,
+      "firstSeenAt": "2026-08-27T04:45:15.716+00:00",
+      "lastSeenAt": "2026-08-27T05:00:31.013+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T04:45:15.716Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "53d59a46-a770-4bab-abdc-1da3a7fb0ed4",
+      "setupId": "f54bc3d2-4b03-49cd-ae46-a1c92016a2f1",
+      "symbol": "TUTUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 75,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 75,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2,
+            "riskReward": 1.07
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.07 abaixo do mínimo de 2"
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.05225,
+      "entryLow": 0.05123143,
+      "entryHigh": 0.05225143,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "f54bc3d2-4b03-49cd-ae46-a1c92016a2f1|STRATEGY_NOT_VALIDATED,RISK_REWARD_BELOW_MINIMUM,MAX_CONCURRENT_TRADES|0.0|75",
+      "occurrences": 2,
+      "firstSeenAt": "2026-08-27T04:45:15.459+00:00",
+      "lastSeenAt": "2026-08-27T05:00:30.776+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T04:45:15.459Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "7a3f81c6-39c0-4669-91c1-a4f0637a7f05",
+      "setupId": "61aaaf02-0b64-4e43-a720-ac3d7678c760",
+      "symbol": "WIFUSDT",
+      "timeframe": "1h",
+      "setupType": "BREAKOUT_RETEST",
+      "mode": "LIVE",
+      "score": 83,
+      "allowed": false,
+      "code": "STRATEGY_DISABLED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_DISABLED",
+          "data": {
+            "score": 83,
+            "estrategia": "BREAKOUT_RETEST",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 78
+          },
+          "rule": "automationPolicy",
+          "message": "BREAKOUT_RETEST está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta"
+        },
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.2108,
+            "zonaMaxima": 0.20982489,
+            "zonaMinima": 0.20786432,
+            "distanciaPercent": 0.46
+          },
+          "rule": "autoTrader",
+          "message": "Preço 0.46% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.2108,
+      "entryLow": 0.20786432,
+      "entryHigh": 0.20982489,
+      "distanceToEntryPercent": 0.46,
+      "fingerprint": "61aaaf02-0b64-4e43-a720-ac3d7678c760|STRATEGY_DISABLED,PRICE_OUTSIDE_ENTRY_ZONE|0.5|83",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:20.218+00:00",
+      "lastSeenAt": "2026-08-27T05:00:20.218+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": false,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": false,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:20.218Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "c400fc1b-b763-44ae-8967-46b5c8a23e9a",
+      "setupId": "61aaaf02-0b64-4e43-a720-ac3d7678c760",
+      "symbol": "WIFUSDT",
+      "timeframe": "1h",
+      "setupType": "BREAKOUT_RETEST",
+      "mode": "PAPER",
+      "score": 83,
+      "allowed": false,
+      "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+      "stage": "SCORE_SUFICIENTE",
+      "blockers": [
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.2108,
+            "zonaMaxima": 0.20982489,
+            "zonaMinima": 0.20786432,
+            "distanciaPercent": 0.46
+          },
+          "rule": "autoTrader",
+          "message": "Preço 0.46% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.2108,
+      "entryLow": 0.20786432,
+      "entryHigh": 0.20982489,
+      "distanceToEntryPercent": 0.46,
+      "fingerprint": "61aaaf02-0b64-4e43-a720-ac3d7678c760|PRICE_OUTSIDE_ENTRY_ZONE|0.5|83",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:19.981+00:00",
+      "lastSeenAt": "2026-08-27T05:00:19.981+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": true,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": true,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:19.981Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "5282721b-30a4-45fd-a099-d435253da84c",
+      "setupId": "d37984cb-ebaf-4f43-99d0-64cff8dd10da",
+      "symbol": "PLUMEUSDT",
+      "timeframe": "1h",
+      "setupType": "BREAKOUT_RETEST",
+      "mode": "LIVE",
+      "score": 89,
+      "allowed": false,
+      "code": "STRATEGY_DISABLED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_DISABLED",
+          "data": {
+            "score": 89,
+            "estrategia": "BREAKOUT_RETEST",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 78
+          },
+          "rule": "automationPolicy",
+          "message": "BREAKOUT_RETEST está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta"
+        },
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.01436,
+            "zonaMaxima": 0.0141896,
+            "zonaMinima": 0.0140544,
+            "distanciaPercent": 1.2
+          },
+          "rule": "autoTrader",
+          "message": "Preço 1.20% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.01436,
+      "entryLow": 0.0140544,
+      "entryHigh": 0.0141896,
+      "distanceToEntryPercent": 1.2,
+      "fingerprint": "d37984cb-ebaf-4f43-99d0-64cff8dd10da|STRATEGY_DISABLED,PRICE_OUTSIDE_ENTRY_ZONE|1.0|89",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:17.132+00:00",
+      "lastSeenAt": "2026-08-27T05:00:17.132+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": false,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": false,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:17.133Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "7b74c7b4-dcb9-44d6-be45-8d0044036716",
+      "setupId": "d37984cb-ebaf-4f43-99d0-64cff8dd10da",
+      "symbol": "PLUMEUSDT",
+      "timeframe": "1h",
+      "setupType": "BREAKOUT_RETEST",
+      "mode": "PAPER",
+      "score": 89,
+      "allowed": false,
+      "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+      "stage": "SCORE_SUFICIENTE",
+      "blockers": [
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.01436,
+            "zonaMaxima": 0.0141896,
+            "zonaMinima": 0.0140544,
+            "distanciaPercent": 1.2
+          },
+          "rule": "autoTrader",
+          "message": "Preço 1.20% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.01436,
+      "entryLow": 0.0140544,
+      "entryHigh": 0.0141896,
+      "distanceToEntryPercent": 1.2,
+      "fingerprint": "d37984cb-ebaf-4f43-99d0-64cff8dd10da|PRICE_OUTSIDE_ENTRY_ZONE|1.0|89",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:16.861+00:00",
+      "lastSeenAt": "2026-08-27T05:00:16.861+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": true,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": true,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:16.862Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "d2b35ed4-2746-43f3-afba-0e02f42a0772",
+      "setupId": "3014241b-feb7-4391-8d04-ba586e946904",
+      "symbol": "FIDAUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 69,
+      "allowed": false,
+      "code": "STRATEGY_DISABLED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_DISABLED",
+          "data": {
+            "score": 69,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 75
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2,
+            "estrategia": "PULLBACK",
+            "riskReward": 1.95
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.95 abaixo do mínimo de 2 para PULLBACK"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.01962,
+      "entryLow": 0.01939485,
+      "entryHigh": 0.01983082,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "3014241b-feb7-4391-8d04-ba586e946904|STRATEGY_DISABLED,RISK_REWARD_BELOW_MINIMUM|0.0|69",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:14.841+00:00",
+      "lastSeenAt": "2026-08-27T05:00:14.841+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": false,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": false,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:14.841Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "9673eb96-1d52-47ac-b71a-28b93cc54e52",
+      "setupId": "3014241b-feb7-4391-8d04-ba586e946904",
+      "symbol": "FIDAUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 69,
+      "allowed": false,
+      "code": "SCORE_BELOW_VALIDATED_FLOOR",
+      "stage": "ESTRATEGIA_VALIDADA",
+      "blockers": [
+        {
+          "code": "SCORE_BELOW_VALIDATED_FLOOR",
+          "data": {
+            "score": 69,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 75
+          },
+          "rule": "automationPolicy",
+          "message": "score 69 abaixo do piso de 75 configurado para PULLBACK"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2,
+            "estrategia": "PULLBACK",
+            "riskReward": 1.95
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 1.95 abaixo do mínimo de 2 para PULLBACK"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.01962,
+      "entryLow": 0.01939485,
+      "entryHigh": 0.01983082,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "3014241b-feb7-4391-8d04-ba586e946904|SCORE_BELOW_VALIDATED_FLOOR,RISK_REWARD_BELOW_MINIMUM|0.0|69",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:14.561+00:00",
+      "lastSeenAt": "2026-08-27T05:00:14.561+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": true,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": true,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:14.561Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "ad6eb52d-04c2-4e0d-8892-e8885827f659",
+      "setupId": "3014241b-feb7-4391-8d04-ba586e946904",
+      "symbol": "FIDAUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 69,
+      "allowed": false,
+      "code": "STRATEGY_DISABLED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_DISABLED",
+          "data": {
+            "score": 69,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 75
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.01962,
+      "entryLow": 0.01939485,
+      "entryHigh": 0.01983082,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "3014241b-feb7-4391-8d04-ba586e946904|STRATEGY_DISABLED|0.0|69",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:14.032+00:00",
+      "lastSeenAt": "2026-08-27T05:00:14.032+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": false,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": false,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:14.032Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "5a7fcf5a-4e2b-4ae1-bfda-411d8c49bc83",
+      "setupId": "3014241b-feb7-4391-8d04-ba586e946904",
+      "symbol": "FIDAUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 69,
+      "allowed": false,
+      "code": "SCORE_BELOW_VALIDATED_FLOOR",
+      "stage": "ESTRATEGIA_VALIDADA",
+      "blockers": [
+        {
+          "code": "SCORE_BELOW_VALIDATED_FLOOR",
+          "data": {
+            "score": 69,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 75
+          },
+          "rule": "automationPolicy",
+          "message": "score 69 abaixo do piso de 75 configurado para PULLBACK"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.01962,
+      "entryLow": 0.01939485,
+      "entryHigh": 0.01983082,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "3014241b-feb7-4391-8d04-ba586e946904|SCORE_BELOW_VALIDATED_FLOOR|0.0|69",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:13.778+00:00",
+      "lastSeenAt": "2026-08-27T05:00:13.778+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": true,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": true,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:13.778Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "5b67eedf-c783-401a-89bf-a7ac8d492431",
+      "setupId": "0ded77e9-b58d-4ada-8306-510052996235",
+      "symbol": "TUTUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 74,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 74,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "SCORE_BELOW_CONFIGURED_MINIMUM",
+          "data": {
+            "score": 74,
+            "minimo": 90
+          },
+          "rule": "autoTrader",
+          "message": "Score 74 abaixo do mínimo configurado de 90"
+        },
+        {
+          "code": "RISK_REWARD_BELOW_MINIMUM",
+          "data": {
+            "minimo": 2.5,
+            "riskReward": 2.24
+          },
+          "rule": "autoTrader",
+          "message": "R/R de 2.24 abaixo do mínimo de 2.5"
+        },
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.05228,
+            "zonaMaxima": 0.05221588,
+            "zonaMinima": 0.05130216,
+            "distanciaPercent": 0.12
+          },
+          "rule": "autoTrader",
+          "message": "Preço 0.12% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.05228,
+      "entryLow": 0.05130216,
+      "entryHigh": 0.05221588,
+      "distanceToEntryPercent": 0.12,
+      "fingerprint": "0ded77e9-b58d-4ada-8306-510052996235|STRATEGY_NOT_VALIDATED,SCORE_BELOW_CONFIGURED_MINIMUM,RISK_REWARD_BELOW_MINIMUM,PRICE_OUTSIDE_ENTRY_ZONE|0.0|74",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:01.347+00:00",
+      "lastSeenAt": "2026-08-27T05:00:01.347+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 3,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 30,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 80,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:01.347Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "70f2626f-0b7d-4bb6-8a5d-946f6b51a781",
+      "setupId": "0ded77e9-b58d-4ada-8306-510052996235",
+      "symbol": "TUTUSDT",
+      "timeframe": "15m",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 74,
+      "allowed": false,
+      "code": "STRATEGY_NOT_VALIDATED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_NOT_VALIDATED",
+          "data": {
+            "score": 74,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoValidado": 90
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está em observação: sem expectativa positiva no treino e no teste; o robô só opera MOMENTUM_BURST"
+        },
+        {
+          "code": "PRICE_OUTSIDE_ENTRY_ZONE",
+          "data": {
+            "lado": "ACIMA",
+            "preco": 0.05237,
+            "zonaMaxima": 0.05221588,
+            "zonaMinima": 0.05130216,
+            "distanciaPercent": 0.3
+          },
+          "rule": "autoTrader",
+          "message": "Preço 0.30% acima da zona máxima. A estratégia proíbe perseguir o movimento."
+        },
+        {
+          "code": "MAX_CONCURRENT_TRADES",
+          "data": {
+            "limite": 1,
+            "abertas": 1
+          },
+          "rule": "autoTrader",
+          "message": "Limite de 1 operação(ões) automática(s) simultânea(s) atingido"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.05237,
+      "entryLow": 0.05130216,
+      "entryHigh": 0.05221588,
+      "distanceToEntryPercent": 0.3,
+      "fingerprint": "0ded77e9-b58d-4ada-8306-510052996235|STRATEGY_NOT_VALIDATED,PRICE_OUTSIDE_ENTRY_ZONE,MAX_CONCURRENT_TRADES|0.5|74",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T05:00:01.121+00:00",
+      "lastSeenAt": "2026-08-27T05:00:01.121+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 5,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 6,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 40,
+          "maxTotalExposurePercent": 60,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 1,
+          "maxNotionalPerTrade": 50,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_BULLISH",
+        "capturedAt": "2026-08-27T05:00:01.121Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "momentum-burst-only@1",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "a866d91a-d5fa-487b-a8df-05b22d34c6ad",
+      "setupId": "381a3dec-2cc3-407f-a5a1-e4ef8ad25220",
+      "symbol": "HEIUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "LIVE",
+      "score": 72,
+      "allowed": false,
+      "code": "STRATEGY_DISABLED",
+      "stage": "DETECTADO",
+      "blockers": [
+        {
+          "code": "STRATEGY_DISABLED",
+          "data": {
+            "score": 72,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 75
+          },
+          "rule": "automationPolicy",
+          "message": "PULLBACK está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.1385,
+      "entryLow": 0.1358539,
+      "entryHigh": 0.14093293,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "381a3dec-2cc3-407f-a5a1-e4ef8ad25220|STRATEGY_DISABLED|0.0|72",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T04:59:26.247+00:00",
+      "lastSeenAt": "2026-08-27T04:59:26.247+00:00",
+      "policy": {
+        "mode": "LIVE",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-26T21:20:34.905Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": false,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": true,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": false,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": false,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": false,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 90,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2.5,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": true,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_NEUTRAL",
+        "capturedAt": "2026-08-27T04:59:26.247Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    },
+    {
+      "id": "d68160ec-7c48-44aa-b577-030e3189ee5f",
+      "setupId": "381a3dec-2cc3-407f-a5a1-e4ef8ad25220",
+      "symbol": "HEIUSDT",
+      "timeframe": "1h",
+      "setupType": "PULLBACK",
+      "mode": "PAPER",
+      "score": 72,
+      "allowed": false,
+      "code": "SCORE_BELOW_VALIDATED_FLOOR",
+      "stage": "ESTRATEGIA_VALIDADA",
+      "blockers": [
+        {
+          "code": "SCORE_BELOW_VALIDATED_FLOOR",
+          "data": {
+            "score": 72,
+            "estrategia": "PULLBACK",
+            "modalidade": "SPOT",
+            "pisoConfigurado": 75
+          },
+          "rule": "automationPolicy",
+          "message": "score 72 abaixo do piso de 75 configurado para PULLBACK"
+        }
+      ],
+      "warnings": [],
+      "currentPrice": 0.1385,
+      "entryLow": 0.1358539,
+      "entryHigh": 0.14093293,
+      "distanceToEntryPercent": 0,
+      "fingerprint": "381a3dec-2cc3-407f-a5a1-e4ef8ad25220|SCORE_BELOW_VALIDATED_FLOOR|0.0|72",
+      "occurrences": 1,
+      "firstSeenAt": "2026-08-27T04:59:25.996+00:00",
+      "lastSeenAt": "2026-08-27T04:59:25.996+00:00",
+      "policy": {
+        "mode": "PAPER",
+        "risk": {
+          "paperCapital": 5000,
+          "maxOpenTrades": 20,
+          "minimumRiskReward": 2,
+          "maxPositionPercent": 25,
+          "minimumScoreToShow": 60,
+          "minimumScoreToAlert": 75,
+          "riskPerTradePercent": 1,
+          "paperCapitalCurrency": "BRL",
+          "dailyLossLimitPercent": 5
+        },
+        "costs": {
+          "feePercent": 0.1,
+          "exitSlippagePercent": 0.1,
+          "stopSlippagePercent": 0.15
+        },
+        "guard": {
+          "feePercent": 0.1,
+          "mutedUntil": "2026-08-25T23:16:10.300Z",
+          "liveScaleOut": false,
+          "timeStopHours": 48,
+          "maxDailyTrades": 100,
+          "manageLiveStops": true,
+          "lossPauseMinutes": 60,
+          "maxTargetPercent": 40,
+          "minNetRiskReward": 1.8,
+          "minQuoteVolume24h": 5000000,
+          "maxDrawdownPercent": 10,
+          "blockWhenBtcBearish": true,
+          "exitSlippagePercent": 0.1,
+          "lossCooldownMinutes": 60,
+          "stopSlippagePercent": 0.15,
+          "trailingStopPercent": 0,
+          "maxConsecutiveLosses": 3,
+          "minLossesForCooldown": 2,
+          "breakevenAfterTarget1": true,
+          "maxAltExposurePercent": 95,
+          "maxTotalExposurePercent": 95,
+          "partialFillGuardSeconds": 90,
+          "highVolatilitySizeFactor": 0.5,
+          "manualEntryTolerancePercent": 0.5
+        },
+        "autoTrade": {
+          "enabled": true,
+          "allowLive": false,
+          "strategies": {
+            "PULLBACK": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "RANGE_FADE": {
+              "enabled": true,
+              "minimumScore": 75,
+              "minimumRiskReward": 1.8,
+              "requireOneMinuteConfirmation": false
+            },
+            "MOMENTUM_BURST": {
+              "enabled": true,
+              "minimumScore": 85,
+              "minimumRiskReward": 2.5,
+              "requireOneMinuteConfirmation": true
+            },
+            "BREAKOUT_RETEST": {
+              "enabled": true,
+              "minimumScore": 78,
+              "minimumRiskReward": 2,
+              "requireOneMinuteConfirmation": true
+            },
+            "SUPPORT_REVERSAL": {
+              "enabled": true,
+              "minimumScore": 80,
+              "minimumRiskReward": 2.2,
+              "requireOneMinuteConfirmation": true
+            }
+          },
+          "minimumScore": 60,
+          "liveArmedUntil": null,
+          "cooldownMinutes": 180,
+          "percentOfCapital": 10,
+          "minimumRiskReward": 2,
+          "maxConcurrentTrades": 20,
+          "maxNotionalPerTrade": 50,
+          "burstRequireBtcRegime": true,
+          "liveArmedIndefinitely": false,
+          "requireInsideEntryZone": true
+        },
+        "btcContext": "BTC_NEUTRAL",
+        "capturedAt": "2026-08-27T04:59:25.997Z",
+        "codeVersion": null,
+        "scoringVersion": "score-engine@1",
+        "strategyVersion": "per-setup-opportunity-engine@2",
+        "riskPolicyVersion": "risk-by-stop-with-costs@1",
+        "executionPolicyVersion": "confirm-token-idempotent@1"
+      }
+    }
+  ],
+  "audit": [
+    {
+      "id": "bdf33ae0-ecd6-4596-bce1-e3bd3579f61b",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "BONKUSDT",
+      "setupId": "6b614292-a938-45b9-b903-e87f6bbd3b8c",
+      "tradeId": null,
+      "detail": {
+        "score": 73,
+        "setupType": "PULLBACK",
+        "timeframe": "1h",
+        "riskReward": 3.18
+      },
+      "createdAt": "2026-08-27T05:01:47.185+00:00"
+    },
+    {
+      "id": "404dc577-71c2-4849-9379-72cfcc1d1232",
+      "action": "SETUP_INVALIDATED",
+      "mode": "LIVE",
+      "symbol": "ORDIUSDT",
+      "setupId": "58a64452-17db-43de-9420-8d022ddcc673",
+      "tradeId": null,
+      "detail": {
+        "note": "Invalidação atingida em 4.21400 antes da entrada",
+        "price": 4.214
+      },
+      "createdAt": "2026-08-27T05:01:46.445+00:00"
+    },
+    {
+      "id": "7bb8a1fc-3baf-4521-8ddd-51aeaeeb36c1",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "ORDIUSDT",
+      "setupId": "7b31d781-abe6-4afc-8797-f33756b66ea7",
+      "tradeId": null,
+      "detail": {
+        "score": 65,
+        "setupType": "PULLBACK",
+        "timeframe": "1h",
+        "riskReward": 2.45
+      },
+      "createdAt": "2026-08-27T05:01:45.545+00:00"
+    },
+    {
+      "id": "8b9e4952-b93c-4a95-a095-bb31e14a5bc9",
+      "action": "SETUP_INVALIDATED",
+      "mode": "LIVE",
+      "symbol": "IDUSDT",
+      "setupId": "db6a44a2-47da-4a3c-89db-9544d266e30a",
+      "tradeId": null,
+      "detail": {
+        "note": "Invalidação atingida em 0.0329000 antes da entrada",
+        "price": 0.0329
+      },
+      "createdAt": "2026-08-27T05:01:25.667+00:00"
+    },
+    {
+      "id": "09412502-c4b4-435c-bba6-8a4326c7a4ee",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "ZROUSDT",
+      "setupId": "a542073e-7720-441d-a283-065e8b9c0dfc",
+      "tradeId": null,
+      "detail": {
+        "score": 71,
+        "setupType": "PULLBACK",
+        "timeframe": "15m",
+        "riskReward": 3.11
+      },
+      "createdAt": "2026-08-27T05:00:41.47+00:00"
+    },
+    {
+      "id": "33528e05-ce85-4fb8-a897-83d686bf79dd",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "WIFUSDT",
+      "setupId": "61aaaf02-0b64-4e43-a720-ac3d7678c760",
+      "tradeId": null,
+      "detail": {
+        "score": 83,
+        "setupType": "BREAKOUT_RETEST",
+        "timeframe": "1h",
+        "riskReward": 3.1
+      },
+      "createdAt": "2026-08-27T05:00:19.106+00:00"
+    },
+    {
+      "id": "78765cb4-a850-4422-9d31-ab087840d167",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "PLUMEUSDT",
+      "setupId": "d37984cb-ebaf-4f43-99d0-64cff8dd10da",
+      "tradeId": null,
+      "detail": {
+        "score": 89,
+        "setupType": "BREAKOUT_RETEST",
+        "timeframe": "1h",
+        "riskReward": 3.08
+      },
+      "createdAt": "2026-08-27T05:00:16.317+00:00"
+    },
+    {
+      "id": "303e94a0-34ae-4b99-ad05-ad9e086ee42b",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "FIDAUSDT",
+      "setupId": "3014241b-feb7-4391-8d04-ba586e946904",
+      "tradeId": null,
+      "detail": {
+        "score": 69,
+        "setupType": "PULLBACK",
+        "timeframe": "1h",
+        "riskReward": 2.03
+      },
+      "createdAt": "2026-08-27T05:00:13.012+00:00"
+    },
+    {
+      "id": "98ef4e98-dc40-47c5-80b0-2bb342511d9a",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "TUTUSDT",
+      "setupId": "0ded77e9-b58d-4ada-8306-510052996235",
+      "tradeId": null,
+      "detail": {
+        "score": 74,
+        "setupType": "PULLBACK",
+        "timeframe": "15m",
+        "riskReward": 2.24
+      },
+      "createdAt": "2026-08-27T05:00:00.837+00:00"
+    },
+    {
+      "id": "9779ecef-b737-4da0-9c76-0da7135c8bad",
+      "action": "SETUP_CREATED",
+      "mode": "LIVE",
+      "symbol": "HEIUSDT",
+      "setupId": "381a3dec-2cc3-407f-a5a1-e4ef8ad25220",
+      "tradeId": null,
+      "detail": {
+        "score": 72,
+        "setupType": "PULLBACK",
+        "timeframe": "1h",
+        "riskReward": 2.51
+      },
+      "createdAt": "2026-08-27T04:59:25.656+00:00"
+    }
+  ]
+}
