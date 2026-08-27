@@ -204,6 +204,7 @@ export interface ReplayOptions {
   contextAt?: (closeTime: number) => MarketContext | null;
   window?: number;
   warmupBars?: number;
+  pisoDoCorpoAtr?: number;
 }
 
 export function collectSignals(dataset: Dataset[], options: ReplayOptions): Signal[] {
@@ -219,6 +220,7 @@ export function collectSignals(dataset: Dataset[], options: ReplayOptions): Sign
         warmupBars: options.warmupBars ?? 250,
         contextAt: options.contextAt,
         cooldownMinutes: options.settings.scanner.cooldownMinutes,
+        pisoDoCorpoAtr: options.pisoDoCorpoAtr,
       }),
     );
   }

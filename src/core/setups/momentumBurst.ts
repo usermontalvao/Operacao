@@ -203,7 +203,7 @@ function detectBurst(input: DetectorInput, side: Side): SetupCandidate | null {
   if (range <= 0 || body <= 0) return null;
 
   const bodyAtr = body / atrValue;
-  if (bodyAtr < MIN_BODY_ATR) return null;
+  if (bodyAtr < (input.pisoDoCorpoAtr ?? MIN_BODY_ATR)) return null;
 
   // fechamento no extremo da própria barra: no topo dela na explosão de alta,
   // no fundo dela no desabamento

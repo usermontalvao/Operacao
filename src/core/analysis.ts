@@ -41,4 +41,11 @@ export interface DetectorInput {
    * o comportamento histórico e o que os testes assumem.
    */
   exigirRegimeDoBtc?: boolean;
+  /**
+   * Piso do corpo da explosão, em ATRs. Existe para o LABORATÓRIO poder
+   * auditar o que o piso de produção descarta — sem isto, medir "o que
+   * estamos jogando fora" é impossível, porque o descarte acontece antes de
+   * qualquer medição. Ausente = o piso de produção.
+   */
+  pisoDoCorpoAtr?: number;
 }

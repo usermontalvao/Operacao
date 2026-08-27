@@ -19,6 +19,8 @@ export interface ReplayInput {
   contextAt?: (closeTime: number) => MarketContext | null;
   /** a mesma tese não vira sinal duas vezes dentro do cooldown */
   cooldownMinutes: number;
+  /** auditoria: piso do corpo da explosão, para medir o que o piso descarta */
+  pisoDoCorpoAtr?: number;
 }
 
 /**
@@ -96,6 +98,7 @@ export function replaySignals(input: ReplayInput): Signal[] {
       settings: replaySettings,
       now: new Date(closeTime),
       makeId: () => `${symbol}-${(counter += 1)}`,
+      pisoDoCorpoAtr: input.pisoDoCorpoAtr,
     });
 
     for (const setup of generated) {

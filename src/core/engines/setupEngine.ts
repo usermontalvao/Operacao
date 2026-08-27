@@ -45,6 +45,8 @@ export interface GenerateSetupsInput {
    * o comportamento antigo, que é o que o laboratório e os testes usam.
    */
   scanCycleMs?: number;
+  /** só o laboratório usa: baixa o piso do corpo para auditar o descarte */
+  pisoDoCorpoAtr?: number;
 }
 
 /** Os quatro detectores medidos, do lado comprado. */
@@ -123,6 +125,7 @@ export function generateSetups(input: GenerateSetupsInput): TradeSetup[] {
         context,
         scanCycleMs: input.scanCycleMs,
         exigirRegimeDoBtc: settings.scanner.burstRequireBtcRegime,
+        pisoDoCorpoAtr: input.pisoDoCorpoAtr,
       };
       const candidate = detector(detectorInput);
       if (!candidate) continue;
