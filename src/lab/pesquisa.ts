@@ -20,7 +20,8 @@
  */
 import type { Candle, SetupType, Timeframe, TradeSetup } from '../core/types.ts';
 import type { ExitPolicy, Outcome, Signal } from '../core/backtest/types.ts';
-import { DEFAULT_COSTS } from '../core/risk/costs.ts';
+import { DEFAULT_COSTS, netRiskReward } from '../core/risk/costs.ts';
+import { DEFAULT_GUARD } from '../core/risk/governor.ts';
 import { summarize } from '../core/backtest/metrics.ts';
 import { simulateSignal } from '../core/backtest/simulate.ts';
 import { ALVOS_TESTADOS, catalogo, montarContexto, type Estrategia } from './candidatas.ts';
@@ -51,6 +52,17 @@ const AQUECIMENTO = 260;
 /** Prazo da ordem limite, em barras. */
 const PRAZO_BARRAS = 12;
 const MINIMO_DE_OPERACOES = 150;
+/**
+ * O R/R LÍQUIDO mínimo, o mesmo do governador de risco em produção (1,8).
+ *
+ * Até aqui o laboratório media a tese; a produção recusa a ORDEM quando, já
+ * descontadas taxa e escorregamento nas duas pontas, o que se ganha não paga
+ * o que se arrisca. Um alvo de 3R bruto vira menos que isso quando o stop é
+ * curto — os custos são um valor fixo por viagem, então quanto menor a
+ * distância até o stop, maior a mordida proporcional. Medir sem este filtro
+ * é medir uma estratégia que a conta real não executaria.
+ */
+const MIN_RR_LIQUIDO = DEFAULT_GUARD.minNetRiskReward;
 
 /**
  * O `simulateSignal` pede um TradeSetup inteiro, mas lê só nove campos. Um
@@ -97,6 +109,9 @@ interface Resultado {
   expParesB: number;
   janelasPositivas: number;
   sobrevive: boolean;
+  /** sinais que a tese gerou e o R/R líquido recusou antes de virar ordem */
+  recusadosPorRR: number;
+  propostos: number;
 }
 
 function avaliar(
@@ -149,6 +164,8 @@ function avaliar(
     expParesB: paresB.expectancyR,
     janelasPositivas,
     sobrevive,
+    recusadosPorRR: 0,
+    propostos: 0,
   };
 }
 
@@ -157,6 +174,13 @@ async function main(): Promise<void> {
   const days = Number(arg('days', '3400'));
   const gatilhos = arg('tf', '1h,4h').split(',') as Timeframe[];
   const estrategias = catalogo();
+  // --semFiltro reproduz a medição anterior, para comparar lado a lado
+  const semFiltroLiquido = process.argv.includes('--semFiltro');
+  console.log(
+    semFiltroLiquido
+      ? '\nR/R líquido: SEM filtro (como na primeira medição)'
+      : `\nR/R líquido: filtrando abaixo de ${MIN_RR_LIQUIDO} — o mesmo corte da produção`,
+  );
 
   console.log(
     `\n${estrategias.length} detectores x ${ALVOS_TESTADOS.length} alvos = ` +
@@ -204,13 +228,29 @@ async function main(): Promise<void> {
 
       for (const alvo of ALVOS_TESTADOS) {
         const outcomes: Outcome[] = [];
+        let recusadosPorRR = 0;
         for (const { symbol, i, candidata } of achados) {
           const entrada = porSimbolo.get(symbol);
           if (!entrada) continue;
           const bar = entrada.candles[i] as Candle;
+          const setup = comoSetup(symbol, candidata, alvo);
+          if (semFiltroLiquido) {
+            recusadosPorRR += 0;
+          } else {
+            const liquido = netRiskReward({
+              entryPrice: (setup.entryLow + setup.entryHigh) / 2,
+              stopLoss: setup.stopLoss,
+              target: setup.target1,
+              costs: DEFAULT_COSTS,
+            });
+            if (liquido < MIN_RR_LIQUIDO) {
+              recusadosPorRR += 1;
+              continue;
+            }
+          }
           const signal: Signal = {
             symbol,
-            setup: comoSetup(symbol, candidata, alvo),
+            setup,
             barIndex: i,
             openTime: bar.openTime,
             atr: 0,
@@ -226,7 +266,10 @@ async function main(): Promise<void> {
             }),
           );
         }
-        resultados.push(avaliar(estrategia, alvo, outcomes, dias));
+        const r = avaliar(estrategia, alvo, outcomes, dias);
+        r.recusadosPorRR = recusadosPorRR;
+        r.propostos = achados.length;
+        resultados.push(r);
       }
     }
 
@@ -254,7 +297,7 @@ function imprimir(resultados: Resultado[], trigger: Timeframe): void {
   const cab =
     `${'estratégia'.padEnd(52)}${'alvo'.padStart(5)}${'oper.'.padStart(7)}${'/dia'.padStart(7)}` +
     `${'acerto'.padStart(8)}${'exp.R'.padStart(9)}${'PF'.padStart(6)}${'treino'.padStart(8)}${'teste'.padStart(8)}` +
-    `${'A'.padStart(8)}${'B'.padStart(8)}${'jan'.padStart(5)}`;
+    `${'A'.padStart(8)}${'B'.padStart(8)}${'jan'.padStart(5)}${'recus'.padStart(7)}`;
   const linha = (r: Resultado): string =>
     `${r.nome.slice(0, 51).padEnd(52)}${(r.alvo + 'R').padStart(5)}${String(r.operacoes).padStart(7)}` +
     `${r.porDia.toFixed(2).padStart(7)}${(r.acerto.toFixed(0) + '%').padStart(8)}` +
@@ -264,7 +307,8 @@ function imprimir(resultados: Resultado[], trigger: Timeframe): void {
     `${((r.expTeste >= 0 ? '+' : '') + r.expTeste.toFixed(2)).padStart(8)}` +
     `${((r.expParesA >= 0 ? '+' : '') + r.expParesA.toFixed(2)).padStart(8)}` +
     `${((r.expParesB >= 0 ? '+' : '') + r.expParesB.toFixed(2)).padStart(8)}` +
-    `${(r.janelasPositivas + '/5').padStart(5)}`;
+    `${(r.janelasPositivas + '/5').padStart(5)}` +
+    `${(r.propostos > 0 ? Math.round((r.recusadosPorRR / r.propostos) * 100) + '%' : '—').padStart(7)}`;
 
   console.log(`\n--- SOBREVIVENTES (${trigger}) — ordenadas por entradas por dia ---\n`);
   console.log(cab);
