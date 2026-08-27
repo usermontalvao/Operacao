@@ -27,15 +27,14 @@ interface Regra {
 }
 
 const REGRAS: Regra[] = [
-  { nome: 'HOJE: corpo>=2,5 e score>=85', aceita: (s, c) => c >= 2.5 && s >= 85 },
-  { nome: 'ANTES: corpo>=2,0 e score>=85', aceita: (s, c) => c >= 2.0 && s >= 85 },
-  { nome: 'corpo>=2,5, SEM score', aceita: (_s, c) => c >= 2.5 },
-  { nome: 'corpo>=3,0, SEM score', aceita: (_s, c) => c >= 3.0 },
-  { nome: 'corpo>=3,0 e score>=85', aceita: (s, c) => c >= 3.0 && s >= 85 },
-  { nome: 'corpo>=3,25, SEM score', aceita: (_s, c) => c >= 3.25 },
-  { nome: 'corpo 3,0 a 3,5 (só o pico)', aceita: (_s, c) => c >= 3.0 && c < 3.5 },
-  { nome: 'corpo>=2,0, SEM score', aceita: (_s, c) => c >= 2.0 },
-  { nome: 'score>=85, SEM corpo mínimo', aceita: (s) => s >= 85 },
+  // as três que o pedido manda comparar, em dados idênticos
+  { nome: 'ANTES: corpo>=2,5 + score>=85', aceita: (s, c) => c >= 2.5 && s >= 85 },
+  { nome: 'NOVA: corpo>=2,0, sem score', aceita: (_s, c) => c >= 2.0 },
+  { nome: 'NOVA/NORMAL: 2,0 a 3,0', aceita: (_s, c) => c >= 2.0 && c < 3.0 },
+  { nome: 'NOVA/STRONG: corpo>=3,0', aceita: (_s, c) => c >= 3.0 },
+  // referências, para enxergar o entorno sem garimpar
+  { nome: 'ref: corpo>=2,5, sem score', aceita: (_s, c) => c >= 2.5 },
+  { nome: 'ref: score>=85, sem corpo', aceita: (s) => s >= 85 },
 ];
 
 function prova(outcomes: Outcome[]): {

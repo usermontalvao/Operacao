@@ -18,6 +18,7 @@ export type DecisionCode =
   // estratégia e evidência
   | 'STRATEGY_NOT_VALIDATED'
   | 'STRATEGY_DISABLED'
+  | 'TIMEFRAME_NOT_ENABLED'
   /** tese vendida: o robô não opera o lado de baixo, só entrada manual */
   | 'SHORT_NOT_AUTOMATED'
   /** futuros: a expectativa positiva foi medida em spot, então o robô não entra */
@@ -150,6 +151,7 @@ export function stageForCode(code: DecisionCode): FunnelStage {
       return 'APROVADO_PELO_RISCO';
     case 'STRATEGY_NOT_VALIDATED':
     case 'STRATEGY_DISABLED':
+    case 'TIMEFRAME_NOT_ENABLED':
     case 'SHORT_NOT_AUTOMATED':
     case 'MARKET_NOT_VALIDATED':
       return 'DETECTADO';

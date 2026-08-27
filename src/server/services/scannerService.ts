@@ -18,6 +18,7 @@ import type { ScalpUniverseService } from './scalpUniverseService.ts';
 import type { EventBus } from '../events.ts';
 import { listTradableSymbols } from '../binance/rest.ts';
 import { logger } from '../logger.ts';
+import { timeframeOperaExplosao } from '../../core/setups/momentumBurst.ts';
 import type { Repository } from '../store/index.ts';
 import type { AlertEngine } from './alertEngine.ts';
 import type { AuditService } from './auditService.ts';
@@ -483,8 +484,28 @@ export class ScannerService {
         now: new Date(),
         makeId: () => randomUUID(),
         scanCycleMs,
+        onRejeicao: (motivo) => logger.debug('MOMENTUM_BURST rejeitado', motivo),
       }),
     );
+    /*
+     * A explosão é a única tese que move dinheiro sozinha, então ela é a
+     * única que merece uma linha própria no log. Sem isto, descobrir por que
+     * um candidato não virou ordem exigia cruzar o diário de decisões com o
+     * radar — e o campo que decide (o corpo em ATRs) não aparecia em lugar
+     * nenhum do log.
+     */
+    for (const setup of generated) {
+      if (setup.setupType !== 'MOMENTUM_BURST') continue;
+      logger.info('MOMENTUM_BURST detectado', {
+        symbol: setup.symbol,
+        timeframe: setup.timeframe,
+        burstBodyAtr: setup.evidence.burstBodyAtr,
+        strength: setup.evidence.burstStrength,
+        score: setup.score,
+        scoreBlocking: false,
+        operavel: timeframeOperaExplosao(setup.timeframe),
+      });
+    }
     this.recordOpportunitySample('UNIVERSE', generated);
     if (generated.length === 0) return;
     await this.reconcile(analysis.symbol, generated, analysis);

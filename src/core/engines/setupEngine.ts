@@ -27,6 +27,7 @@ import {
   detectSupportReversal,
 } from '../setups/index.ts';
 import { checkExtension, fingerprintOf } from '../setups/index.ts';
+import { forcaDaExplosao } from '../setups/momentumBurst.ts';
 import { averageEntry, computeRiskReward, passesRiskReward, round } from '../risk/index.ts';
 import { scoreMomentumBurst, scoreSetup } from './scoreEngine.ts';
 
@@ -47,6 +48,8 @@ export interface GenerateSetupsInput {
   scanCycleMs?: number;
   /** só o laboratório usa: baixa o piso do corpo para auditar o descarte */
   pisoDoCorpoAtr?: number;
+  /** recebe as recusas do detector para quem quiser registrá-las */
+  onRejeicao?: DetectorInput['onRejeicao'];
 }
 
 /** Os quatro detectores medidos, do lado comprado. */
@@ -126,6 +129,7 @@ export function generateSetups(input: GenerateSetupsInput): TradeSetup[] {
         scanCycleMs: input.scanCycleMs,
         exigirRegimeDoBtc: settings.scanner.burstRequireBtcRegime,
         pisoDoCorpoAtr: input.pisoDoCorpoAtr,
+        onRejeicao: input.onRejeicao,
       };
       const candidate = detector(detectorInput);
       if (!candidate) continue;
@@ -262,6 +266,9 @@ function buildEvidence(
     levelQuality: round(candidate.qualityHints.levelQuality, 3),
     burstBodyAtr: candidate.qualityHints.burst
       ? round(candidate.qualityHints.burst.bodyAtr, 2)
+      : null,
+    burstStrength: candidate.qualityHints.burst
+      ? forcaDaExplosao(candidate.qualityHints.burst.bodyAtr)
       : null,
     volumeConfirmation: candidate.qualityHints.volumeConfirmation,
     momentumTurning: candidate.qualityHints.momentumTurning,

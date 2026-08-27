@@ -60,24 +60,57 @@ import { normalizeEntryZone } from './shared.ts';
  */
 
 /**
- * Corpo mínimo do candle, em ATRs.
+ * Corpo mínimo do candle, em ATRs — o ÚNICO porteiro da tese.
  *
- * Subiu de 2,0 para 2,5 em 27/08/2026, e o motivo é o achado mais limpo da
- * pesquisa de grau: medidas nos 62 pares NEGOCIÁVEIS ao longo de 9 anos, as
- * explosões de corpo entre 2,0 e 2,5 ATR rendem +0,016R — dentro do ruído,
- * ou seja, nada. De 2,5 para cima a expectativa salta para +0,356R. O piso
- * antigo deixava passar 65 operações que só pagavam corretagem.
+ * 2,0 vem da auditoria de 27/08/2026 sobre 62 pares negociáveis e 9 anos, no
+ * gatilho de 4h, submetida às mesmas quatro provas de robustez das demais
+ * regras (treino/teste, duas metades do universo, cinco janelas):
  *
- *   2,0 a 2,5 ATR ....  65 operações · +0,016R · PF 1,02
- *   2,5 a 3,5 ATR ... 379 operações · +0,356R · PF 1,52
- *   3,5 ATR ou mais . 224 operações · +0,263R · PF 1,39
+ *   corpo >= 2,0 sem score .. 1272 operações · +0,232R · 5/5 janelas · 0,40/dia
+ *   corpo >= 3,0 sem score ..  384 operações · +0,402R · 4/5 · treino e teste
+ *                                              ambos +0,40
+ *   corpo >= 2,5 + score>=85   579 operações · +0,317R · 3/5 — NÃO PASSOU
  *
- * Repare que a escada SOBE E DESCE: explosão gigante rende menos que a
- * média. Quem quiser apostar mais nas maiores está contrariando a medição.
+ * O piso de 2,0 rende menos POR OPERAÇÃO e mais POR DIA (0,093R contra
+ * 0,048R), passa nas cinco janelas, e é o número mais simples do conjunto.
+ *
+ * Por que não 3,0-3,5, que mediu +0,58R: aquela é a faixa de MAIOR resultado
+ * numa tabela de onze faixas. Escolhê-la é escolher o melhor sorteio. A faixa
+ * vizinha 2,75-3,00 deu +0,006R no mesmo estudo, o que mostra o tamanho do
+ * ruído entre faixas estreitas. Piso redondo, sem casas decimais garimpadas.
  */
-export const MIN_BODY_ATR = 2.5;
-/** Fronteira entre sinal médio e forte, em ATRs de corpo. */
-export const CORPO_DE_SINAL_FORTE = 3.5;
+export const MIN_BODY_ATR = 2;
+/**
+ * Fronteira entre explosão NORMAL e FORTE, em ATRs de corpo.
+ *
+ * Classificação, não permissão: ela alimenta telemetria, ordenação e estudo.
+ * NÃO multiplica risco — não há evidência de que a explosão maior renda mais
+ * (no mesmo estudo, 3,5-4,0 rendeu +0,166R contra +0,256R de 2,5-2,75).
+ */
+export const CORPO_DE_EXPLOSAO_FORTE = 3;
+
+/** Força da explosão. Dois níveis de propósito: um terceiro seria garimpo. */
+export type ForcaDaExplosao = 'NORMAL' | 'STRONG';
+
+export function forcaDaExplosao(bodyAtr: number): ForcaDaExplosao {
+  return bodyAtr >= CORPO_DE_EXPLOSAO_FORTE ? 'STRONG' : 'NORMAL';
+}
+
+/**
+ * Gatilhos em que a explosão pode virar ORDEM.
+ *
+ * Só 4h. No 1h as nove regras testadas falharam fora da amostra — todas com
+ * teste negativo, inclusive a que roda hoje (+0,07 treino / -0,05 teste). Não
+ * é questão de calibrar piso: é o gatilho.
+ *
+ * O 1h continua sendo varrido e o setup continua nascendo para observação e
+ * estudo; o que ele não faz é gerar entrada automática.
+ */
+export const GATILHOS_OPERACIONAIS: readonly string[] = ['4h'];
+
+export function timeframeOperaExplosao(timeframe: string): boolean {
+  return GATILHOS_OPERACIONAIS.includes(timeframe);
+}
 /** Volume mínimo, em múltiplos da média de 20 barras. */
 export const MIN_VOLUME_MULTIPLE = 3;
 /** O fechamento precisa romper a máxima destas últimas barras. */
@@ -203,7 +236,23 @@ function detectBurst(input: DetectorInput, side: Side): SetupCandidate | null {
   if (range <= 0 || body <= 0) return null;
 
   const bodyAtr = body / atrValue;
-  if (bodyAtr < (input.pisoDoCorpoAtr ?? MIN_BODY_ATR)) return null;
+  const piso = input.pisoDoCorpoAtr ?? MIN_BODY_ATR;
+  if (bodyAtr < piso) {
+    /*
+     * A recusa por corpo é a mais frequente e a mais informativa: ela diz
+     * exatamente quanto faltou. Fica em `onRejeicao` (e não num logger
+     * importado) porque este módulo é PURO — ele roda no laboratório, nos
+     * testes e no navegador, onde um logger de servidor não existe.
+     */
+    input.onRejeicao?.({
+      reason: 'BURST_BODY_BELOW_MINIMUM',
+      symbol: input.analysis.symbol,
+      timeframe: trigger.timeframe,
+      burstBodyAtr: Math.round(bodyAtr * 100) / 100,
+      minimum: piso,
+    });
+    return null;
+  }
 
   // fechamento no extremo da própria barra: no topo dela na explosão de alta,
   // no fundo dela no desabamento

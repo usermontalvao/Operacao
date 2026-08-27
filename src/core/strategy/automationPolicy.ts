@@ -1,4 +1,4 @@
-import { CORPO_DE_SINAL_FORTE } from '../setups/momentumBurst.ts';
+import { timeframeOperaExplosao } from '../setups/momentumBurst.ts';
 import type { MarketKind, Side } from '../direction.ts';
 import type { AutoTradeSettings, SetupType } from '../types.ts';
 
@@ -26,8 +26,10 @@ const validated = new Set<SetupType>(VALIDATED_AUTOMATIC_SETUP_TYPES);
 export interface AutomaticStrategyCandidate {
   setupType: SetupType;
   score: number;
-  /** corpo da barra de explosão em ATRs; ausente = trata como sinal médio */
+  /** corpo da barra de explosão em ATRs; ausente = não classificado */
   burstBodyAtr?: number | null;
+  /** gatilho em que a tese nasceu — a explosão só opera em 4h */
+  timeframe?: string;
   /** ausente = comprado, que é o único lado medido */
   side?: Side;
   /** ausente = spot, que é o único mercado medido */
@@ -48,6 +50,7 @@ export interface AutomaticRejection {
     | 'MARKET_NOT_VALIDATED'
     | 'STRATEGY_NOT_VALIDATED'
     | 'STRATEGY_DISABLED'
+    | 'TIMEFRAME_NOT_ENABLED'
     | 'SCORE_BELOW_VALIDATED_FLOOR';
   message: string;
 }
@@ -97,6 +100,28 @@ export function automaticRejection(
         'futuros não foi medido: a expectativa positiva veio de histórico de spot, e o perpétuo tem candle próprio, basis, funding e liquidação. Em futuros o robô não entra — a operação é manual',
     };
   }
+  /*
+   * A explosão só vira ORDEM no 4h.
+   *
+   * No 1h as nove regras testadas em 62 pares negociáveis e 9 anos falharam
+   * fora da amostra — todas com teste negativo, inclusive a que rodava
+   * (+0,07 treino / -0,05 teste). Não é calibragem de piso: é o gatilho.
+   *
+   * A recusa mora aqui, e não no detector, de propósito: o setup continua
+   * nascendo no 1h para o radar e para estudo futuro. O que ele não faz é
+   * ficar elegível a dinheiro.
+   */
+  if (
+    setup.setupType === 'MOMENTUM_BURST' &&
+    setup.timeframe !== undefined &&
+    !timeframeOperaExplosao(setup.timeframe)
+  ) {
+    return {
+      code: 'TIMEFRAME_NOT_ENABLED',
+      message: `explosão no ${setup.timeframe} fica só no radar: fora da amostra este gatilho foi negativo em todas as regras testadas. O robô opera explosão apenas no 4h`,
+    };
+  }
+
   const configured = autoTrade?.strategies?.[setup.setupType];
   if (configured !== undefined) {
     if (!configured.enabled) {
@@ -105,7 +130,26 @@ export function automaticRejection(
         message: `${setup.setupType} está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta`,
       };
     }
-    if (setup.score < configured.minimumScore) {
+    /*
+     * O score NÃO barra a explosão — e isto é resultado de medição, não
+     * preferência.
+     *
+     * Auditando 62 pares negociáveis e 9 anos com os pisos derrubados, o
+     * cruzamento score x corpo mostrou que o score é um PROXY do corpo:
+     * corpo pequeno vive em score baixo, corpo grande em score alto. Filtrado
+     * o corpo, o score não acrescenta nada:
+     *
+     *   corpo >= 3,0 SEM score .. 384 operações · +0,402R
+     *   corpo >= 3,0 COM score .. 377 operações · +0,397R
+     *
+     * Sete operações de diferença. E o score sozinho (sem piso de corpo) não
+     * passa nas provas de robustez: 3/5 janelas. Quem decide é o corpo, que
+     * o próprio detector já exigiu antes de o setup existir.
+     *
+     * O score continua sendo calculado, gravado, exibido e medido — deixou de
+     * ser porteiro, não deixou de existir.
+     */
+    if (setup.setupType !== 'MOMENTUM_BURST' && setup.score < configured.minimumScore) {
       return {
         code: 'SCORE_BELOW_VALIDATED_FLOOR',
         message: `score ${setup.score} abaixo do piso de ${configured.minimumScore} configurado para ${setup.setupType}`,
@@ -140,38 +184,30 @@ export function automaticStrategyRejectionReason(
 }
 
 /**
- * Fração do tamanho cheio, conforme a FORÇA do sinal.
+ * Fator de tamanho por confiança no sinal — hoje NEUTRO para a explosão.
  *
- * O grau saiu do score, e isso não é preferência: é medição. Em 62 pares
- * negociáveis e 9 anos de explosões, a faixa de score 85-89 rendeu +0,369R e
- * a de 95-100 rendeu +0,296R. Não existe escada ali — graduar aposta por
- * score é apostar mais em ruído, com a aparência de critério.
+ * Este multiplicador já teve duas versões, e as duas foram desfeitas pela
+ * medição:
  *
- * O que tem escada é o CORPO da explosão, e ela sobe e desce:
+ *  - por margem de score: o score não prevê retorno (faixa 85-89 rendeu
+ *    +0,369R e 95-100 rendeu +0,296R);
+ *  - por tamanho do corpo: a explosão maior não rende mais (3,5-4,0 deu
+ *    +0,166R contra +0,256R de 2,5-2,75).
  *
- *   2,0 a 2,5 ATR ... +0,016R   (por isso o piso do detector subiu para 2,5)
- *   2,5 a 3,5 ATR ... +0,356R   <- "médio"
- *   3,5 ATR ou mais . +0,263R   <- "forte"
+ * Sem evidência de que algum grau mereça mais dinheiro, o multiplicador sai
+ * do caminho: quem dimensiona é o orçamento de risco e o teto de exposição,
+ * que são regras de sobrevivência e não apostas sobre qualidade de sinal.
+ * A classificação NORMAL/STRONG continua existindo para telemetria, estudo e
+ * ordenação — ela simplesmente não move capital.
  *
- * A escolha do usuário em 27/08/2026 foi apostar MAIS no forte (70% da banca)
- * que no médio (30%), sabendo que o forte rendeu menos. Fica registrado que
- * a medição não sustenta essa direção — o que ela sustenta é o piso de 2,5.
- *
- * Fora da explosão, nenhum detector tem grau medido: eles operam com o
- * tamanho médio, nunca com o cheio.
+ * As estratégias sem vantagem medida seguem com meio tamanho: elas nunca
+ * foram validadas, e reduzir é o único ajuste defensável na ausência de dado.
  */
-export const FRACAO_SINAL_MEDIO = 30 / 70;
-
 export function strategyConfidenceSizeFactor(
   setup: AutomaticStrategyCandidate,
   _autoTrade: AutoTradeSettings,
 ): number {
-  if (setup.setupType !== 'MOMENTUM_BURST') return FRACAO_SINAL_MEDIO;
-  const corpo = setup.burstBodyAtr;
-  // sem a medida do corpo (setup antigo, ou vindo do laboratório) vale o
-  // tamanho médio: o benefício da dúvida nunca aumenta a aposta
-  if (corpo === null || corpo === undefined || !Number.isFinite(corpo)) return FRACAO_SINAL_MEDIO;
-  return corpo >= CORPO_DE_SINAL_FORTE ? 1 : FRACAO_SINAL_MEDIO;
+  return setup.setupType === 'MOMENTUM_BURST' ? 1 : 0.5;
 }
 
 /**

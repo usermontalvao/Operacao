@@ -337,6 +337,13 @@ export interface SetupEvidence {
    * tem: abaixo de 2,5 ATR a expectativa é +0,016R, ou seja, nada.
    */
   burstBodyAtr?: number | null;
+  /**
+   * NORMAL (2,0 a 3,0 ATR) ou STRONG (3,0 ou mais).
+   *
+   * Classificação, não permissão: ela existe para telemetria, ordenação e
+   * estudo. Não multiplica risco — ver strategyConfidenceSizeFactor.
+   */
+  burstStrength?: 'NORMAL' | 'STRONG' | null;
 }
 
 /* ==========================================================================

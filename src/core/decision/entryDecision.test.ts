@@ -34,7 +34,8 @@ function setup(overrides: Partial<TradeSetup> = {}): TradeSetup {
     symbol: 'BMTUSDT',
     side: 'BUY',
     market: 'SPOT',
-    timeframe: '1h',
+    // a explosão só é elegível a ordem no 4h — ver automationPolicy
+    timeframe: '4h',
     anchorTimeframe: '1d',
     setupType: 'MOMENTUM_BURST',
     currentPrice: 1.0,
@@ -109,7 +110,7 @@ test('timeframe desligado não pode gerar entrada automática', () => {
   assert.ok(codigos(decision).includes('TIMEFRAME_DISABLED'));
   assert.match(
     decision.blockers.find((item) => item.code === 'TIMEFRAME_DISABLED')?.message ?? '',
-    /gatilho de 1h está desligado/,
+    /gatilho de 4h está desligado/,
   );
 });
 
@@ -118,14 +119,33 @@ test('estratégia desligada na conta é bloqueada mesmo com score alto', () => {
   assert.ok(codigos(decision).includes('STRATEGY_DISABLED'));
 });
 
-test('MOMENTUM_BURST com score 89 é recusado pelo piso validado', () => {
-  const decision = evaluateEntryDecision(input({ setup: setup({ score: 89 }) }));
-  assert.equal(decision.allowed, false);
-  assert.ok(codigos(decision).includes('SCORE_BELOW_VALIDATED_FLOOR'));
+/*
+ * O piso de score deixou de existir para a explosão. Medido em 62 pares
+ * negociáveis e 9 anos: filtrado o corpo, o score não acrescenta nada
+ * (+0,402R sem ele contra +0,397R com ele). Estes testes travam a regra nova.
+ */
+test('score baixo NÃO recusa mais a explosão — quem filtra é o corpo', () => {
+  for (const score of [70, 78, 84, 89]) {
+    const decision = evaluateEntryDecision(input({ setup: setup({ score }) }));
+    assert.equal(
+      decision.allowed,
+      true,
+      `score ${score} não pode barrar sozinho — ${codigos(decision).join(', ')}`,
+    );
+    assert.ok(!codigos(decision).includes('SCORE_BELOW_VALIDATED_FLOOR'));
+  }
 });
 
-test('MOMENTUM_BURST com score 90 passa no piso', () => {
-  const decision = evaluateEntryDecision(input({ setup: setup({ score: 90 }) }));
+test('a explosão no 1h fica só no radar, nunca vira ordem', () => {
+  const decision = evaluateEntryDecision(
+    input({ setup: setup({ timeframe: '1h', score: 99 }) }),
+  );
+  assert.equal(decision.allowed, false, 'score 99 no 1h ainda assim não opera');
+  assert.ok(codigos(decision).includes('TIMEFRAME_NOT_ENABLED'));
+});
+
+test('a mesma tese no 4h é autorizada', () => {
+  const decision = evaluateEntryDecision(input({ setup: setup({ timeframe: '4h', score: 70 }) }));
   assert.equal(decision.allowed, true, codigos(decision).join(', '));
 });
 

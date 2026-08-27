@@ -107,7 +107,20 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
   // o código vem da política, não de adivinhar lendo a frase: a versão antiga
   // procurava a palavra "observação" no texto e quebrava calada a cada
   // redação nova
-  const rejection = automaticRejection(setup, autoTrade);
+  /*
+   * O candidato leva timeframe e corpo. Sem eles a política não consegue
+   * barrar a explosão de 1h nem classificar força — e barraria calada, que é
+   * pior: `TradeSetup` tem `timeframe` no topo mas o corpo mora em
+   * `evidence`, então a chamada compila com o campo faltando.
+   */
+  const rejection = automaticRejection(
+    {
+      ...setup,
+      timeframe: setup.timeframe,
+      burstBodyAtr: setup.evidence?.burstBodyAtr ?? null,
+    },
+    autoTrade,
+  );
   if (rejection !== null) {
     blockers.push(
       reason(rejection.code, 'automationPolicy', rejection.message, {

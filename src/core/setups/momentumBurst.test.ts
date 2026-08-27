@@ -10,6 +10,12 @@ import {
   toleranciaDeAtraso,
 } from './momentumBurst.ts';
 
+/** Corpo aproximado que a fixture produz para um dado multiplicador. */
+function corpoDe(candles: Candle[]): number {
+  const bar = candles[candles.length - 1] as Candle;
+  return bar.close - bar.open;
+}
+
 function context(overrides: Partial<MarketContext> = {}): MarketContext {
   return {
     state: 'BTC_NEUTRAL',
@@ -218,4 +224,45 @@ test('a tolerância de atraso acompanha a volta da varredura, com teto', () => {
   const cincoMin = 5 * 60_000;
   assert.equal(toleranciaDeAtraso(cincoMin, 761_000), cincoMin * 0.5);
   assert.equal(toleranciaDeAtraso(15 * 60_000, 761_000), 15 * 60_000 * 0.5);
+});
+
+/*
+ * O PISO DO CORPO, no detector de verdade.
+ *
+ * A fixture constrói a barra final com `bodyMultiple` sobre um ATR de
+ * referência de 0,8, então o corpo em ATRs sai próximo do multiplicador. As
+ * asserções usam folga porque o ATR real da série é calculado, não fixado —
+ * o que importa é a fronteira existir e cair no lugar certo.
+ */
+test('o piso de 2 ATR: abaixo recusa, em cima aceita', () => {
+  assert.equal(detect(seriesWithBurst({ bodyMultiple: 1.5 }), context()), null, '1,5 ATR recusa');
+  const aceito = detect(seriesWithBurst({ bodyMultiple: 2.2 }), context());
+  assert.ok(aceito, '2,2 ATR tinha de virar setup');
+  assert.ok(corpoDe(seriesWithBurst({ bodyMultiple: 2.2 })) > 0);
+});
+
+test('o detector avisa a recusa por corpo, com o número que faltou', () => {
+  const avisos: Array<Record<string, unknown>> = [];
+  const candles = seriesWithBurst({ bodyMultiple: 1.2 });
+  const analysis = analysisFrom('SOLUSDT', candles, ['1h', '4h']);
+  const last = candles[candles.length - 1] as Candle;
+  analysis.updatedAt = new Date(last.closeTime + 60_000).toISOString();
+  const indicators = computeIndicators(candles, '1h');
+  const timeframe = {
+    timeframe: '1h' as const,
+    candles,
+    indicators,
+    structure: computeStructure(candles, indicators),
+  };
+  detectMomentumBurst({
+    analysis,
+    trigger: timeframe,
+    anchor: timeframe,
+    context: context(),
+    onRejeicao: (m) => avisos.push(m as unknown as Record<string, unknown>),
+  });
+  assert.equal(avisos.length, 1);
+  assert.equal(avisos[0]?.reason, 'BURST_BODY_BELOW_MINIMUM');
+  assert.equal(avisos[0]?.minimum, 2);
+  assert.ok(typeof avisos[0]?.burstBodyAtr === 'number');
 });

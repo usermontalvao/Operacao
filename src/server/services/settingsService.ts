@@ -393,7 +393,17 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
       // o usuário pensa em reais; o motor converte para USDT pelo par USDTBRL
       paperCapital: 5000,
       paperCapitalCurrency: 'BRL',
+      /*
+       * TETO DE EXPOSIÇÃO por posição — não é risco.
+       *
+       * Com 1% de risco e stop a 4%, a posição sai em 25% do patrimônio e o
+       * prejuízo no stop continua sendo 1%. Confundir os dois multiplicaria o
+       * risco por vinte e cinco. O estudo de carteira mostrou que 25% captura
+       * ~55% mais oportunidades que apostas grandes, porque deixa caixa livre
+       * para o próximo sinal em vez de sequestrar a conta numa posição só.
+       */
       maxPositionPercent: 25,
+      /** prejuízo aceito por operação, em % do patrimônio. É ISTO que é risco. */
       riskPerTradePercent: 1,
       // sem teto de contagem: quem segura o número de posições é o capital
       // (mínimo de 5 USDT por ordem) e os limites de risco, não um contador
@@ -410,7 +420,12 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
       // legado/fallback. A decisão nova usa a régua específica abaixo.
       minimumScore: 75,
       minimumRiskReward: 2.5,
-      percentOfCapital: 10,
+      /*
+       * Quanto o robô PEDE, antes de o orçamento de risco cortar. Alinhado ao
+       * teto de exposição: pedir mais que 25% só produziria um número que o
+       * risco derrubaria adiante, e um painel mostrando um valor que nunca sai.
+       */
+      percentOfCapital: 25,
       /*
        * Sem teto de posições automáticas simultâneas (20 é o máximo do
        * schema). O aviso que estava aqui continua verdadeiro e agora é só

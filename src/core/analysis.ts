@@ -48,4 +48,15 @@ export interface DetectorInput {
    * qualquer medição. Ausente = o piso de produção.
    */
   pisoDoCorpoAtr?: number;
+  /**
+   * Aviso de recusa, para quem tiver como registrar. O detector é puro e não
+   * importa logger: quem chama decide se e onde a linha aparece.
+   */
+  onRejeicao?: (motivo: {
+    reason: string;
+    symbol: string;
+    timeframe: string;
+    burstBodyAtr?: number;
+    minimum?: number;
+  }) => void;
 }
