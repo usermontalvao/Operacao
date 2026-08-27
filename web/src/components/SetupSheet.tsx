@@ -17,6 +17,7 @@ import {
 } from '../lib/format.ts';
 import { PriceChart } from './PriceChart.tsx';
 import { DecisionPanel } from './DecisionPanel.tsx';
+import { useAtalhosDeModal } from '../lib/atalhos.ts';
 
 interface SetupSheetProps {
   setup: TradeSetup;
@@ -42,16 +43,36 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
   const dead = setup.status === 'INVALIDATED' || setup.status === 'EXPIRED';
   const vendida = setup.side === 'SELL';
 
+  // Esc fecha a ficha; Enter é o mesmo que clicar em comprar/vender — o botão
+  // que a tela inteira existe para apresentar
+  useAtalhosDeModal({
+    onClose,
+    onConfirm: () => onBuy(setup),
+    confirmHabilitado: !dead && !inTrade,
+  });
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-6"
       onClick={onClose}
     >
+      {/*
+        No monitor a ficha vira coluna; no celular continua uma página rolante.
+
+        Ela rolava inteira, e o botão de comprar — que mora na coluna da
+        direita, depois de score, custos e economia da operação — ficava abaixo
+        da dobra. Decidir exigia rolar para baixo, e conferir o gráfico exigia
+        rolar de volta. Agora cada coluna rola por si, o cabeçalho e a
+        explicação do robô ficam parados, e a ação fica colada embaixo.
+
+        No celular nada disso vale: duas áreas de rolagem empilhadas num
+        telefone são piores que uma página comprida.
+      */}
       <div
-        className="max-h-[92vh] w-full max-w-6xl overflow-y-auto overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5"
+        className="max-h-[92vh] w-full max-w-6xl overflow-y-auto overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5 lg:flex lg:flex-col lg:overflow-hidden"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start justify-between gap-3">
+        <header className="flex shrink-0 items-start justify-between gap-3">
           <div>
             <h2 className="flex flex-wrap items-center gap-1.5 text-lg font-semibold">
               <span>
@@ -83,7 +104,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           </button>
         </header>
 
-        <div className="mt-3">
+        <div className="mt-3 shrink-0">
           <DecisionPanel
             decision={decision}
             entryLow={setup.entryLow}
@@ -92,8 +113,8 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
           />
         </div>
 
-        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <section className="order-2 space-y-3 lg:order-1">
+        <div className="mt-3 grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] lg:overflow-hidden">
+          <section className="order-2 space-y-3 lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <PriceChart
               symbol={setup.symbol}
               timeframe={setup.timeframe}
@@ -156,7 +177,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
             </div>
           </section>
 
-          <aside className="order-1 space-y-2.5 lg:order-2">
+          <aside className="order-1 space-y-2.5 lg:order-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <div className="flex items-center justify-between rounded-lg border border-terminal-border bg-terminal-panel-soft p-2.5">
               <div>
                 <div className="text-[10px] uppercase tracking-wide text-terminal-muted">Preço agora</div>
@@ -217,7 +238,7 @@ export function SetupSheet({ setup, livePrice, onClose, onBuy, onIgnore, inTrade
               </p>
             ) : null}
 
-            <div className="space-y-2">
+            <div className="space-y-2 lg:sticky lg:bottom-0 lg:-mx-1 lg:bg-terminal-panel lg:px-1 lg:pb-1 lg:pt-3">
               {/*
                 Entrar de novo no que já está aberto dobraria o risco no mesmo
                 ativo. O servidor recusa — mas o botão precisa dizer isso ANTES

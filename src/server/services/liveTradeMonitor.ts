@@ -203,6 +203,7 @@ export class LiveTradeMonitor {
 
   private async tick(): Promise<void> {
     if (this.running) return;
+    await this.recuperarPosicoesPerdidas();
     const pending = this.paper.getOpenTrades().filter((trade) => trade.mode !== 'PAPER');
     if (pending.length === 0) return;
 
@@ -211,6 +212,46 @@ export class LiveTradeMonitor {
       for (const trade of pending) await this.syncTrade(trade);
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * Uma posição gravada que sumiu da memória volta a ser vigiada.
+   *
+   * Este monitor percorre o mapa em memória do motor. Se uma posição REAL sai
+   * dele sem ter encerrado — foi o que aconteceu em 26/08/2026 —, ela deixa de
+   * ter stop acompanhado, preenchimento reconciliado e encerramento por pó, e
+   * nada avisa: o painel só mostra uma lista mais curta. A conferência é
+   * barata (a lista vem do mesmo cache que todo o resto usa) e roda antes de
+   * cada volta, que é onde o prejuízo apareceria.
+   */
+  private async recuperarPosicoesPerdidas(): Promise<void> {
+    let stored: Trade[];
+    try {
+      stored = await this.repository.listTrades();
+    } catch {
+      return;
+    }
+    const recuperadas = this.paper.reconcile(stored);
+    const reais = recuperadas.filter((trade) => trade.mode !== 'PAPER');
+    if (reais.length === 0) return;
+    logger.warn('Posições abertas estavam fora da memória do motor e foram recuperadas', {
+      quantidade: reais.length,
+      operacoes: reais.map((trade) => `${trade.symbol}:${trade.id}`),
+    });
+    for (const trade of reais) {
+      this.audit.record({
+        action: 'LIVE_TRADE_RECOVERED',
+        mode: trade.mode,
+        symbol: trade.symbol,
+        setupId: trade.setupId,
+        tradeId: trade.id,
+        detail: {
+          motivo:
+            'a posição estava gravada como aberta mas não estava sendo vigiada por este processo',
+          status: trade.status,
+        },
+      });
     }
   }
 

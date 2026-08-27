@@ -9,6 +9,21 @@ export interface EditableTradePlan {
 }
 
 /**
+ * O prejuízo máximo que um stop pode desenhar, em % do preço de entrada.
+ *
+ * Não é preferência de risco — o tamanho da posição já cuida disso. É um teto
+ * de sanidade: um stop a mais de 30% do preço não é proteção, é a ausência
+ * dela com aparência de plano. Ele nasce de par ilíquido, de alvo digitado no
+ * campo errado e de tese com invalidação absurda; em todos esses casos a
+ * ordem certa é a que não sai.
+ *
+ * Vale para a ordem automática e para a manual, e a confirmação de "ordem
+ * forçada" NÃO o desarma: forçar existe para atropelar régua própria (R/R
+ * mínimo, teto de exposição), nunca para operar sem proteção.
+ */
+export const MAX_STOP_DISTANCE_PERCENT = 30;
+
+/**
  * Confere um plano contra o preço em que ele passará a valer.
  *
  * Para uma ordem nova, `referencePrice` é a entrada aprovada. Para uma
@@ -37,6 +52,12 @@ export function validateTradePlan(
       errors.push(`${label} precisa ser um preço positivo`);
     }
   }
+  // Sem stop não há ordem. Um plano que chega aqui com stop nulo, zerado ou
+  // não numérico não é "um plano sem stop": é um plano quebrado, e deixá-lo
+  // passar criaria posição sem saída na conta real.
+  if (plan.stopLoss === null || plan.stopLoss === undefined || !Number.isFinite(plan.stopLoss)) {
+    errors.push('Ordem sem stop não é permitida — defina o preço de invalidação');
+  }
   if (errors.length > 0) return errors;
 
   if (gainPerUnit(side, referencePrice, plan.stopLoss) >= 0) {
@@ -51,6 +72,13 @@ export function validateTradePlan(
       side === 'BUY'
         ? 'O alvo 1 precisa ficar acima do preço atual'
         : 'O alvo 1 precisa ficar abaixo do preço atual',
+    );
+  }
+
+  const distanciaDoStop = (Math.abs(referencePrice - plan.stopLoss) / referencePrice) * 100;
+  if (distanciaDoStop > MAX_STOP_DISTANCE_PERCENT) {
+    errors.push(
+      `Stop a ${distanciaDoStop.toFixed(1)}% do preço — acima do teto de ${MAX_STOP_DISTANCE_PERCENT}%. Um stop tão largo não protege a posição`,
     );
   }
 

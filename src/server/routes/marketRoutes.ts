@@ -16,6 +16,19 @@ import { getKlines, getUsdtBrlRate, parseKline, searchSymbols } from '../binance
 import { liveAutoTradeDenial } from '../services/executionService.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
 
+/**
+ * O que está aberto, segundo a persistência.
+ *
+ * Em modo degradado não há de onde ler, e inventar uma lista vazia seria pior
+ * que não responder — mas o painel degradado existe justamente para mostrar o
+ * motivo, então a lista vazia é o único caminho honesto ali.
+ */
+async function listOpenTrades(context: ApiContext) {
+  if (context.persistence.degraded) return [];
+  const trades = await context.repository.listTrades();
+  return trades.filter((trade) => trade.status === 'PENDING' || trade.status === 'OPEN');
+}
+
 /** O interruptor de uma modalidade, já com o motivo de a conta real recusar. */
 function robotStateOf(context: ApiContext, mode: TradingMode, market: MarketKind): RobotState {
   const policy = context.settings.forMode(mode, market);
@@ -52,7 +65,22 @@ export function marketRoutes(context: ApiContext): Router {
         assets: context.scanner.getAssets(),
         setups,
         alerts: [],
-        openTrades: context.paper.getOpenTrades().filter((trade) => trade.mode === mode),
+        /*
+         * As posições vêm do BANCO, não da memória do motor.
+         *
+         * Havia duas verdades sobre "o que está aberto": este mapa em memória
+         * e a lista gravada. Em 26/08/2026 elas divergiram — o banco tinha uma
+         * posição real de 23,78 USDT em NVDABUSDT e o mapa estava vazio —, e
+         * como o topo da tela soma `caixa + posições` para mostrar o
+         * patrimônio, ele anunciava 1,07 USDT: só o caixa. A aba dizia "1 em
+         * andamento" (ela lê do banco) e o contador ao lado dizia 0.
+         *
+         * Um número de dinheiro não pode depender de qual das duas fontes o
+         * caminho consultou. A leitura da lista é a mesma que /trades e
+         * /equity já fazem e vem do mesmo cache, então isto não custa volta
+         * nova.
+         */
+        openTrades: (await listOpenTrades(context)).filter((trade) => trade.mode === mode),
         settings: context.settings.get(),
         serverTime: new Date().toISOString(),
         binanceAvailable: context.market.isAvailable(),
@@ -124,7 +152,8 @@ export function marketRoutes(context: ApiContext): Router {
         return;
       }
       try {
-        const raw = await getKlines(symbol, timeframe, 300);
+        // o gráfico é sempre alguém esperando: fura a fila da varredura
+        const raw = await getKlines(symbol, timeframe, 300, true);
         const candles = raw.map((item, index) => parseKline(item, index < raw.length - 1));
         response.json({ symbol, timeframe, candles, source: 'rest' });
       } catch (error) {

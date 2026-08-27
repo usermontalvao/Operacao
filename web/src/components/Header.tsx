@@ -88,7 +88,17 @@ export function Header(props: HeaderProps) {
       : connectionLabel === 'RECONECTANDO' || connectionLabel === 'CONECTANDO'
         ? 'bg-warn'
         : 'bg-bear';
-  const demoSelected = mode !== 'LIVE';
+  /*
+    Enquanto a primeira leitura não volta, NENHUMA conta está selecionada.
+
+    `mode` nasce 'PAPER' porque algum valor tem de existir antes da resposta,
+    e o botão DEMO acendia por causa disso: quem abre o painel numa conta REAL
+    vê "DEMO" aceso por alguns segundos. É o pior lugar possível para um
+    palpite — a pergunta "que conta é esta?" é a que decide se um clique gasta
+    dinheiro de verdade. Sem resposta, o certo é não afirmar nada.
+  */
+  const demoSelected = !carregando && mode !== 'LIVE';
+  const realSelected = !carregando && mode === 'LIVE';
 
   /*
     O distintivo do robô com DUAS modalidades no ar.
@@ -163,18 +173,23 @@ export function Header(props: HeaderProps) {
           </button>
 
           <div className="order-3 col-span-2 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-1 shadow-[0_10px_26px_rgba(0,0,0,0.16)] lg:order-none lg:col-span-1 lg:justify-start">
-            <div className="flex shrink-0 rounded-lg border border-white/[0.05] bg-black/25 p-0.5">
+            <div
+              className="flex shrink-0 rounded-lg border border-white/[0.05] bg-black/25 p-0.5"
+              // trocar de conta antes de saber em qual se está é o mesmo erro
+              // por outro caminho: o seletor só aceita clique depois da resposta
+              aria-busy={carregando}
+            >
               <AccountButton
                 label="DEMO"
                 active={demoSelected}
-                disabled={switchingMode}
+                disabled={switchingMode || carregando}
                 onClick={() => onModeChange('PAPER')}
               />
               <AccountButton
                 label="REAL"
-                active={mode === 'LIVE'}
+                active={realSelected}
                 danger
-                disabled={switchingMode}
+                disabled={switchingMode || carregando}
                 onClick={() => onModeChange('LIVE')}
               />
             </div>

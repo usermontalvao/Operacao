@@ -58,7 +58,17 @@ export interface ExecutionDependencies {
   loadFilters: (symbol: string, market: MarketKind) => Promise<SymbolFilters | null>;
   loadUsdtBalance: (
     market: MarketKind,
-  ) => Promise<{ free: number; locked: number; idle?: Array<{ asset: string; free: number }> }>;
+  ) => Promise<{
+    free: number;
+    locked: number;
+    /*
+     * `locked` faz falta aqui. Uma posição spot protegida por OCO tem quase
+     * toda a quantidade presa na ordem de venda — na conta real de 26/08/2026,
+     * 0,108 de 0,1089 NVDAB. Contar só o `free` avaliaria a posição em três
+     * centavos em vez de 23,78 USDT.
+     */
+    idle?: Array<{ asset: string; free: number; locked?: number }>;
+  }>;
   loadBrlRate: () => Promise<number | null>;
 }
 
@@ -170,8 +180,20 @@ export interface PreviewRequest {
 }
 
 export interface CapitalView {
+  /** caixa em USDT: o que a corretora mostra como saldo da moeda de cotação */
   capital: number;
   available: number;
+  /**
+   * O que as moedas já compradas valem agora, em USDT.
+   *
+   * Fica separado de `capital` de propósito. Somar os dois dá o PATRIMÔNIO —
+   * é ele que o disjuntor tem de usar — mas há telas que precisam do caixa
+   * puro, e uma soma feita cedo demais viraria dinheiro contado duas vezes na
+   * primeira vez que alguém somasse posição por cima. Zero em PAPER (a
+   * carteira de papel já é patrimônio) e em futuros (a margem já está no
+   * saldo).
+   */
+  holdingsValue: number;
   source: string;
   currency: 'USDT';
   brlRate: number | null;
@@ -256,6 +278,25 @@ interface ConfirmationPayload {
  *  2. A compra automática existe apenas para PAPER e TESTNET — o modo LIVE é
  *     recusado explicitamente, não por configuração.
  */
+/**
+ * Patrimônio da conta: o caixa mais o que as moedas valem.
+ *
+ * Um lugar só para a soma, porque ela precisa bater em toda porta que decide
+ * risco. Quem quer o dinheiro gastável continua lendo `available`.
+ */
+/**
+ * Abaixo disto, o saldo é resíduo de venda e não vale um aviso.
+ *
+ * Um centavo de PEPE não é dinheiro esquecido: é o que sobra do arredondamento
+ * de lote da última saída, e a corretora nem aceita vendê-lo. Avisar sobre ele
+ * é gastar a atenção do usuário com algo que não tem ação possível.
+ */
+const POEIRA_USDT = 1;
+
+export function patrimonio(view: CapitalView): number {
+  return round(view.capital + view.holdingsValue, 2);
+}
+
 export class ExecutionService {
   private readonly repository: Repository;
   private readonly settings: SettingsService;
@@ -315,6 +356,7 @@ export class ExecutionService {
       return {
         capital: balance.capital,
         available: balance.available,
+        holdingsValue: 0,
         source: 'PAPER',
         currency: 'USDT',
         brlRate,
@@ -323,9 +365,40 @@ export class ExecutionService {
 
     const usdt = await this.dependencies.loadUsdtBalance(market);
     const environment = environmentForMode(mode, market);
+    /*
+     * Em spot, capital é caixa MAIS o que as moedas valem.
+     *
+     * Isto era só o USDT — e por isso o capital de uma conta spot despencava
+     * no instante em que ela comprava alguma coisa: o dinheiro saía do caixa e
+     * passava a existir como moeda, que ninguém contava. Em 26/08/2026 a conta
+     * real valia 24,86 USDT (1,07 em caixa e 23,78 em NVDAB) e o sistema
+     * inteiro trabalhava com 1,07.
+     *
+     * As consequências não eram de tela. O teto de exposição compara
+     * `exposição + ordem nova` contra `capital × 80%`; com a exposição
+     * contando a posição (23,78) e o capital contando só o caixa (1,07), os
+     * dois lados falavam de coisas diferentes e a conta NUNCA fechava — 80% de
+     * 1,07 é 0,86, e qualquer ordem era recusada por "exposição total". Pior:
+     * o tamanho da ordem também sai daqui, então as poucas que passavam
+     * nasciam de centavos e morriam no mínimo da Binance. O robô ficou
+     * impedido de comprar na conta real enquanto houvesse UMA posição aberta.
+     *
+     * `available` continua sendo o caixa: patrimônio é o que se tem, mas só o
+     * caixa é o que se pode gastar. O que não tem preço vivo fica de fora — um
+     * capital menor só aperta o porteiro, e apertar erra para o lado seguro.
+     */
+    const holdingsValue =
+      market === 'SPOT'
+        ? (usdt.idle ?? []).reduce((total, holding) => {
+            const price = this.market.getPrice(`${holding.asset}USDT`);
+            if (price === null || price <= 0) return total;
+            return total + (holding.free + (holding.locked ?? 0)) * price;
+          }, 0)
+        : 0;
     return {
       capital: round(usdt.free + usdt.locked, 2),
       available: round(usdt.free, 2),
+      holdingsValue: round(holdingsValue, 2),
       source:
         environment.network === 'testnet'
           ? market === 'FUTURES'
@@ -417,7 +490,16 @@ export class ExecutionService {
       side,
     });
 
-    const snapshot = await this.risk.snapshot(capitalView.capital, mode, market);
+    /*
+      O disjuntor mede contra o PATRIMÔNIO, não contra o caixa.
+
+      Era aqui que a conta não fechava: a exposição soma as posições abertas e
+      o teto era 80% do caixa. Em 26/08/2026, com 1,07 USDT em caixa e 23,78
+      em NVDAB, o porteiro comparava 23,78 contra 0,86 e recusava TUDO —
+      inclusive BABYUSDT, que a decisão tinha acabado de liberar. Enquanto
+      houvesse uma posição aberta, o robô não comprava mais nada na conta real.
+    */
+    const snapshot = await this.risk.snapshot(patrimonio(capitalView), mode, market);
     const openTrades = this.paper
       .getOpenTrades()
       .filter((trade) => trade.mode === mode && trade.market === market);
@@ -473,7 +555,7 @@ export class ExecutionService {
     const sized = sizeByRisk({
       entryPrice,
       stopLoss: requestedSetup.stopLoss,
-      equity: snapshot.equity > 0 ? snapshot.equity : capitalView.capital,
+      equity: snapshot.equity > 0 ? snapshot.equity : patrimonio(capitalView),
       available: capitalView.available,
       riskPerTradePercent: policy.risk.riskPerTradePercent,
       maxPositionPercent: policy.risk.maxPositionPercent,
@@ -638,18 +720,46 @@ export class ExecutionService {
       warnings.push('Setup marcado como ESTICADO — o preço já se afastou do ponto de invalidação');
     }
     /*
-     * Dinheiro na conta que o painel não enxerga.
+     * Dinheiro na conta que o painel não enxerga — UM aviso, não sete.
      *
-     * Depósito em reais cai como BRL. O painel opera pares USDT e conta só
-     * USDT, então o saldo não se mexe — e a conclusão natural de quem acabou
-     * de depositar é "não caiu". Caiu, está na moeda errada, e só a corretora
-     * converte. O aviso aparece onde a dúvida nasce: ao lado do "capital
-     * disponível".
+     * Depósito em reais cai como BRL. O painel opera pares USDT, então o caixa
+     * não se mexe e a conclusão natural de quem depositou é "não caiu". Caiu,
+     * está na moeda errada, e só a corretora converte.
+     *
+     * Isto virava uma linha POR MOEDA, com o mesmo texto de trinta palavras
+     * repetido. Numa conta com poeira de seis vendas antigas, o aviso que
+     * importa some no meio de seis irmãos idênticos. Duas correções:
+     *
+     *  1. a moeda de uma POSIÇÃO ABERTA não é dinheiro parado. Ela aparecia
+     *     aqui pedindo para ser convertida — exatamente a moeda que o sistema
+     *     acabou de comprar de propósito;
+     *  2. o que sobra é resíduo. Só vale avisar sobre o que dá para converter:
+     *     poeira abaixo do mínimo negociável não tem ação possível, e um aviso
+     *     sem ação é ruído. Uma linha, as moedas juntas, maior primeiro.
      */
-    for (const parado of capitalView.idleAssets ?? []) {
-      const quantidade = parado.free + (parado.locked ?? 0);
+    const emPosicao = new Set(
+      openTrades.map((trade) => trade.symbol.replace(/USDT$/, '')),
+    );
+    const parados = (capitalView.idleAssets ?? [])
+      .filter((parado) => !emPosicao.has(parado.asset))
+      .map((parado) => {
+        const quantidade = parado.free + (parado.locked ?? 0);
+        const preco = this.market.getPrice(`${parado.asset}USDT`);
+        return { asset: parado.asset, quantidade, valor: preco === null ? null : quantidade * preco };
+      })
+      // sem cotação não dá para dizer se é resíduo: melhor avisar do que calar
+      .filter((parado) => parado.valor === null || parado.valor >= POEIRA_USDT)
+      .sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0));
+
+    if (parados.length > 0) {
+      const lista = parados
+        .map(
+          (parado) =>
+            `${parado.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 8 })} ${parado.asset}`,
+        )
+        .join(', ');
       warnings.push(
-        `Há ${quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 8 })} ${parado.asset} na conta que o painel NÃO usa — ele opera em USDT. Converta na Binance para que entre no capital`,
+        `Na conta há ${lista} — o painel opera em USDT e não conta ${parados.length > 1 ? 'esses saldos' : 'esse saldo'}. Converta na Binance para que ${parados.length > 1 ? 'entrem' : 'entre'} no capital`,
       );
     }
 
@@ -862,6 +972,17 @@ export class ExecutionService {
     mode: TradingMode = this.settings.get().mode,
     decision?: EntryDecision,
     market: MarketKind = setup.market ?? this.settings.get().market,
+    /*
+      Avisado quando a EXECUÇÃO recusa o que a decisão já tinha liberado.
+
+      Existiam duas portas e só a primeira tinha voz. A decisão dizia ALLOWED,
+      o painel escrevia "robô entraria", e aqui a ordem morria no teto de
+      exposição ou no mínimo da corretora — com o motivo indo para o log de
+      auditoria, onde ninguém procura. Foi assim que "por que não entrou?"
+      ficou sem resposta em BABYUSDT no dia 26/08/2026: liberada às 22:46:35,
+      recusada às 22:46:36, e a tela continuou prometendo a entrada.
+    */
+    onRefused?: (refusal: { blockers: string[]; warnings: string[] }) => void,
   ): Promise<Trade | null> {
     const policy = this.settings.forMode(mode, market);
     if (!policy.autoTrade.enabled) return null;
@@ -918,6 +1039,14 @@ export class ExecutionService {
           filterErrors: preview.filterErrors,
           risco: preview.riskSizing.blockReason,
         },
+      });
+      onRefused?.({
+        blockers: [
+          ...preview.blockers,
+          ...preview.filterErrors,
+          ...(preview.riskSizing.blockReason === null ? [] : [preview.riskSizing.blockReason]),
+        ],
+        warnings: preview.warnings,
       });
       return null;
     }

@@ -125,14 +125,21 @@ export function PriceChart({
   /** o gráfico ocupando a tela inteira, para ler o candle de perto */
   const [ampliado, setAmpliado] = useState(false);
   /*
-   * Ampliar recria o gráfico — e recriar custa o zoom que a pessoa tinha
-   * dado. É aceitável aqui porque ampliar JÁ é um gesto de "quero outra
-   * vista"; seria inaceitável se acontecesse sozinho, e é por isso que a
-   * altura só muda quando alguém clica.
+   * Ampliar NÃO recria o gráfico.
+   *
+   * Recriava: a altura entrava nas dependências do efeito que monta o gráfico,
+   * então clicar em "ampliar" destruía a instância e montava outra. Só que a
+   * carga de candles depende do par e do tempo gráfico — nenhum dos dois muda
+   * ao ampliar —, então ela não rodava de novo e o gráfico novo nascia VAZIO.
+   * O único desenho que sobrava era o do preço vivo, um candle só: era isso
+   * que aparecia em tela cheia, com a escala de preço apertada em volta dele.
+   *
+   * Agora a altura é aplicada no gráfico que já existe, e em tela cheia ela
+   * nem é calculada — quem manda é o CSS, e o observador de tamanho conta o
+   * que sobrou. Adivinhar `window.innerHeight - 150` também deixava um vão
+   * morto embaixo e não sobrevivia a redimensionar a janela.
    */
-  const alturaEfetiva = ampliado
-    ? Math.max(420, (typeof window === 'undefined' ? 900 : window.innerHeight) - 150)
-    : height;
+  const alturaFixa = ampliado ? null : height;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   /** muda a cada carga de candles: é o gatilho para redesenhar o que é sobreposto */
@@ -223,7 +230,7 @@ export function PriceChart({
   useEffect(() => {
     if (!container.current) return;
     const chart = createChart(container.current, {
-      height: alturaEfetiva,
+      height: container.current.clientHeight || height,
       layout: {
         background: { color: 'transparent' },
         textColor: '#8b909a',
@@ -255,9 +262,18 @@ export function PriceChart({
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     markerPlugin.current = createSeriesMarkers(candleSeries.current, []);
 
+    // largura E altura: em tela cheia o tamanho vem do CSS, e medir é a única
+    // forma de acompanhar o flex, o redimensionar da janela e o girar do
+    // celular sem recriar nada
     const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width) chart.applyOptions({ width });
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const width = Math.round(rect.width);
+      const alturaMedida = Math.round(rect.height);
+      chart.applyOptions({
+        ...(width > 0 ? { width } : {}),
+        ...(alturaMedida > 0 ? { height: alturaMedida } : {}),
+      });
     });
     observer.observe(container.current);
 
@@ -270,7 +286,9 @@ export function PriceChart({
       markerPlugin.current = null;
       priceLines.current = [];
     };
-  }, [alturaEfetiva]);
+    // monta UMA vez: altura e largura entram pelo observador acima
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // carga dos candles: só o par e o timeframe mandam recarregar
   useEffect(() => {
@@ -393,18 +411,35 @@ export function PriceChart({
     if (!ampliado) return;
     const aoTeclar = (event: KeyboardEvent): void => {
       // Esc é o gesto que todo mundo tenta primeiro; sem ele o gráfico
-      // ampliado vira uma tela da qual não se sabe sair
-      if (event.key === 'Escape') setAmpliado(false);
+      // ampliado vira uma tela da qual não se sabe sair. `stopPropagation`
+      // impede que o mesmo Esc feche a janela ATRÁS do gráfico: quem amplia
+      // quer voltar para a janela, não perder o que estava fazendo nela.
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setAmpliado(false);
     };
-    window.addEventListener('keydown', aoTeclar);
-    return () => window.removeEventListener('keydown', aoTeclar);
+    // trava a rolagem de trás enquanto o gráfico ocupa a tela: rolar a janela
+    // escondida e voltar noutro ponto é desorientador
+    const overflowAnterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // avisa a janela de baixo que o Esc agora é deste gráfico
+    document.body.dataset.graficoAmpliado = 'sim';
+    window.addEventListener('keydown', aoTeclar, true);
+    return () => {
+      window.removeEventListener('keydown', aoTeclar, true);
+      document.body.style.overflow = overflowAnterior;
+      delete document.body.dataset.graficoAmpliado;
+    };
   }, [ampliado]);
 
   return (
     <div
       className={
         ampliado
-          ? 'fixed inset-0 z-50 flex flex-col bg-terminal-bg/98 p-3 backdrop-blur'
+          ? // opaco de verdade: com 98% a janela de trás continuava aparecendo
+            // por baixo do gráfico, e um gráfico com outra tela atravessando
+            // não se lê
+            'fixed inset-0 z-[60] flex h-[100dvh] w-screen flex-col bg-terminal-bg p-3'
           : 'rounded-xl border border-terminal-border bg-terminal-panel-soft p-2'
       }
     >
@@ -439,7 +474,10 @@ export function PriceChart({
         </div>
       </div>
       {error ? (
-        <div className="flex items-center justify-center text-xs text-bear" style={{ height: alturaEfetiva }}>
+        <div
+          className="flex flex-1 items-center justify-center text-xs text-bear"
+          style={alturaFixa === null ? undefined : { height: alturaFixa }}
+        >
           {error}
         </div>
       ) : null}
@@ -449,16 +487,23 @@ export function PriceChart({
         </p>
       ) : null}
       <div
-        className={`${loading ? 'opacity-40' : ''} ${draggingLevel ? 'cursor-ns-resize' : ''}`}
+        className={`${loading ? 'opacity-40' : ''} ${draggingLevel ? 'cursor-ns-resize' : ''} ${
+          // em tela cheia quem dá altura é o flex; `min-h-0` é o que impede o
+          // filho de empurrar o pai e deixar a barra de tempo fora da tela
+          ampliado ? 'min-h-0 flex-1' : ''
+        }`}
         ref={container}
         onPointerDownCapture={startLevelDrag}
         onPointerMoveCapture={moveLevel}
         onPointerUpCapture={finishLevelDrag}
         onPointerCancelCapture={finishLevelDrag}
-        // O navegador decide o gesto de toque no pointerdown; trocar para
-        // `none` depois que começou já é tarde. `pan-x` reserva o movimento
-        // vertical para a linha e ainda deixa a página rolar lateralmente.
-        style={editable.size > 0 ? { touchAction: 'pan-x' } : undefined}
+        style={{
+          // O navegador decide o gesto de toque no pointerdown; trocar para
+          // `none` depois que começou já é tarde. `pan-x` reserva o movimento
+          // vertical para a linha e ainda deixa a página rolar lateralmente.
+          ...(editable.size > 0 ? { touchAction: 'pan-x' as const } : {}),
+          ...(alturaFixa === null ? {} : { height: alturaFixa }),
+        }}
       />
     </div>
   );

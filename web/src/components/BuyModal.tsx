@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { api, type PreviewResponse } from '../lib/api.ts';
+import { useAtalhosDeModal } from '../lib/atalhos.ts';
 import type { Trade, TradeSetup } from '../lib/types.ts';
 import { PriceChart, type EditableChartLevel } from './PriceChart.tsx';
 import {
@@ -110,6 +111,20 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
   */
   const setup: TradeSetup = { ...(preview?.setup ?? clicado), ...draftPlan };
   const manualComPoliticaEmAviso = !futuros && preview?.overridden === true;
+
+  /*
+    Esc fecha; Enter avança de DIMENSIONAR para CONFIRMAR — e para por aí.
+
+    O último passo continua exigindo clique. Enter é a tecla que o dedo aperta
+    sozinho depois de digitar um valor, e "mandar a ordem de dinheiro real
+    porque o dedo apertou Enter" é o acidente que nenhuma auditoria desfaz. O
+    atalho serve para chegar mais rápido à revisão, nunca para pular a revisão.
+  */
+  useAtalhosDeModal({
+    onClose,
+    onConfirm: () => setStep('CONFIRM'),
+    confirmHabilitado: step === 'SIZE' && preview?.canExecute === true && !loading,
+  });
 
   const load = useCallback(
     async (body: {
@@ -240,8 +255,18 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 sm:items-center" onClick={onClose}>
+      {/*
+        A largura acompanha a tela.
+
+        Ficava presa em 672 px (`max-w-2xl`) em qualquer monitor: o gráfico
+        espremido, as duas colunas de números com meia palavra por linha, e a
+        janela inteira só de rolagem — enquanto a folha do setup, ao lado, já
+        usava 1152 px. Aqui o teto sobe por faixa: o celular continua colado
+        embaixo, o notebook ganha ar e o monitor grande deixa a decisão caber
+        sem rolar.
+      */}
       <div
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5"
+        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden overscroll-contain rounded-t-2xl border border-terminal-border bg-terminal-panel p-4 sm:rounded-2xl sm:p-5 lg:max-w-4xl xl:max-w-6xl xl:p-6"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2">
@@ -293,9 +318,30 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
           </span>
         </div>
 
+        {/*
+          Corpo rolante, rodapé parado.
+
+          A janela inteira rolava e a ação ia junto: com gráfico, tamanho,
+          alavancagem, a conta da ordem e os bloqueios acima dele, o botão caía
+          fora da tela — e tentar prendê-lo com `sticky` só fez ele passar por
+          cima do texto que explicava a recusa. Rodapé de verdade resolve as
+          duas coisas: a ação está sempre no mesmo lugar e nunca cobre nada.
+        */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
         {step === 'SIZE' ? (
           <>
-            <section className="mt-3 rounded-xl border border-terminal-border bg-terminal-panel-soft p-2.5">
+            {/*
+              Boleta: gráfico de um lado, ordem do outro.
+
+              O gráfico ocupava a largura inteira e TUDO o que decide a ordem —
+              capital, tamanho, alavancagem, a conta do risco, os avisos e o
+              botão — vinha empilhado embaixo dele. Numa tela de notebook isso
+              é meia janela de rolagem entre "onde está o preço" e "quanto vou
+              mandar": as duas informações que só valem juntas. Lado a lado,
+              a decisão inteira cabe num olhar.
+            */}
+            <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] xl:items-start">
+            <section className="min-w-0 rounded-xl border border-terminal-border bg-terminal-panel-soft p-2.5">
               <div className="mb-2 flex items-center justify-between gap-3 px-0.5">
                 <div>
                   <p className="text-xs font-semibold">Ajustar stop e alvos</p>
@@ -320,7 +366,7 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                   ...draftPlan,
                 }}
                 livePrice={preview?.currentPrice ?? setup.currentPrice}
-                height={240}
+                height={300}
                 editableLevels={[
                   'stopLoss',
                   'target1',
@@ -364,7 +410,9 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 ) : null}
               </div>
             </section>
-            <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+
+            {/* a coluna da ordem: da conta ao botão, sem nada entre eles */}
+            <div className="flex min-w-0 flex-col gap-2.5">
             <div>
             <div className="rounded-xl border border-terminal-border bg-terminal-panel-soft p-3 text-sm">
               <div className="flex justify-between">
@@ -546,7 +594,6 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                 ) : null}
               </div>
             ) : null}
-            </div>
 
             <Messages preview={preview} error={error} />
 
@@ -618,31 +665,8 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
               </div>
             ) : null}
 
-            <button
-              type="button"
-              disabled={!preview?.canExecute || loading}
-              onClick={() => setStep('CONFIRM')}
-              title={
-                preview && !preview.canExecute
-                  ? [...preview.blockers, ...preview.filterErrors].join(' · ')
-                  : undefined
-              }
-              className={`mt-3.5 w-full rounded-lg px-4 py-2.5 text-sm font-bold disabled:opacity-40 ${sideButton(
-                side,
-              )}`}
-            >
-              {loading
-                ? 'Calculando…'
-                : preview && !preview.canExecute
-                  ? preview.blockers.some((item) => item.includes('R/R líquido'))
-                    ? 'Bloqueada: R/R líquido abaixo do mínimo'
-                    : 'Operação bloqueada'
-                  : preview?.overridden
-                    ? manualComPoliticaEmAviso
-                      ? 'Revisar compra manual'
-                      : 'Revisar operação FORÇADA'
-                    : 'Revisar operação'}
-            </button>
+            </div>
+            </div>
           </>
         ) : (
           <>
@@ -718,7 +742,39 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
 
             <Messages preview={preview} error={error} />
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
+          </>
+        )}
+        </div>
+
+        <div className="shrink-0 pt-3">
+          {step === 'SIZE' ? (
+            <button
+              type="button"
+              disabled={!preview?.canExecute || loading}
+              onClick={() => setStep('CONFIRM')}
+              title={
+                preview && !preview.canExecute
+                  ? [...preview.blockers, ...preview.filterErrors].join(' · ')
+                  : undefined
+              }
+              className={`w-full rounded-lg px-4 py-3 text-sm font-bold disabled:opacity-40 ${sideButton(
+                side,
+              )}`}
+            >
+              {loading
+                ? 'Calculando…'
+                : preview && !preview.canExecute
+                  ? preview.blockers.some((item) => item.includes('R/R líquido'))
+                    ? 'Bloqueada: R/R líquido abaixo do mínimo'
+                    : 'Operação bloqueada'
+                  : preview?.overridden
+                    ? manualComPoliticaEmAviso
+                      ? 'Revisar compra manual'
+                      : 'Revisar operação FORÇADA'
+                    : 'Revisar operação'}
+            </button>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setStep('SIZE')}
@@ -746,8 +802,8 @@ export function BuyModal({ setup: clicado, onClose, onExecuted }: BuyModalProps)
                     : `CONFIRMAR ${SIDE_LABEL[side]}`}
               </button>
             </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -816,7 +872,20 @@ function PlanInput({
   );
 }
 
+/**
+ * O que impede e o que apenas avisa — com pesos diferentes na tela.
+ *
+ * Antes as duas listas vinham abertas, uma linha por frase, cada frase com
+ * trinta palavras. Numa conta comum davam nove parágrafos empilhados entre a
+ * conta da ordem e o botão: o bloqueio que interessa perdido no meio de sete
+ * avisos que não mudam nada, e o botão empurrado para fora da tela.
+ *
+ * Bloqueio continua aberto: ele é o motivo de a ordem não sair, e esconder
+ * isso seria esconder a resposta. Aviso vira uma linha resumida que abre no
+ * clique — presente, contável, e fora do caminho de quem já leu.
+ */
 function Messages({ preview, error }: { preview: PreviewResponse | null; error: string | null }) {
+  const [abertos, setAbertos] = useState(false);
   const blockers = [...new Set([...(preview?.blockers ?? []), ...(preview?.filterErrors ?? [])])];
   // `preview.warnings` já é a lista consolidada pelo servidor e contém os
   // avisos do dimensionamento. Somar `sizing.warnings` novamente fazia a
@@ -824,20 +893,47 @@ function Messages({ preview, error }: { preview: PreviewResponse | null; error: 
   const warnings = [...new Set(preview?.warnings ?? [])];
   return (
     <>
-      {error ? <p className="mt-3 rounded border border-bear/40 bg-bear/10 p-2 text-xs text-bear">{error}</p> : null}
+      {error ? (
+        <p className="mt-2.5 rounded-lg border border-bear/40 bg-bear/10 p-2 text-xs text-bear">
+          {error}
+        </p>
+      ) : null}
       {blockers.length > 0 ? (
-        <ul className="mt-3 space-y-1 rounded border border-bear/40 bg-bear/10 p-2 text-xs text-bear">
+        <ul className="mt-2.5 space-y-1 rounded-lg border border-bear/40 bg-bear/10 p-2 text-[11px] leading-relaxed text-bear">
           {blockers.map((item) => (
             <li key={item}>• {item}</li>
           ))}
         </ul>
       ) : null}
       {warnings.length > 0 ? (
-        <ul className="mt-2 space-y-1 rounded border border-warn/40 bg-warn/10 p-2 text-xs text-warn">
-          {warnings.map((item) => (
-            <li key={item}>• {item}</li>
-          ))}
-        </ul>
+        <div className="mt-2 overflow-hidden rounded-lg border border-warn/35 bg-warn/[0.07]">
+          <button
+            type="button"
+            onClick={() => setAbertos((atual) => !atual)}
+            aria-expanded={abertos}
+            className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] font-semibold text-warn transition hover:bg-warn/10"
+          >
+            <span
+              aria-hidden
+              className={`text-[9px] transition-transform duration-150 ${abertos ? 'rotate-90' : ''}`}
+            >
+              ▶
+            </span>
+            <span>
+              {warnings.length} {warnings.length === 1 ? 'aviso' : 'avisos'}
+            </span>
+            <span className="ml-auto text-[10px] font-normal text-warn/70">
+              {abertos ? 'ocultar' : 'não bloqueiam a ordem'}
+            </span>
+          </button>
+          {abertos ? (
+            <ul className="space-y-1 border-t border-warn/20 px-2 py-1.5 text-[10px] leading-relaxed text-warn/90">
+              {warnings.map((item) => (
+                <li key={item}>• {item}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
     </>
   );

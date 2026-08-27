@@ -69,6 +69,32 @@ export class PaperTradingEngine {
     }
   }
 
+  /**
+   * Devolve à memória o que o banco diz estar aberto e aqui não está.
+   *
+   * O mapa de posições abertas vive no processo e o banco vive fora dele. Em
+   * 26/08/2026 os dois divergiram: o banco tinha uma posição REAL aberta e o
+   * mapa estava vazio. Isso não é um defeito de tela — quem vigia stop, alvo e
+   * preenchimento na conta real percorre justamente este mapa, então uma
+   * posição que sai dele deixa de ser vigiada com dinheiro dentro.
+   *
+   * A direção é só uma: o banco repõe o que falta na memória. O contrário —
+   * a memória apagar o que o banco tem — é exatamente o modo de falha que se
+   * quer impedir, e um encerramento de verdade sempre passa por `saveTrade`
+   * antes de `track`, então nada fica pendurado aqui por engano.
+   */
+  reconcile(stored: Trade[]): Trade[] {
+    const recuperadas: Trade[] = [];
+    for (const raw of stored) {
+      if (raw.status !== 'PENDING' && raw.status !== 'OPEN') continue;
+      if (this.open.has(raw.id)) continue;
+      const trade = migrateTrade(raw);
+      this.open.set(trade.id, trade);
+      recuperadas.push(trade);
+    }
+    return recuperadas;
+  }
+
   getOpenTrades(): Trade[] {
     return [...this.open.values()];
   }

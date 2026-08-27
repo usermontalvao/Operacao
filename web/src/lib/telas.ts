@@ -13,6 +13,17 @@ import { buildPeriod, periodQuery, type PeriodId } from '../components/PeriodFil
  */
 
 export const chaveOperacoes = 'operacoes';
+/**
+ * O histórico de teses é uma chave só dele, e de propósito.
+ *
+ * Ele vinha junto com a carteira, então as abas "Em andamento" e "Encerradas"
+ * baixavam 1,25 MB de teses a cada 5 segundos para não mostrar nenhuma. Agora
+ * só a aba que o exibe o pede — e num ritmo mais folgado, porque uma tese
+ * registrada não muda mais.
+ */
+export const chaveSetupsHistorico = 'setups-historico';
+/** Chave inerte: `useResource` precisa de uma, e esta não busca nada. */
+export const chaveOciosa = 'ociosa';
 export const chaveAjustes = 'ajustes';
 export const chaveDesempenho = (periodo: PeriodId): string => `desempenho:${periodo}`;
 export const chaveDiario = (periodo: PeriodId): string => `diario:${periodo}`;
@@ -21,12 +32,12 @@ export const chaveDiario = (periodo: PeriodId): string => `diario:${periodo}`;
 export const PERIODO_PADRAO: PeriodId = 'MES';
 
 export async function buscarOperacoes() {
-  const [equity, trades, setups] = await Promise.all([
-    api.equity(),
-    api.trades(),
-    api.setupHistory(),
-  ]);
-  return { equity, trades, setups };
+  const [equity, trades] = await Promise.all([api.equity(), api.trades()]);
+  return { equity, trades };
+}
+
+export async function buscarSetupsHistorico() {
+  return api.setupHistory();
 }
 
 export async function buscarAjustes() {

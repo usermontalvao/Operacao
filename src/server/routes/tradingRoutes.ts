@@ -6,8 +6,8 @@ import { analyzeFactors, buildEquityCurve } from '../../core/analytics.ts';
 import { gainPerUnit } from '../../core/direction.ts';
 import { round } from '../../core/risk/index.ts';
 import { PANIC_CLOSE_REASON } from '../../core/risk/governor.ts';
-import { getTickers, listTradableSymbols } from '../binance/rest.ts';
-import { ExecutionError, liveAutoTradeDenial } from '../services/executionService.ts';
+import { getTickersForView, listTradableSymbols } from '../binance/rest.ts';
+import { ExecutionError, liveAutoTradeDenial, patrimonio } from '../services/executionService.ts';
 import { buildSpotHoldings } from '../services/spotHoldings.ts';
 import { asyncHandler, type ApiContext } from './context.ts';
 
@@ -335,8 +335,15 @@ export function tradingRoutes(context: ApiContext): Router {
     asyncHandler(async (_request, response) => {
       const settings = context.settings.get();
       const capital = await context.execution.getCapital();
-      // o retrato é da carteira EM EXIBIÇÃO: modo e modalidade juntos
-      const snapshot = await context.risk.snapshot(capital.capital, settings.mode, settings.market);
+      // o retrato é da carteira EM EXIBIÇÃO: modo e modalidade juntos, e a
+      // base é o patrimônio — o mesmo número que o porteiro da ordem usa. Com
+      // o caixa puro aqui, a tela do disjuntor mostrava uma exposição de
+      // 2.200% assim que houvesse uma posição aberta em spot.
+      const snapshot = await context.risk.snapshot(
+        patrimonio(capital),
+        settings.mode,
+        settings.market,
+      );
       response.json({
         ...snapshot,
         guard: settings.guard,
@@ -422,7 +429,7 @@ export function tradingRoutes(context: ApiContext): Router {
         ),
       ];
       const fallbackTickers =
-        missingSymbols.length > 0 ? await getTickers(missingSymbols).catch(() => []) : [];
+        missingSymbols.length > 0 ? await getTickersForView(missingSymbols).catch(() => []) : [];
       const fallbackPrices = new Map(
         fallbackTickers.map((ticker) => [ticker.symbol, Number(ticker.lastPrice)]),
       );
@@ -451,7 +458,7 @@ export function tradingRoutes(context: ApiContext): Router {
               .filter((symbol): symbol is string => symbol !== undefined),
           ),
         ];
-        const tickers = symbols.length > 0 ? await getTickers(symbols).catch(() => []) : [];
+        const tickers = symbols.length > 0 ? await getTickersForView(symbols).catch(() => []) : [];
         holdings = buildSpotHoldings(
           capital.idleAssets ?? [],
           symbolByAsset,

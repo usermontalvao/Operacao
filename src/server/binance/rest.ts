@@ -100,6 +100,20 @@ interface RequestJob {
  * atrás de centenas de candles já enfileirados.
  */
 const signedQueue: RequestJob[] = [];
+/**
+ * A fila de quem está esperando na tela.
+ *
+ * Havia duas pistas: assinada (ordem, saldo, proteção) e pública. O scanner
+ * varre centenas de pares e enche a pública de candles — então o gráfico que
+ * o usuário acabou de abrir e a cotação que a Carteira precisa entravam ATRÁS
+ * de uma varredura inteira. Medido em 26/08/2026: a Carteira levava de 1,3 a
+ * 26 segundos, e o gráfico do modal abria vazio.
+ *
+ * Esta pista fica no meio. Não fura a assinada — dinheiro na frente de tudo —
+ * mas passa na frente do trabalho de fundo, que é justamente o que pode
+ * esperar: ninguém está olhando para a varredura.
+ */
+const viewQueue: RequestJob[] = [];
 const publicQueue: RequestJob[] = [];
 let drainingRequests = false;
 
@@ -108,14 +122,22 @@ function isSignedOrMutating(init: RequestInit): boolean {
   return headers.has('X-MBX-APIKEY') || (init.method !== undefined && init.method !== 'GET');
 }
 
-function enqueueRequest<T>(run: () => Promise<T>, priority: 'SIGNED' | 'PUBLIC'): Promise<T> {
+type RequestPriority = 'SIGNED' | 'VIEW' | 'PUBLIC';
+
+const QUEUES: Record<RequestPriority, RequestJob[]> = {
+  SIGNED: signedQueue,
+  VIEW: viewQueue,
+  PUBLIC: publicQueue,
+};
+
+function enqueueRequest<T>(run: () => Promise<T>, priority: RequestPriority): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const job: RequestJob = {
       run,
       resolve: (value) => resolve(value as T),
       reject,
     };
-    (priority === 'SIGNED' ? signedQueue : publicQueue).push(job);
+    QUEUES[priority].push(job);
     void drainRequestQueue();
   });
 }
@@ -130,10 +152,11 @@ async function drainRequestQueue(): Promise<void> {
   if (drainingRequests) return;
   drainingRequests = true;
   try {
-    while (signedQueue.length > 0 || publicQueue.length > 0) {
-      // A fila assinada pode furar a fila pública, mas não interrompe a única
-      // chamada que já começou. Na prática o atraso de uma ordem é <= 1 HTTP.
-      const job = signedQueue.shift() ?? publicQueue.shift();
+    while (signedQueue.length > 0 || viewQueue.length > 0 || publicQueue.length > 0) {
+      // A ordem das pistas é a ordem de quem não pode esperar: dinheiro, tela,
+      // trabalho de fundo. Nenhuma interrompe a única chamada que já começou —
+      // na prática o atraso de uma ordem é <= 1 HTTP.
+      const job = signedQueue.shift() ?? viewQueue.shift() ?? publicQueue.shift();
       if (!job) continue;
       await waitForRequestWindow();
       try {
@@ -146,7 +169,9 @@ async function drainRequestQueue(): Promise<void> {
     drainingRequests = false;
     // Cobre o caso raro de uma chamada entrar entre o último `while` e o
     // `finally`; `enqueueRequest` viu a fila como ocupada e não abriu outra.
-    if (signedQueue.length > 0 || publicQueue.length > 0) void drainRequestQueue();
+    if (signedQueue.length > 0 || viewQueue.length > 0 || publicQueue.length > 0) {
+      void drainRequestQueue();
+    }
   }
 }
 
@@ -204,10 +229,15 @@ async function performRequest<T>(url: string, init: RequestInit): Promise<T> {
   return payload as T;
 }
 
-async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(
+  url: string,
+  init: RequestInit = {},
+  /** 'VIEW' para o que alguém está esperando aparecer na tela */
+  priority: RequestPriority = 'PUBLIC',
+): Promise<T> {
   return enqueueRequest(
     () => performRequest<T>(url, init),
-    isSignedOrMutating(init) ? 'SIGNED' : 'PUBLIC',
+    isSignedOrMutating(init) ? 'SIGNED' : priority,
   );
 }
 
@@ -390,8 +420,19 @@ export async function getKlines(
   symbol: string,
   interval: string,
   limit = 300,
+  /**
+   * true quando é o gráfico de alguém que está olhando a tela agora. A
+   * varredura pede os mesmos candles às centenas; sem esta distinção, abrir um
+   * gráfico significava esperar a varredura inteira terminar e a janela abria
+   * vazia.
+   */
+  paraTela = false,
 ): Promise<RawKline[]> {
-  return request<RawKline[]>(publicUrl(endpoint('klines'), { symbol, interval, limit }));
+  return request<RawKline[]>(
+    publicUrl(endpoint('klines'), { symbol, interval, limit }),
+    {},
+    paraTela ? 'VIEW' : 'PUBLIC',
+  );
 }
 
 export interface OrderBook {
@@ -471,20 +512,77 @@ export async function getUsdtBrlRate(): Promise<number | null> {
 /** Acima deste tamanho a lista não cabe na URL (a Binance devolve 414). */
 const TICKER_URL_LIMIT = 80;
 
-export async function getTickers(symbols: string[]): Promise<Ticker24h[]> {
+export async function getTickers(
+  symbols: string[],
+  priority: RequestPriority = 'PUBLIC',
+): Promise<Ticker24h[]> {
   if (symbols.length === 0) return [];
 
   // futuros não aceita a lista `symbols` no ticker: ou um par, ou o mercado
   // inteiro. Pedir a lista ali devolve 400, então o caminho é sempre o geral.
   if (symbols.length > TICKER_URL_LIMIT || active.market === 'FUTURES') {
     // uma chamada só para o mercado inteiro e filtragem local sai mais barato
-    const all = await request<Ticker24h[]>(publicUrl(endpoint('ticker24h')));
+    const all = await request<Ticker24h[]>(publicUrl(endpoint('ticker24h')), {}, priority);
     const wanted = new Set(symbols);
     return all.filter((ticker) => wanted.has(ticker.symbol));
   }
 
   const list = JSON.stringify(symbols);
-  return request<Ticker24h[]>(publicUrl(endpoint('ticker24h'), { symbols: list }));
+  return request<Ticker24h[]>(
+    publicUrl(endpoint('ticker24h'), { symbols: list }),
+    {},
+    priority,
+  );
+}
+
+/**
+ * Preço de referência para a TELA, com memória curta.
+ *
+ * A fila de chamadas públicas é uma só e o scanner a mantém cheia de candles:
+ * medido em 26/08/2026, a Carteira levava de 1,3 a 26 segundos para responder
+ * porque os seus dois `getTickers` esperavam centenas de candles já
+ * enfileirados. E a tela pede a Carteira a cada 5 segundos — as respostas
+ * chegavam depois do pedido seguinte, e o painel inteiro parecia travado.
+ *
+ * Quinze segundos de memória cortam isso pela raiz: várias voltas da tela
+ * passam a custar UMA chamada. O preço vivo continua vindo do WebSocket; isto
+ * aqui só cobre os pares que não estão nele — posição fora da watchlist e
+ * moeda parada na conta —, onde quinze segundos de idade não mudam decisão
+ * nenhuma. Ordem e proteção nunca leem daqui: elas usam `getTickers` direto.
+ */
+const TICKER_VIEW_TTL_MS = 15_000;
+const tickerViewCache = new Map<string, { at: number; value: Ticker24h }>();
+let tickerViewInFlight: Promise<Ticker24h[]> | null = null;
+let tickerViewPending: string[] = [];
+
+export async function getTickersForView(symbols: string[]): Promise<Ticker24h[]> {
+  if (symbols.length === 0) return [];
+  const now = Date.now();
+  const fresh: Ticker24h[] = [];
+  const missing: string[] = [];
+  for (const symbol of new Set(symbols)) {
+    const cached = tickerViewCache.get(symbol);
+    if (cached && now - cached.at < TICKER_VIEW_TTL_MS) fresh.push(cached.value);
+    else missing.push(symbol);
+  }
+  if (missing.length === 0) return fresh;
+
+  // uma busca por vez: cinco pares faltando não viram cinco chamadas, e o
+  // pedido que chega no meio de uma busca espera por ela em vez de abrir outra
+  tickerViewPending = [...new Set([...tickerViewPending, ...missing])];
+  if (tickerViewInFlight === null) {
+    const wanted = tickerViewPending;
+    tickerViewPending = [];
+    tickerViewInFlight = getTickers(wanted, 'VIEW').finally(() => {
+      tickerViewInFlight = null;
+    });
+  }
+  const loaded = await tickerViewInFlight.catch(() => [] as Ticker24h[]);
+  const at = Date.now();
+  for (const ticker of loaded) tickerViewCache.set(ticker.symbol, { at, value: ticker });
+
+  const wanted = new Set(missing);
+  return [...fresh, ...loaded.filter((ticker) => wanted.has(ticker.symbol))];
 }
 
 interface ExchangeInfoResponse {
@@ -603,6 +701,17 @@ function toFilters(
  * exchangeInfo da modalidade ativa. Em spot dá para pedir só a permissão SPOT;
  * em futuros o endpoint não filtra nada e devolve todos os contratos.
  */
+/**
+ * Vai pela pista da tela, e não é privilégio: é dependência.
+ *
+ * Este é o catálogo do mercado inteiro, cacheado por 12 horas — uma chamada
+ * por reinício. Só que meio painel espera por ele (a Carteira precisa dele
+ * para saber que par cotar cada moeda parada), e na pista de fundo ele saía
+ * atrás de uma varredura inteira: medido em 26/08/2026, a Carteira levava 9,9
+ * segundos na primeira volta depois do reinício, e a tela pede a Carteira a
+ * cada 5. Uma chamada rara da qual muita coisa depende não pertence à fila do
+ * trabalho de fundo.
+ */
 async function fetchExchangeInfo(
   environment: EnvironmentEndpoints = active,
 ): Promise<ExchangeInfoResponse> {
@@ -610,6 +719,8 @@ async function fetchExchangeInfo(
     environment.market === 'FUTURES'
       ? publicUrl(endpoint('exchangeInfo', environment), {}, environment)
       : publicUrl(endpoint('exchangeInfo', environment), { permissions: 'SPOT' }, environment),
+    {},
+    'VIEW',
   );
 }
 

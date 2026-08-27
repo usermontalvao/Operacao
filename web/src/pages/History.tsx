@@ -1,7 +1,13 @@
 import { useCallback, useState } from 'react';
 import { api, type EquityResponse } from '../lib/api.ts';
 import { useResource } from '../lib/resource.ts';
-import { buscarOperacoes, chaveOperacoes } from '../lib/telas.ts';
+import {
+  buscarOperacoes,
+  buscarSetupsHistorico,
+  chaveOciosa,
+  chaveOperacoes,
+  chaveSetupsHistorico,
+} from '../lib/telas.ts';
 import { PageSkeleton } from '../components/Skeleton.tsx';
 import type { Trade, TradeSetup, TradingMode } from '../lib/types.ts';
 import { PriceLadder } from '../components/PriceLadder.tsx';
@@ -40,6 +46,14 @@ function capitalPreso(position: Position): number {
     : position.invested;
 }
 const REFRESH_MS = 5_000;
+/**
+ * O histórico de teses anda no seu próprio ritmo.
+ *
+ * Uma tese já registrada não muda; o que chega de novo é uma linha no topo, e
+ * meio minuto de atraso nela não muda decisão nenhuma. Cinco segundos ali só
+ * repetiam a resposta mais pesada do painel.
+ */
+const SETUPS_REFRESH_MS = 30_000;
 
 const OUTCOME_LABEL: Record<string, string> = {
   TARGET1: 'Alvo 1',
@@ -90,9 +104,22 @@ export function History({ prices = {} }: { prices?: Record<string, number> }) {
     recarregar: load,
   } = useResource(chaveOperacoes, buscarOperacoes, { intervaloMs: REFRESH_MS });
 
+  /*
+    O histórico de teses só é buscado com a aba dele aberta.
+    Fora dela a chave é inerte e o buscador não fala com o servidor — era esta
+    lista que fazia a tela de Operações baixar mais de um megabyte a cada
+    5 segundos para não mostrar nada.
+  */
+  const naAbaSetups = tab === 'SETUPS';
+  const { dados: setupsCarregados } = useResource<TradeSetup[]>(
+    naAbaSetups ? chaveSetupsHistorico : chaveOciosa,
+    naAbaSetups ? buscarSetupsHistorico : async () => [],
+    { intervaloMs: naAbaSetups ? SETUPS_REFRESH_MS : undefined },
+  );
+
   const equity = dados?.equity ?? null;
   const trades: Trade[] = dados?.trades ?? [];
-  const setups: TradeSetup[] = dados?.setups ?? [];
+  const setups: TradeSetup[] = setupsCarregados ?? [];
   const error = actionError ?? loadError;
   const setError = setActionError;
 
@@ -202,7 +229,11 @@ export function History({ prices = {} }: { prices?: Record<string, number> }) {
           label={`Em andamento (${positions.length})`}
         />
         <TabButton active={tab === 'ENCERRADAS'} onClick={() => setTab('ENCERRADAS')} label={`Encerradas (${closed.length})`} />
-        <TabButton active={tab === 'SETUPS'} onClick={() => setTab('SETUPS')} label={`Setups (${setups.length})`} />
+        <TabButton
+          active={tab === 'SETUPS'}
+          onClick={() => setTab('SETUPS')}
+          label={naAbaSetups ? `Setups (${setups.length})` : 'Setups'}
+        />
         {positions.length > 0 ? (
           <button
             type="button"
@@ -228,6 +259,8 @@ export function History({ prices = {} }: { prices?: Record<string, number> }) {
                 busy={closing === position.id}
                 disabled={closing !== null}
                 onClose={() => void closePosition(position)}
+                modo={equity?.mode}
+                onRefresh={() => void load()}
               />
             ))}
           </div>
@@ -408,6 +441,8 @@ function PositionCard({
   busy,
   disabled,
   onClose,
+  modo,
+  onRefresh,
 }: {
   position: Position;
   /** preço do stream; cai no do servidor quando o par não está no fluxo */
@@ -415,6 +450,10 @@ function PositionCard({
   busy: boolean;
   disabled: boolean;
   onClose: () => void;
+  /** conta desta posição — o gráfico usa para o aviso do encerramento */
+  modo: TradingMode | undefined;
+  /** recarrega a lista quando a posição é encerrada de dentro do gráfico */
+  onRefresh: () => void;
 }) {
   const chart = useChartViewer();
   const agora = livePrice ?? position.currentPrice;
@@ -551,6 +590,9 @@ function PositionCard({
             note: stateNote,
             tradeId: pending ? undefined : position.id,
             side: position.side,
+            mode: modo,
+            // encerrar pelo gráfico tem de refletir na lista atrás dele
+            onClosed: onRefresh,
           })
         }
         title={`Ver o gráfico de ${position.symbol}`}

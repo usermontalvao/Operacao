@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { price as formatPrice } from '../lib/format.ts';
 import { api } from '../lib/api.ts';
-import type { Side, Timeframe } from '../lib/types.ts';
+import { useAtalhosDeModal } from '../lib/atalhos.ts';
+import type { Side, Timeframe, TradingMode } from '../lib/types.ts';
 import {
   PriceChart,
   type ChartMarker,
@@ -23,6 +24,10 @@ export interface ChartRequest {
   /** presente somente para uma posição aberta cujo plano pode ser rearmado */
   tradeId?: string;
   side?: Side;
+  /** conta da posição — decide o aviso do encerramento */
+  mode?: TradingMode;
+  /** avisado depois de encerrar, para a tela de origem se atualizar */
+  onClosed?: () => void;
 }
 
 /**
@@ -48,6 +53,17 @@ export function ChartSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /*
+    Encerrar em dois passos, dentro da própria janela.
+
+    Não é `window.confirm`: o alerta do navegador tira o gráfico da frente
+    justamente quando ele é a informação que sustenta a decisão, e não cabe o
+    aviso do que vai acontecer na corretora. Aqui o segundo clique acontece
+    olhando para o preço.
+  */
+  const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+  const [encerrando, setEncerrando] = useState(false);
+  const [encerrada, setEncerrada] = useState(false);
   const editable = request.tradeId !== undefined && draftPlan !== null;
   const dirty = savedPlan !== null && draftPlan !== null && !samePlan(savedPlan, draftPlan);
   const plan = draftPlan ?? request.plan ?? null;
@@ -59,6 +75,8 @@ export function ChartSheet({
     setDraftPlan(next);
     setError(null);
     setMessage(null);
+    setConfirmandoSaida(false);
+    setEncerrada(false);
   }, [request.symbol, request.tradeId, request.plan]);
 
   const moveLevel = (level: EditableChartLevel, value: number): void => {
@@ -101,16 +119,59 @@ export function ChartSheet({
     }
   };
 
+  const encerrar = async (): Promise<void> => {
+    if (!request.tradeId) return;
+    setEncerrando(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const trade = await api.closeTrade(request.tradeId);
+      setEncerrada(true);
+      setConfirmandoSaida(false);
+      setMessage(
+        `Posição encerrada — resultado ${trade.realizedPnl >= 0 ? '+' : ''}${trade.realizedPnl.toFixed(2)} USDT.`,
+      );
+      request.onClosed?.();
+    } catch (failure) {
+      setError((failure as Error).message);
+      setConfirmandoSaida(false);
+    } finally {
+      setEncerrando(false);
+    }
+  };
+
+  // Esc fecha; Enter aplica o plano ajustado. Encerrar posição NÃO entra no
+  // Enter: é dinheiro saindo, e já tem os seus dois cliques.
+  useAtalhosDeModal({
+    onClose,
+    onConfirm: () => void applyPlan(),
+    confirmHabilitado: editable && dirty && !saving,
+  });
+
+  const avisoDeSaida =
+    request.mode === 'PAPER'
+      ? 'Na conta DEMO a saída é simulada pelo preço atual.'
+      : 'As proteções serão canceladas e a quantidade restante vendida a mercado. O preço final pode variar.';
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-6"
       onClick={onClose}
     >
+      {/*
+        Coluna, não bloco rolante.
+
+        A janela inteira rolava: para chegar em "aplicar" — ou agora em
+        "encerrar" — era preciso rolar para longe do gráfico, que é justamente
+        o que sustenta a decisão. Aqui o cabeçalho e as ações ficam parados, o
+        gráfico ocupa o que sobra, e a rolagem só existe se o conteúdo do meio
+        realmente não couber.
+      */}
       <div
-        className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-t-2xl border border-terminal-border bg-terminal-panel p-5 sm:rounded-2xl sm:p-6"
+        className="flex max-h-[95vh] w-full max-w-4xl flex-col rounded-t-2xl border border-terminal-border bg-terminal-panel p-5 sm:rounded-2xl sm:p-6 lg:max-w-5xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start justify-between gap-4">
+        <header className="flex shrink-0 items-start justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold">
               {asset}
@@ -130,7 +191,7 @@ export function ChartSheet({
           </button>
         </header>
 
-        <div className="mt-4">
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
           <PriceChart
             symbol={request.symbol}
             timeframe={request.timeframe ?? '1h'}
@@ -141,8 +202,10 @@ export function ChartSheet({
             editableLevels={editable ? ['stopLoss', 'target1', 'target2', 'target3'] : []}
             onLevelChange={editable ? (level, value) => moveLevel(level, value) : undefined}
           />
+
         </div>
 
+        <div className="shrink-0">
         {editable ? (
           <div className="mt-3 rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
             <p className="text-[11px] text-terminal-muted">
@@ -174,6 +237,48 @@ export function ChartSheet({
           </div>
         ) : null}
 
+        {request.tradeId !== undefined && !encerrada ? (
+          <div className="mt-3 rounded-lg border border-bear/30 bg-bear/[0.04] p-3">
+            {confirmandoSaida ? (
+              <>
+                <p className="text-xs font-semibold text-bear">Encerrar {asset} agora?</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-terminal-muted">{avisoDeSaida}</p>
+                <div className="mt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={encerrando}
+                    onClick={() => setConfirmandoSaida(false)}
+                    className="rounded-lg border border-terminal-border px-3 py-2 text-xs text-terminal-muted disabled:opacity-40"
+                  >
+                    Manter posição
+                  </button>
+                  <button
+                    type="button"
+                    disabled={encerrando}
+                    onClick={() => void encerrar()}
+                    className="rounded-lg bg-bear px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                  >
+                    {encerrando ? 'Encerrando…' : 'Confirmar encerramento'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] text-terminal-muted">
+                  Sair agora, a mercado, em vez de esperar alvo ou stop.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setConfirmandoSaida(true)}
+                  className="shrink-0 rounded-lg border border-bear/50 px-3 py-2 text-xs font-bold text-bear transition hover:bg-bear/10"
+                >
+                  Encerrar posição
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
         {plan ? (
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] tabular text-terminal-muted">
             {plan.stopLoss ? <span className="text-bear">stop {formatPrice(plan.stopLoss)}</span> : null}
@@ -191,6 +296,7 @@ export function ChartSheet({
           >
             Abrir no TradingView
           </a>
+        </div>
         </div>
       </div>
     </div>

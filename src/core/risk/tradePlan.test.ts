@@ -40,3 +40,48 @@ test('não permite alvo 3 sem alvo 2', () => {
     ['O alvo 3 exige um alvo 2'],
   );
 });
+
+test('stop a mais de 30% do preço é recusado — comprado e vendido', () => {
+  const comprado = validateTradePlan(
+    { stopLoss: 65, target1: 120, target2: null, target3: null },
+    'BUY',
+    100,
+  );
+  assert.ok(
+    comprado.some((item) => /acima do teto de 30%/.test(item)),
+    `esperava a recusa do stop largo, veio: ${comprado.join(' | ')}`,
+  );
+
+  const vendido = validateTradePlan(
+    { stopLoss: 140, target1: 80, target2: null, target3: null },
+    'SELL',
+    100,
+  );
+  assert.ok(vendido.some((item) => /acima do teto de 30%/.test(item)));
+});
+
+test('30% cravados passam — o teto é o limite, não a proibição', () => {
+  assert.deepEqual(
+    validateTradePlan({ stopLoss: 70, target1: 120, target2: null, target3: null }, 'BUY', 100),
+    [],
+  );
+});
+
+test('plano sem stop é recusado antes de qualquer outra conta', () => {
+  const semStop = validateTradePlan(
+    { stopLoss: null as unknown as number, target1: 110, target2: null, target3: null },
+    'BUY',
+    100,
+  );
+  assert.ok(
+    semStop.some((item) => /Ordem sem stop/.test(item)),
+    `esperava a recusa por falta de stop, veio: ${semStop.join(' | ')}`,
+  );
+
+  const stopZerado = validateTradePlan(
+    { stopLoss: 0, target1: 110, target2: null, target3: null },
+    'BUY',
+    100,
+  );
+  assert.ok(stopZerado.length > 0, 'stop zerado não pode passar');
+});

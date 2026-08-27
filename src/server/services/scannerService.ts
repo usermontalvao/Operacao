@@ -253,7 +253,7 @@ export class ScannerService {
   /** A decisão do robô para este setup, sem executar nada. */
   async explain(setup: TradeSetup, mode: TradingMode): Promise<EntryDecision | null> {
     if (!this.autoTrader) return null;
-    return this.autoTrader.decide(setup, mode).catch(() => null);
+    return this.autoTrader.explain(setup, mode).catch(() => null);
   }
 
   /**

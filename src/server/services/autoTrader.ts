@@ -8,7 +8,7 @@ import {
   mergeRepeatedDecision,
 } from '../../core/decision/record.ts';
 import type { EntryDecisionRecord } from '../../core/decision/record.ts';
-import { reason, type DecisionReason } from '../../core/decision/types.ts';
+import { reason, stageForCode, type DecisionReason } from '../../core/decision/types.ts';
 import { capturePolicySnapshot } from '../../core/policy/snapshot.ts';
 import { evaluateFreshness, TICK_THRESHOLDS } from '../../core/health/freshness.ts';
 import { activeSessionModes } from '../../core/session/sessions.ts';
@@ -35,6 +35,15 @@ import type { SettingsService } from './settingsService.ts';
  * Agora toda consideração produz uma decisão com código, motivos e retrato da
  * política — e ela vai para o disco, deduplicada por situação.
  */
+/**
+ * Por quanto tempo a recusa da execução ainda descreve o presente.
+ *
+ * Curto: exposição, saldo e disjuntor mudam sozinhos. Passado o prazo, o card
+ * volta a mostrar só a decisão — e a próxima consideração do robô produz uma
+ * resposta nova, que é a única que vale.
+ */
+const REFUSAL_MEMORY_MS = 2 * 60_000;
+
 export class AutoTrader {
   private readonly settings: SettingsService;
   private readonly execution: ExecutionService;
@@ -44,6 +53,19 @@ export class AutoTrader {
   private readonly market: MarketDataService;
   /** última decisão gravada por assinatura, para não regravar o mesmo a cada tick */
   private readonly lastRecorded = new Map<string, EntryDecisionRecord>();
+  /**
+   * A última vez que a EXECUÇÃO recusou este setup, e por quê.
+   *
+   * Serve só para a tela. A decisão do robô continua sendo refeita do zero a
+   * cada consideração — guardar recusa para dentro dela travaria o robô num
+   * bloqueio que já passou. O que isto conserta é a tela prometer: o card
+   * escrevia "robô entraria" para um sinal que o robô tinha acabado de
+   * recusar por teto de exposição, e o motivo só existia no log de auditoria.
+   */
+  private readonly lastRefusal = new Map<
+    string,
+    { at: number; blockers: DecisionReason[]; warnings: DecisionReason[] }
+  >();
   private readonly considering = new Set<string>();
   private persistenceAvailable = true;
 
@@ -135,6 +157,27 @@ export class AutoTrader {
     });
   }
 
+  /**
+   * O que a TELA mostra: a decisão mais o que a execução respondeu por último.
+   *
+   * `decide` responde "esta tese passa nas minhas regras?". Faltava a segunda
+   * porta — saldo, teto de exposição, disjuntor, mínimo da corretora —, e por
+   * isso o card dizia "robô entraria" enquanto a ordem morria dois segundos
+   * depois. A recusa lembrada vale por pouco tempo de propósito: ela descreve
+   * uma TENTATIVA, e uma tentativa velha já não descreve o agora.
+   */
+  async explain(setup: TradeSetup, mode: TradingMode): Promise<EntryDecision> {
+    const decision = await this.decide(setup, mode);
+    if (!decision.allowed) return decision;
+    const refusal = this.lastRefusal.get(`${mode}:${setup.id}`);
+    if (refusal === undefined) return decision;
+    if (Date.now() - refusal.at > REFUSAL_MEMORY_MS) {
+      this.lastRefusal.delete(`${mode}:${setup.id}`);
+      return decision;
+    }
+    return refusedDecision(decision, refusal);
+  }
+
   private async considerForMode(setup: TradeSetup, mode: TradingMode): Promise<void> {
     const key = `${mode}:${setup.id}`;
     if (this.considering.has(key)) return;
@@ -145,7 +188,36 @@ export class AutoTrader {
       await this.record(decision, setup, mode);
       if (!decision.allowed) return;
 
-      const trade = await this.execution.executeAutomatic(setup, mode, decision, setup.market);
+      /*
+        A recusa da EXECUÇÃO também vira decisão gravada.
+
+        Liberar e não comprar são coisas diferentes, e até aqui só a primeira
+        aparecia: o teto de exposição, o disjuntor e o mínimo da corretora
+        recusavam a ordem depois do ALLOWED, e o motivo ia só para a
+        auditoria. O painel ficava mostrando "robô entraria" para um sinal que
+        o robô tinha acabado de recusar — a pergunta certa ("por que não
+        entrou?") sem resposta em lugar nenhum que o usuário abra.
+      */
+      let recusa: { blockers: string[]; warnings: string[] } | null = null;
+      const trade = await this.execution.executeAutomatic(
+        setup,
+        mode,
+        decision,
+        setup.market,
+        (motivo) => {
+          recusa = motivo;
+        },
+      );
+      if (recusa !== null) {
+        const traduzida = gateReasonsToDecision(
+          (recusa as { blockers: string[] }).blockers,
+          (recusa as { warnings: string[] }).warnings,
+        );
+        this.lastRefusal.set(`${mode}:${setup.id}`, { at: Date.now(), ...traduzida });
+        await this.record(refusedDecision(decision, traduzida), setup, mode);
+        return;
+      }
+      this.lastRefusal.delete(key);
       if (trade) {
         logger.info('Compra automática executada', {
           symbol: setup.symbol,
@@ -254,7 +326,34 @@ export class AutoTrader {
     for (const key of this.lastRecorded.keys()) {
       if (key.endsWith(`:${setupId}`)) this.lastRecorded.delete(key);
     }
+    for (const key of this.lastRefusal.keys()) {
+      if (key.endsWith(`:${setupId}`)) this.lastRefusal.delete(key);
+    }
   }
+}
+
+/**
+ * A decisão de novo, agora com o que a execução respondeu.
+ *
+ * Mantém tudo o que já tinha sido avaliado e acrescenta os bloqueios da porta
+ * seguinte. O código passa a ser o do primeiro bloqueio real — é ele que a
+ * tela mostra e o funil conta —, e `allowed` volta a false, que é a verdade:
+ * a ordem não saiu.
+ */
+function refusedDecision(
+  decision: EntryDecision,
+  traduzida: { blockers: DecisionReason[]; warnings: DecisionReason[] },
+): EntryDecision {
+  const blockers = [...decision.blockers, ...traduzida.blockers];
+  const code = blockers[0]?.code ?? 'CIRCUIT_BREAKER';
+  return {
+    ...decision,
+    allowed: false,
+    code,
+    stage: stageForCode(code),
+    blockers,
+    warnings: [...decision.warnings, ...traduzida.warnings],
+  };
 }
 
 /** Converte bloqueios do disjuntor em motivos com código. */

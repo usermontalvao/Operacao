@@ -7,7 +7,7 @@ import type { SymbolFilters, TradeSetup } from '../../core/types.ts';
 import { EventBus } from '../events.ts';
 import { JsonStore } from '../store/jsonStore.ts';
 import { AuditService } from './auditService.ts';
-import { ExecutionService, hasActiveLiveArm } from './executionService.ts';
+import { ExecutionService, hasActiveLiveArm, patrimonio } from './executionService.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import { PaperTradingEngine } from './paperTradingEngine.ts';
 import { RiskService } from './riskService.ts';
@@ -141,7 +141,11 @@ async function harness(price = 1.43) {
     getSnapshot: () => ({ quoteVolume24h: 500_000_000 }),
   } as unknown as MarketDataService;
   const risk = new RiskService(repository, settings, market);
-  let saldo: { free: number; locked: number; idle?: Array<{ asset: string; free: number }> } = {
+  let saldo: {
+    free: number;
+    locked: number;
+    idle?: Array<{ asset: string; free: number; locked?: number }>;
+  } = {
     free: 1000,
     locked: 0,
   };
@@ -715,7 +719,176 @@ test('saldo que não é USDT aparece como aviso — o depósito chegou, na moeda
 
   assert.equal(preview.available, 5.08, 'o capital continua sendo só o USDT');
   assert.ok(
-    preview.warnings.some((item) => /100 BRL na conta que o painel NÃO usa/.test(item)),
+    preview.warnings.some((item) => /100 BRL/.test(item) && /Converta na Binance/.test(item)),
     `esperava o aviso do saldo parado, veio: ${preview.warnings.join(' | ')}`,
   );
+});
+
+test('moeda parada vira UM aviso, e a da posição aberta não entra nele', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  // uma posição aberta em XRP, na mesma conta que o preview vai avaliar
+  const setup = makeSetup();
+  const primeira = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const aberta = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: primeira.confirmationToken as string,
+      idempotencyKey: 'chave-poeira',
+    },
+    setup,
+  );
+  await context.settings.update({ mode: 'TESTNET' });
+  context.paper.track({ ...aberta, mode: 'TESTNET' });
+
+  /*
+   * A conta real de 26/08/2026: seis moedas listadas, seis avisos idênticos de
+   * trinta palavras cada. Cinco eram resíduo de venda antiga (centavos que a
+   * corretora nem aceita vender) e a sexta era a posição que o sistema ACABOU
+   * de abrir — mandando converter justamente o que ele comprou de propósito.
+   */
+  context.setBalance({
+    free: 500,
+    locked: 0,
+    idle: [
+      { asset: 'XRP', free: 100 },
+      { asset: 'BRL', free: 100 },
+      { asset: 'PEPE', free: 0.0000001 },
+    ],
+  });
+
+  const depois = await context.execution.preview({ setupId: setup.id, quoteAmount: 50 }, setup);
+  const avisos = depois.warnings.filter((item) => /Converta na Binance/.test(item));
+
+  assert.equal(avisos.length, 1, `esperava um aviso só, veio: ${avisos.join(' | ')}`);
+  assert.ok(!/XRP/.test(avisos[0] as string), 'a moeda da posição aberta não é dinheiro parado');
+  assert.ok(!/PEPE/.test(avisos[0] as string), 'resíduo abaixo do mínimo não vira aviso');
+  assert.ok(/BRL/.test(avisos[0] as string));
+});
+
+test('em spot, capital é caixa MAIS o valor das moedas — inclusive o preso na proteção', async (t) => {
+  const context = await harness(218.19);
+  t.after(context.cleanup);
+  await context.settings.update({ mode: 'TESTNET' });
+  /*
+   * O retrato da conta real em 26/08/2026: 1,07 USDT em caixa e uma posição de
+   * NVDAB com quase tudo preso na ordem OCO de venda. O sistema lia 1,07 como
+   * capital, e o teto de exposição — que compara contra a posição inteira —
+   * nunca fechava: 80% de 1,07 é 0,86, e 0,86 não cabe 23,78.
+   */
+  context.setBalance({
+    free: 1.07,
+    locked: 0,
+    idle: [{ asset: 'NVDAB', free: 0.000891, locked: 0.108 }],
+  });
+
+  const capital = await context.execution.getCapital('TESTNET', 'SPOT');
+
+  assert.equal(capital.available, 1.07, 'só o caixa pode ser gasto');
+  assert.equal(capital.capital, 1.07, 'capital continua sendo o caixa');
+  assert.ok(
+    patrimonio(capital) > 24 && patrimonio(capital) < 25,
+    `o patrimônio devia somar as moedas (~24,85), veio ${patrimonio(capital)}`,
+  );
+});
+
+test('moeda sem preço vivo fica de fora do capital — errar para menos é o lado seguro', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+  await context.settings.update({ mode: 'TESTNET' });
+  context.setPrice(0);
+  context.setBalance({ free: 10, locked: 0, idle: [{ asset: 'XYZ', free: 1_000 }] });
+
+  const capital = await context.execution.getCapital('TESTNET', 'SPOT');
+
+  assert.equal(patrimonio(capital), 10, 'sem cotação, a moeda não vira patrimônio inventado');
+});
+
+test('posição gravada como aberta volta para a memória do motor', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'chave-reconcilia',
+    },
+    setup,
+  );
+  assert.ok(context.paper.getTrade(trade.id), 'a operação precisa nascer em memória');
+
+  // simula o que aconteceu em 26/08/2026: a operação continua gravada como
+  // aberta, mas sumiu do mapa que o monitor da conta real percorre
+  context.paper.track({ ...trade, status: 'CLOSED' });
+  assert.equal(context.paper.getOpenTrades().length, 0);
+
+  const recuperadas = context.paper.reconcile(await context.repository.listTrades());
+
+  assert.equal(recuperadas.length, 1, 'a posição do banco tem de voltar a ser vigiada');
+  assert.equal(context.paper.getOpenTrades()[0]?.id, trade.id);
+});
+
+test('reconciliar NÃO ressuscita o que já encerrou', async (t) => {
+  const context = await harness();
+  t.after(context.cleanup);
+
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'chave-encerrada',
+    },
+    setup,
+  );
+  await context.paper.closeAtMarket(trade, 1.5, 'encerrada no teste');
+  assert.equal(context.paper.getOpenTrades().length, 0);
+
+  const recuperadas = context.paper.reconcile(await context.repository.listTrades());
+
+  assert.equal(recuperadas.length, 0);
+  assert.equal(context.paper.getOpenTrades().length, 0);
+});
+
+test('o teto de exposição mede contra o patrimônio, não contra o caixa', async (t) => {
+  const context = await harness(218.19);
+  t.after(context.cleanup);
+  await context.settings.update({ mode: 'TESTNET' });
+  /*
+   * A regressão de 26/08/2026, reproduzida.
+   *
+   * Conta com 1,07 USDT em caixa e 23,78 em NVDAB. A exposição soma a posição
+   * inteira; o teto era 80% do CAIXA, ou seja 0,86 — e 23,78 nunca cabe em
+   * 0,86. Toda ordem morria em "Exposição total", inclusive as que a decisão
+   * do robô tinha acabado de liberar. Com o patrimônio como base, 80% de
+   * 24,85 são 19,88 e a conta volta a fazer sentido.
+   */
+  context.setBalance({
+    free: 1.07,
+    locked: 0,
+    idle: [{ asset: 'NVDAB', free: 0.000891, locked: 0.108 }],
+  });
+  const capital = await context.execution.getCapital('TESTNET', 'SPOT');
+  const snapshot = await context.risk.snapshot(patrimonio(capital), 'TESTNET', 'SPOT');
+
+  const porteiro = context.risk.gate({
+    snapshot,
+    symbol: 'XRPUSDT',
+    quoteAmount: 1,
+    netRiskReward: 3,
+    openTrades: [],
+    mode: 'TESTNET',
+    market: 'SPOT',
+  });
+
+  assert.ok(
+    !porteiro.blockers.some((item) => /Exposição total/.test(item)),
+    `uma ordem de 1 USDT numa conta de 24,85 não pode estourar o teto: ${porteiro.blockers.join(' | ')}`,
+  );
+  assert.ok(snapshot.capital > 24, `o disjuntor precisa ver o patrimônio, viu ${snapshot.capital}`);
 });
