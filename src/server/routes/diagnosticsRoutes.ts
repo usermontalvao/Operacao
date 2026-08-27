@@ -74,7 +74,7 @@ export function diagnosticsRoutes(context: ApiContext): Router {
       const decisions = (await context.repository.listEntryDecisions(500)).filter(
         (item) => item.mode === mode,
       );
-      response.json({ ...buildFunnel(decisions), mode });
+      response.json({ ...buildFunnel(decisions), scanner: context.scanner.getOpportunityStats(), mode });
     }),
   );
 
@@ -96,6 +96,9 @@ export function diagnosticsRoutes(context: ApiContext): Router {
         ...settings.scanner.triggerTimeframes,
         ...(settings.scanner.microScalp.enabled ? (['1m'] as const) : []),
       ];
+      const automaticStrategies = Object.entries(settings.autoTrade.strategies)
+        .filter(([, policy]) => policy.enabled)
+        .map(([setupType]) => setupType);
 
       response.json({
         persistencia: {
@@ -114,10 +117,8 @@ export function diagnosticsRoutes(context: ApiContext): Router {
           ativos: timeframesAtivos,
           cobertura: timeframesAtivos.map((timeframe) => ({
             timeframe,
-            automacao:
-              timeframe === '1m'
-                ? 'SOMENTE_MANUAL'
-                : 'MOMENTUM_BURST_SPOT',
+            automacao: automaticStrategies.length > 0 ? 'CONFIGURADA_POR_SETUP' : 'SOMENTE_MANUAL',
+            estrategias: automaticStrategies,
           })),
         },
         // o coração da mudança que o usuário pediu: as sessões que operam AGORA

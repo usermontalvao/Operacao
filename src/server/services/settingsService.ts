@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   AppSettings,
+  AutomaticSetupSettings,
   MarketKind,
   MicroScalpSettings,
   ModeSettings,
@@ -112,7 +113,7 @@ const scannerSchema = z.object({
    * validado aqui porque depende de outro campo — a checagem cruzada mora em
    * `rejeicaoDeVarreduraVazia`, logo abaixo.
    */
-  triggerTimeframes: z.array(z.enum(['15m', '1h', '4h', '1d'])),
+  triggerTimeframes: z.array(z.enum(['3m', '5m', '15m', '1h', '4h', '1d'])),
   anchorTimeframe: z.enum(['15m', '1h', '4h', '1d']),
   setupTtlMinutes: z.number().int().min(15).max(10_080),
   cooldownMinutes: z.number().int().min(5).max(1440),
@@ -121,9 +122,23 @@ const scannerSchema = z.object({
   microScalp: microScalpSchema,
 });
 
+const automaticSetupSchema = z.object({
+  enabled: z.boolean(),
+  minimumScore: z.number().int().min(50).max(100),
+  minimumRiskReward: z.number().min(1).max(10),
+});
+
+const automaticStrategiesSchema = z.object({
+  PULLBACK: automaticSetupSchema,
+  BREAKOUT_RETEST: automaticSetupSchema,
+  SUPPORT_REVERSAL: automaticSetupSchema,
+  MOMENTUM_BURST: automaticSetupSchema,
+  RANGE_FADE: automaticSetupSchema,
+});
+
 const autoTradeSchema = z.object({
   enabled: z.boolean(),
-  minimumScore: z.number().int().min(90).max(100),
+  minimumScore: z.number().int().min(50).max(100),
   minimumRiskReward: z.number().min(1).max(10),
   percentOfCapital: z.number().min(1).max(100),
   maxConcurrentTrades: z.number().int().min(1).max(20),
@@ -133,6 +148,7 @@ const autoTradeSchema = z.object({
   liveArmedUntil: z.string().datetime().nullable(),
   liveArmedIndefinitely: z.boolean(),
   maxNotionalPerTrade: z.number().min(5).max(1_000_000),
+  strategies: automaticStrategiesSchema,
 });
 
 /**
@@ -208,7 +224,21 @@ export const settingsUpdateSchema = z.object({
         .optional(),
     })
     .optional(),
-  autoTrade: autoTradeSchema.partial().optional(),
+  autoTrade: autoTradeSchema
+    .partial()
+    .extend({
+      strategies: automaticStrategiesSchema
+        .partial()
+        .extend({
+          PULLBACK: automaticSetupSchema.partial().optional(),
+          BREAKOUT_RETEST: automaticSetupSchema.partial().optional(),
+          SUPPORT_REVERSAL: automaticSetupSchema.partial().optional(),
+          MOMENTUM_BURST: automaticSetupSchema.partial().optional(),
+          RANGE_FADE: automaticSetupSchema.partial().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   guard: guardSchema.partial().optional(),
 });
 
@@ -291,8 +321,8 @@ const FIELD_RATIONALE: Record<string, string> = {
     'O piso vem da aritmética, não de gosto: com a taxa desta conta, um par que anda menos que isso por barra não gera alvo capaz de pagar a ida e a volta — a operação nasceria no prejuízo mesmo acertando.',
   'scanner.microScalp.regime.minCostMultiple':
     'Em 1,0 o lucro esperado apenas empata com o custo. Como o sistema erra parte das vezes, empatar quando acerta significa perder no agregado.',
-  'autoTrade.minimumScore':
-    'O piso de 90 vem do laboratório: abaixo dele a estratégia automática não manteve expectativa positiva fora da amostra. Para operar sinais de score menor, use a compra manual.',
+  'autoTrade.strategies.MOMENTUM_BURST.minimumScore':
+    'O piso de 85 é o melhor ponto medido em 9 anos de histórico: rende mais por operação que 90 e que 80, e é o único que fica positivo nas duas metades do universo. Mexer aqui muda quantas entradas o robô faz por dia — e a expectativa de cada uma.',
 };
 
 /** Traduz o primeiro problema de validação para uma frase que diz o que fazer. */
@@ -371,19 +401,21 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
       // ligado nas contas de teste: ali o robô é a forma de acumular decisões
       // reais para análise. Na conta real ele nasce desarmado.
       enabled: !live,
-      minimumScore: 90,
+      // legado/fallback. A decisão nova usa a régua específica abaixo.
+      minimumScore: 75,
       minimumRiskReward: 2.5,
       percentOfCapital: 10,
       // explosões em altcoins costumam vir juntas; até existir backtest de
       // carteira/correlação, uma posição automática por vez evita contar o
       // mesmo risco de mercado como se fossem apostas independentes.
-      maxConcurrentTrades: 1,
+      maxConcurrentTrades: 3,
       cooldownMinutes: 180,
       requireInsideEntryZone: true,
       allowLive: false,
       liveArmedUntil: null,
       liveArmedIndefinitely: false,
       maxNotionalPerTrade: 50,
+      strategies: defaultAutomaticStrategies(mode),
     },
     guard: {
       ...DEFAULT_GUARD,
@@ -404,6 +436,23 @@ export function defaultModeSettings(mode: TradingMode, market: MarketKind = 'SPO
   };
 }
 
+function defaultAutomaticStrategies(
+  _mode: TradingMode,
+): ModeSettings['autoTrade']['strategies'] {
+  return {
+    // Só a família já medida nasce ligada. As demais podem operar em qualquer
+    // conta, mas exigem autorização explícita nos ajustes daquela conta.
+    PULLBACK: { enabled: false, minimumScore: 75, minimumRiskReward: 2 },
+    BREAKOUT_RETEST: { enabled: false, minimumScore: 78, minimumRiskReward: 2 },
+    SUPPORT_REVERSAL: { enabled: false, minimumScore: 80, minimumRiskReward: 2.2 },
+    // 85, e não 90, por medição: ver o cabeçalho de momentumBurst.ts. Em 9
+    // anos o piso 85 rende MAIS por operação que o 90 e entrega 50% mais
+    // entradas — os dois lados do trade-off apontam para o mesmo número.
+    MOMENTUM_BURST: { enabled: true, minimumScore: 85, minimumRiskReward: 2.5 },
+    RANGE_FADE: { enabled: false, minimumScore: 75, minimumRiskReward: 1.8 },
+  };
+}
+
 function defaultBuckets(market: MarketKind): Record<TradingMode, ModeSettings> {
   return {
     PAPER: defaultModeSettings('PAPER', market),
@@ -421,6 +470,19 @@ export function defaultStoredSettings(): StoredSettings {
     futuresEnabled: config.futuresEnabled,
     scanner: {
       watchlist: config.watchlist,
+      /*
+       * 1h e 4h, e a ausência de 5m/15m é uma decisão medida.
+       *
+       * Cada gatilho novo é mais uma série de candles por par em cada volta
+       * da varredura. Com 5m e 15m ligados são cinco séries em vez de três:
+       * a volta completa nos 455 pares passa de ~13 para ~21 minutos. E a
+       * explosão de 5m tem validade de 2,5 minutos — ou seja, os gatilhos
+       * curtos não conseguem produzir sinal NENHUM nessa cadência, e ainda
+       * atrasam o de 1h, que é o que funciona.
+       *
+       * O 4h entra de graça: ele já era baixado como âncora do 1h. E é o
+       * melhor dos dois — +0,31R por operação contra +0,09R do 1h, em 9 anos.
+       */
       triggerTimeframes: ['1h', '4h'],
       anchorTimeframe: '1d',
       setupTtlMinutes: 720,
@@ -504,6 +566,20 @@ export function mergeMicroScalp(
   } as MicroScalpSettings;
 }
 
+function mergeAutomaticStrategies(
+  base: ModeSettings['autoTrade']['strategies'],
+  patch: Partial<Record<keyof ModeSettings['autoTrade']['strategies'], Partial<AutomaticSetupSettings>>> | undefined,
+): ModeSettings['autoTrade']['strategies'] {
+  if (!patch) return base;
+  return {
+    PULLBACK: { ...base.PULLBACK, ...patch.PULLBACK },
+    BREAKOUT_RETEST: { ...base.BREAKOUT_RETEST, ...patch.BREAKOUT_RETEST },
+    SUPPORT_REVERSAL: { ...base.SUPPORT_REVERSAL, ...patch.SUPPORT_REVERSAL },
+    MOMENTUM_BURST: { ...base.MOMENTUM_BURST, ...patch.MOMENTUM_BURST },
+    RANGE_FADE: { ...base.RANGE_FADE, ...patch.RANGE_FADE },
+  };
+}
+
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K];
 };
@@ -541,7 +617,14 @@ export function normalizeStoredSettings(value: PersistedSettings): StoredSetting
       const saved = stored?.[each];
       result[each] = {
         risk: { ...fallback.risk, ...saved?.risk },
-        autoTrade: { ...fallback.autoTrade, ...saved?.autoTrade },
+        autoTrade: {
+          ...fallback.autoTrade,
+          ...saved?.autoTrade,
+          strategies: mergeAutomaticStrategies(
+            fallback.autoTrade.strategies,
+            saved?.autoTrade?.strategies,
+          ),
+        },
         guard: { ...fallback.guard, ...saved?.guard },
         futures: { ...fallback.futures, ...saved?.futures },
       };
@@ -696,7 +779,14 @@ export class SettingsService {
     const current = this.stored.byMarket[targetMarket][target];
     const bucket: ModeSettings = {
       risk: { ...current.risk, ...patch.risk },
-      autoTrade: { ...current.autoTrade, ...patch.autoTrade },
+      autoTrade: {
+        ...current.autoTrade,
+        ...patch.autoTrade,
+        strategies: mergeAutomaticStrategies(
+          current.autoTrade.strategies,
+          patch.autoTrade?.strategies,
+        ),
+      },
       guard: { ...current.guard, ...patch.guard },
       futures: { ...current.futures, ...patch.futures },
     };

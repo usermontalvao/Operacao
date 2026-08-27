@@ -1,6 +1,9 @@
 import type { FreshnessReport } from '../health/freshness.ts';
-import { automaticRejection, maxSignalAgeMs } from '../strategy/automationPolicy.ts';
-import { MIN_VALIDATED_AUTOMATIC_SCORE } from '../strategy/automationPolicy.ts';
+import {
+  automaticRejection,
+  maxSignalAgeMs,
+  strategyConfidenceSizeFactor,
+} from '../strategy/automationPolicy.ts';
 import type { AutoTradeSettings, TradeSetup } from '../types.ts';
 import {
   distanceToEntryPercent,
@@ -104,34 +107,26 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
   // o código vem da política, não de adivinhar lendo a frase: a versão antiga
   // procurava a palavra "observação" no texto e quebrava calada a cada
   // redação nova
-  const rejection = automaticRejection(setup);
+  const rejection = automaticRejection(setup, autoTrade);
   if (rejection !== null) {
     blockers.push(
       reason(rejection.code, 'automationPolicy', rejection.message, {
         estrategia: setup.setupType,
         score: setup.score,
         modalidade: setup.market,
-        pisoValidado: MIN_VALIDATED_AUTOMATIC_SCORE,
+        pisoConfigurado: autoTrade.strategies?.[setup.setupType]?.minimumScore,
       }),
     );
   }
-  if (setup.score < autoTrade.minimumScore) {
-    blockers.push(
-      reason(
-        'SCORE_BELOW_CONFIGURED_MINIMUM',
-        'autoTrader',
-        `Score ${setup.score} abaixo do mínimo configurado de ${autoTrade.minimumScore}`,
-        { score: setup.score, minimo: autoTrade.minimumScore },
-      ),
-    );
-  }
-  if (setup.riskReward < autoTrade.minimumRiskReward) {
+  const strategyPolicy = autoTrade.strategies?.[setup.setupType];
+  const minimumRiskReward = strategyPolicy?.minimumRiskReward ?? autoTrade.minimumRiskReward;
+  if (setup.riskReward < minimumRiskReward) {
     blockers.push(
       reason(
         'RISK_REWARD_BELOW_MINIMUM',
         'autoTrader',
-        `R/R de ${setup.riskReward} abaixo do mínimo de ${autoTrade.minimumRiskReward}`,
-        { riskReward: setup.riskReward, minimo: autoTrade.minimumRiskReward },
+        `R/R de ${setup.riskReward} abaixo do mínimo de ${minimumRiskReward} para ${setup.setupType}`,
+        { riskReward: setup.riskReward, minimo: minimumRiskReward, estrategia: setup.setupType },
       ),
     );
   }
@@ -244,7 +239,8 @@ export function evaluateEntryDecision(input: EntryDecisionInput): EntryDecision 
     code,
     blockers,
     warnings,
-    sizeFactor: input.sizeFactor ?? 1,
+    sizeFactor:
+      (input.sizeFactor ?? 1) * strategyConfidenceSizeFactor(setup, autoTrade),
     stage: stageForCode(code),
     evaluatedAt: now.toISOString(),
     setupId: setup.id,

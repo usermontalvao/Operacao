@@ -80,6 +80,13 @@ let clockOffsetMs = 0;
  * atrás cobre a deriva normal de um relógio de máquina entre duas medições.
  */
 const MARGEM_DE_RELOGIO_MS = 500;
+/**
+ * Teto da folga. Acima disto o carimbo começa a se aproximar da outra borda
+ * do `recvWindow` de 5 s, e o remédio viraria a doença.
+ */
+const TETO_DA_MARGEM_MS = 2_500;
+/** Folga em uso agora: cresce quando a última medição veio com muita latência. */
+let clockMarginMs = MARGEM_DE_RELOGIO_MS;
 
 const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -353,10 +360,12 @@ export async function signedRequest<T>(
        *
        * As duas direções não são simétricas na Binance: adiantar mais de
        * 1000 ms é recusado na hora (-1021), enquanto atrasar é aceito até o
-       * `recvWindow` inteiro — cinco segundos. Ficar de propósito meio segundo
-       * atrás troca uma falha por folga, e não custa nada.
+       * `recvWindow` inteiro — cinco segundos. Ficar de propósito um pouco
+       * atrás troca uma falha por folga, e não custa nada. A folga é meio
+       * segundo quando a última medição do relógio veio limpa e cresce com a
+       * latência dela: quanto menos certeza, mais atrás fica o carimbo.
        */
-      timestamp: Date.now() + clockOffsetMs - MARGEM_DE_RELOGIO_MS,
+      timestamp: Date.now() + clockOffsetMs - clockMarginMs,
       recvWindow: 5000,
     });
     const signature = signQuery(query, credentials.apiSecret);
@@ -383,11 +392,39 @@ export async function signedRequest<T>(
       logger.warn('Carimbo recusado pela Binance — remedindo o relógio e repetindo', {
         desvioAnterior: clockOffsetMs,
       });
-      await syncClock().catch(() => undefined);
+      await remedirRelogio();
       return enviar();
     }
     throw error;
   }
+}
+
+/**
+ * Remedição compartilhada.
+ *
+ * Um desvio errado recusa TODAS as chamadas assinadas ao mesmo tempo, e cada
+ * uma pedia a própria medição: uma dúzia de leituras simultâneas de `/time`,
+ * cada uma com três amostras, para descobrir o mesmo número. Quem chega
+ * durante uma medição em curso espera por ela; logo depois de uma, aproveita
+ * o resultado que acabou de chegar.
+ */
+let medicaoEmCurso: Promise<unknown> | null = null;
+let ultimaMedicaoEm = 0;
+const INTERVALO_MINIMO_DE_MEDICAO_MS = 5_000;
+
+async function remedirRelogio(): Promise<void> {
+  if (medicaoEmCurso) {
+    await medicaoEmCurso;
+    return;
+  }
+  if (Date.now() - ultimaMedicaoEm < INTERVALO_MINIMO_DE_MEDICAO_MS) return;
+  medicaoEmCurso = syncClock()
+    .catch(() => undefined)
+    .finally(() => {
+      ultimaMedicaoEm = Date.now();
+      medicaoEmCurso = null;
+    });
+  await medicaoEmCurso;
 }
 
 export async function ping(): Promise<boolean> {
@@ -400,14 +437,66 @@ export async function ping(): Promise<boolean> {
   }
 }
 
-/** Sincroniza o relógio: assinatura fora da janela é recusada com -1021. */
+/**
+ * Sincroniza o relógio: assinatura fora da janela é recusada com -1021.
+ *
+ * A medição NÃO passa pela fila de requisições, e é isso que a conserta. Por
+ * `request()` ela entrava na pista pública ATRÁS da varredura do universo —
+ * centenas de candles a 125 ms cada. O `before` era carimbado ao ENTRAR na
+ * fila e o `serverTime` chegava segundos depois, então o tempo de espera na
+ * própria fila virava "desvio do relógio". Em 27/08/2026 isso produziu
+ * desvios medidos de +6,8 s a +8,2 s numa máquina sincronizada: o painel
+ * passou a assinar com carimbo no FUTURO e a Binance recusou tudo com -1021,
+ * inclusive a proteção de uma posição real já aberta.
+ *
+ * Três amostras, e vale a de menor ida-e-volta. Tirada a fila do caminho, o
+ * único erro que sobra é a assimetria da latência — e a amostra mais rápida é
+ * a menos contaminada por ela.
+ */
 export async function syncClock(): Promise<number> {
-  const before = Date.now();
-  const result = await request<{ serverTime: number }>(publicUrl(endpoint('time')));
-  const latency = (Date.now() - before) / 2;
-  clockOffsetMs = Math.round(result.serverTime - (before + latency));
+  const url = publicUrl(endpoint('time'));
+  let melhor: { offset: number; roundTrip: number } | null = null;
+
+  for (let amostra = 0; amostra < 3; amostra += 1) {
+    try {
+      const before = Date.now();
+      const response = await fetch(url);
+      const roundTrip = Date.now() - before;
+      if (!response.ok) continue;
+      const { serverTime } = (await response.json()) as { serverTime?: number };
+      if (!Number.isFinite(serverTime)) continue;
+      const offset = Math.round((serverTime as number) - (before + roundTrip / 2));
+      if (melhor === null || roundTrip < melhor.roundTrip) melhor = { offset, roundTrip };
+      // amostra boa o bastante: insistir só adicionaria ruído
+      if (roundTrip <= 150) break;
+    } catch {
+      // uma amostra perdida na rede não invalida as outras
+    }
+  }
+
+  if (melhor === null) {
+    throw new BinanceError('Não foi possível ler a hora da Binance', -1, 503);
+  }
+
+  clockOffsetMs = melhor.offset;
+  /*
+   * A folga do carimbo cresce com a incerteza da medição.
+   *
+   * Meia ida-e-volta é o erro máximo que a assimetria de latência pode ter
+   * introduzido. Como adiantar é recusado na hora e atrasar cabe no
+   * `recvWindow` inteiro, a folga passa a ser sempre maior que esse erro: uma
+   * medição ruim atrasa o carimbo em vez de adiantá-lo.
+   */
+  clockMarginMs = Math.min(
+    Math.max(MARGEM_DE_RELOGIO_MS, Math.round(melhor.roundTrip / 2) + 100),
+    TETO_DA_MARGEM_MS,
+  );
   if (Math.abs(clockOffsetMs) > 1000) {
-    logger.warn('Relógio local fora de sincronia com a Binance', { clockOffsetMs });
+    logger.warn('Relógio local fora de sincronia com a Binance', {
+      clockOffsetMs,
+      idaEVoltaMs: melhor.roundTrip,
+      margemMs: clockMarginMs,
+    });
   }
   return clockOffsetMs;
 }

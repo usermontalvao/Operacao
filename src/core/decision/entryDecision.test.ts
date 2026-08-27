@@ -19,6 +19,13 @@ const AUTO: AutoTradeSettings = {
   liveArmedUntil: null,
   liveArmedIndefinitely: false,
   maxNotionalPerTrade: 50,
+  strategies: {
+    PULLBACK: { enabled: false, minimumScore: 75, minimumRiskReward: 2 },
+    BREAKOUT_RETEST: { enabled: false, minimumScore: 78, minimumRiskReward: 2 },
+    SUPPORT_REVERSAL: { enabled: false, minimumScore: 80, minimumRiskReward: 2.2 },
+    MOMENTUM_BURST: { enabled: true, minimumScore: 90, minimumRiskReward: 2.5 },
+    RANGE_FADE: { enabled: false, minimumScore: 75, minimumRiskReward: 1.8 },
+  },
 };
 
 function setup(overrides: Partial<TradeSetup> = {}): TradeSetup {
@@ -106,9 +113,9 @@ test('timeframe desligado não pode gerar entrada automática', () => {
   );
 });
 
-test('estratégia não validada é bloqueada mesmo com score alto', () => {
+test('estratégia desligada na conta é bloqueada mesmo com score alto', () => {
   const decision = evaluateEntryDecision(input({ setup: setup({ setupType: 'PULLBACK', score: 99 }) }));
-  assert.ok(codigos(decision).includes('STRATEGY_NOT_VALIDATED'));
+  assert.ok(codigos(decision).includes('STRATEGY_DISABLED'));
 });
 
 test('MOMENTUM_BURST com score 89 é recusado pelo piso validado', () => {
@@ -247,7 +254,7 @@ test('a decisão junta TODOS os bloqueios, não só o primeiro', () => {
   );
   const encontrados = codigos(decision);
   assert.ok(encontrados.includes('ROBOT_DISABLED'));
-  assert.ok(encontrados.includes('STRATEGY_NOT_VALIDATED'));
+  assert.ok(encontrados.includes('STRATEGY_DISABLED'));
   assert.ok(encontrados.includes('PRICE_OUTSIDE_ENTRY_ZONE'));
   assert.ok(encontrados.length >= 3, 'saber que faltou UMA coisa é pouco quando faltavam três');
   // e o código que MANDA é o primeiro, para o painel ter um rótulo curto

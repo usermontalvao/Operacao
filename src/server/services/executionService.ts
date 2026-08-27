@@ -17,6 +17,7 @@ import {
   formatPrice,
   formatQuantity,
   round,
+  roundDownToStep,
   validateOrder,
 } from '../../core/risk/index.ts';
 import type { SizingResult } from '../../core/risk/index.ts';
@@ -441,6 +442,7 @@ export class ExecutionService {
     automatic = false,
     mode: TradingMode = this.settings.get().mode,
     market: MarketKind = setup.market ?? this.settings.get().market,
+    automationSizeFactor = 1,
   ): Promise<PreviewResult> {
     const policy = this.settings.forMode(mode, market);
     const side = setup.side;
@@ -568,7 +570,7 @@ export class ExecutionService {
       // Compra manual spot usa o valor pedido. O risco continua calculado e
       // mostrado, mas os tetos internos deixam de alterar a quantidade.
       enforcePolicyLimits: !manualSpotAmount,
-      sizeFactor: manualSpotAmount ? 1 : gate.sizeFactor,
+      sizeFactor: manualSpotAmount ? 1 : gate.sizeFactor * automationSizeFactor,
       stepSize: filters?.stepSize,
       /*
        * O piso da corretora só existe para a ordem MANUAL.
@@ -718,7 +720,7 @@ export class ExecutionService {
         `Posição ${sideLabel(side)} ${leverage}x — margem de ${margin.toFixed(2)} USDT, liquidação estimada em ${liquidation.liquidationPrice.toPrecision(6)}`,
       );
     }
-    const strategyRejection = automaticStrategyRejectionReason(setup);
+    const strategyRejection = automaticStrategyRejectionReason(setup, policy.autoTrade);
     if (strategyRejection !== null) {
       // "compra automática" numa tese de VENDA é a frase contradizendo o
       // próprio aviso; o que está bloqueado é a ENTRADA do robô, dos dois lados
@@ -997,7 +999,7 @@ export class ExecutionService {
     const policy = this.settings.forMode(mode, market);
     if (!policy.autoTrade.enabled) return null;
 
-    const strategyRejection = automaticStrategyRejectionReason(setup);
+    const strategyRejection = automaticStrategyRejectionReason(setup, policy.autoTrade);
     if (strategyRejection !== null) {
       this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
@@ -1037,7 +1039,14 @@ export class ExecutionService {
     // O tamanho sai do preview, que dimensiona pelo risco. Nada de calcular
     // aqui um valor a investir: era exatamente esse caminho paralelo que
     // deixava o risco por operação virar um aviso sem efeito.
-    const preview = await this.preview({ setupId: setup.id }, setup, true, mode, market);
+    const preview = await this.preview(
+      { setupId: setup.id },
+      setup,
+      true,
+      mode,
+      market,
+      decision?.sizeFactor ?? 1,
+    );
     if (!preview.canExecute || !preview.confirmationToken) {
       this.audit.record({
         action: 'AUTO_TRADE_SKIPPED',
@@ -1092,6 +1101,7 @@ export class ExecutionService {
         riscoPercentDoPatrimonio: preview.riskSizing.riskPercentOfEquity,
         limitouOTamanho: preview.riskSizing.boundBy,
         decisao: decision?.code ?? 'ALLOWED',
+        fatorConfianca: decision?.sizeFactor ?? 1,
       },
     });
     // o setup precisa sair do radar aqui também, senão ele expira sozinho mais
@@ -1147,7 +1157,31 @@ export class ExecutionService {
       target2: payload.target2 ?? null,
       target3: payload.target3 ?? null,
     };
-    const planErrors = validateTradePlan(approvedSetup, side, payload.entryPrice);
+
+    /*
+     * O preço da ordem é o de AGORA, não o da prévia.
+     *
+     * A confirmação vale cinco minutos, e o número que ia para a corretora era
+     * o preço capturado quando a prévia foi montada. Bastava o mercado andar
+     * nesse intervalo para a ordem nascer parada: em 27/08/2026 uma compra de
+     * MIRAUSDT foi enviada a 0,04299 com o mercado em 0,04307 e ficou no livro
+     * esperando uma queda de 0,19% que ninguém pediu. Do lado de fora isso é
+     * indistinguível de lentidão do sistema — e é pior, porque a ordem pode
+     * simplesmente nunca preencher.
+     *
+     * O que a confirmação aprova é o PLANO (stop, alvos, tamanho) e o teto da
+     * entrada. Este recálculo passa pelas mesmas regras da prévia, então o
+     * preço continua preso à zona da tese e à tolerância configurada: repreçar
+     * não é afrouxar, é usar a mesma régua no instante certo.
+     */
+    const entryPrice = this.precoDeEntradaAgora(
+      setup,
+      payload,
+      mode,
+      settings.guard.manualEntryTolerancePercent,
+    );
+
+    const planErrors = validateTradePlan(approvedSetup, side, entryPrice);
     if (planErrors.length > 0) {
       throw new ExecutionError(`Plano aprovado deixou de ser válido: ${planErrors[0]}`, 400);
     }
@@ -1215,8 +1249,20 @@ export class ExecutionService {
     }
 
     const filters = await this.dependencies.loadFilters(setup.symbol, market);
+    /*
+     * O orçamento aprovado é um teto em USDT, e ele não pode crescer só
+     * porque o preço subiu entre a confirmação e o envio. Manter a quantidade
+     * mais cara estouraria o valor confirmado e, no limite, o próprio saldo —
+     * e a corretora devolveria "saldo insuficiente". Preço mais barato mantém
+     * a quantidade: encolher ali não protege nada e ainda arrisca cair abaixo
+     * do mínimo negociável.
+     */
+    const quantity =
+      filters && quantidadeExcedeOrcamento(payload.quantity, entryPrice, payload.quoteAmount)
+        ? roundDownToStep(payload.quoteAmount / entryPrice, filters.stepSize)
+        : payload.quantity;
     if (filters) {
-      const validation = validateOrder(filters, payload.quantity, payload.entryPrice);
+      const validation = validateOrder(filters, quantity, entryPrice);
       if (!validation.valid) throw new ExecutionError(validation.errors[0] as string);
     }
 
@@ -1228,8 +1274,13 @@ export class ExecutionService {
       symbol: setup.symbol,
       setupId: setup.id,
       detail: {
-        quantity: payload.quantity,
-        entryPrice: payload.entryPrice,
+        quantity,
+        entryPrice,
+        // os dois números do repreçamento ficam gravados: sem eles ninguém
+        // consegue explicar depois por que a ordem saiu num preço que a tela
+        // da confirmação não mostrava
+        entryPriceAprovado: payload.entryPrice,
+        quantidadeAprovada: payload.quantity,
         stopLoss: approvedSetup.stopLoss,
         target1: approvedSetup.target1,
         quoteAmount: payload.quoteAmount,
@@ -1240,7 +1291,7 @@ export class ExecutionService {
     // ficaria pendurada para sempre. Descartado aqui, quem manda passa a ser
     // o stop que sobe.
     const targets = sanitizeTargets({
-      entryPrice: payload.entryPrice,
+      entryPrice,
       target1: approvedSetup.target1,
       target2: approvedSetup.target2,
       target3: approvedSetup.target3,
@@ -1264,8 +1315,8 @@ export class ExecutionService {
       market === 'FUTURES'
         ? checkLiquidation({
             side,
-            entryPrice: payload.entryPrice,
-            quantity: payload.quantity,
+            entryPrice,
+            quantity,
             leverage,
             marginMode: settings.futures.marginMode,
             walletBalance: capitalView.capital,
@@ -1292,10 +1343,10 @@ export class ExecutionService {
       score: setup.score,
       status: 'PENDING',
       outcome: 'OPEN',
-      requestedQuantity: payload.quantity,
+      requestedQuantity: quantity,
       filledQuantity: 0,
       remainingQuantity: 0,
-      entryPrice: payload.entryPrice,
+      entryPrice,
       averageFillPrice: null,
       stopLoss: approvedSetup.stopLoss,
       target1: targets.target1,
@@ -1307,7 +1358,7 @@ export class ExecutionService {
       marginMode: market === 'FUTURES' ? settings.futures.marginMode : undefined,
       liquidationPrice: liquidation?.liquidationPrice ?? null,
       riskAmount: round(
-        payload.quantity * Math.max(-gainPerUnit(side, payload.entryPrice, approvedSetup.stopLoss), 0),
+        quantity * Math.max(-gainPerUnit(side, entryPrice, approvedSetup.stopLoss), 0),
         2,
       ),
       realizedPnl: 0,
@@ -1555,6 +1606,31 @@ export class ExecutionService {
     return `${body}.${signature}`;
   }
 
+  /**
+   * O preço que a ordem vai carregar, medido agora.
+   *
+   * Mesmas três regras da prévia, de propósito: papel entra a mercado, o robô
+   * fica preso à zona da tese, e a mão humana pode aceitar a folga curta que
+   * está nos ajustes. O que muda é só o instante da medição — e era o
+   * instante que estava errado.
+   *
+   * Sem cotação viva, o preço aprovado continua valendo: uma ordem com preço
+   * de cinco minutos atrás é ruim, mas melhor que nenhuma ordem.
+   */
+  private precoDeEntradaAgora(
+    setup: TradeSetup,
+    payload: ConfirmationPayload,
+    mode: TradingMode,
+    tolerancePercent: number,
+  ): number {
+    const preco = this.market.getPrice(setup.symbol);
+    if (preco === null || !Number.isFinite(preco) || preco <= 0) return payload.entryPrice;
+    if (mode === 'PAPER' && !payload.automatic) return preco;
+    return payload.automatic
+      ? clampToZone(preco, setup)
+      : manualLimitPrice(preco, setup, tolerancePercent);
+  }
+
   private verifyConfirmation(token: string): ConfirmationPayload {
     const [body, signature] = token.split('.');
     if (!body || !signature) throw new ExecutionError('Confirmação inválida — refaça a operação');
@@ -1646,6 +1722,23 @@ function unfavorableDistancePercent(price: number, setup: TradeSetup): number {
     return ((setup.entryLow - price) / setup.entryLow) * 100;
   }
   return 0;
+}
+
+/**
+ * O repreçamento estourou o valor aprovado?
+ *
+ * Uma folga de meio centavo não vale uma ordem menor — o arredondamento de
+ * lote pode derrubá-la abaixo do mínimo negociável e transformar "o preço
+ * subiu um pouco" em "a corretora recusou". A pergunta só vira sim quando o
+ * excesso é material.
+ */
+export function quantidadeExcedeOrcamento(
+  quantidade: number,
+  preco: number,
+  orcamento: number,
+): boolean {
+  if (!Number.isFinite(preco) || preco <= 0 || orcamento <= 0) return false;
+  return quantidade * preco > orcamento * 1.001;
 }
 
 /** Limite manual com folga curta; fora dela volta ao limite original da tese. */

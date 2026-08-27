@@ -14,6 +14,7 @@ import type {
   MicroScalpSettings,
   ModeSettings,
   RiskSettings,
+  SetupType,
   Timeframe,
   TradingMode,
   UniverseMode,
@@ -44,6 +45,8 @@ const RISK_FIELDS: Array<{ key: keyof RiskSettings; label: string; hint: string;
  * custo próprios, e ganha o bloco separado logo abaixo.
  */
 const TREND_TIMEFRAMES: Array<{ id: Timeframe; hint: string }> = [
+  { id: '3m', hint: 'gatilho muito curto · exige custo baixo' },
+  { id: '5m', hint: 'intraday rápido · contexto de 15m' },
   { id: '15m', hint: 'giro curto · pullback e reteste' },
   { id: '1h', hint: 'tendência · pullback, rompimento, explosão' },
   { id: '4h', hint: 'tendência larga · menos sinais, mais folga' },
@@ -100,10 +103,9 @@ const AUTO_FIELDS: Array<{
   {
     key: 'minimumScore',
     label: 'Score mínimo para comprar',
-    // o piso não é preferência: é o resultado que sustenta a automação
-    hint: 'Piso de 90 medido no laboratório — abaixo disso, só compra manual',
+    hint: 'Fallback para ajustes antigos; cada estratégia tem sua régua abaixo',
     step: 1,
-    min: 90,
+    min: 50,
     max: 100,
   },
   { key: 'minimumRiskReward', label: 'R/R mínimo do robô', hint: 'Costuma ser mais exigente que o do radar', step: 0.1, min: 1, max: 10 },
@@ -111,6 +113,18 @@ const AUTO_FIELDS: Array<{
   { key: 'maxConcurrentTrades', label: 'Posições automáticas simultâneas', hint: 'Teto de exposição do robô', step: 1, min: 1, max: 20 },
   { key: 'cooldownMinutes', label: 'Descanso por ativo (min)', hint: 'Evita recomprar o mesmo ativo em sequência', step: 15, min: 5, max: 1440 },
   { key: 'maxNotionalPerTrade', label: 'Teto por ordem (USDT)', hint: 'Vale mesmo que o percentual peça mais', step: 5, min: 5, max: 1000000 },
+];
+
+const AUTOMATIC_STRATEGIES: Array<{
+  id: SetupType;
+  label: string;
+  hint: string;
+}> = [
+  { id: 'MOMENTUM_BURST', label: 'Breakout / momentum', hint: 'explosão com força e volume' },
+  { id: 'BREAKOUT_RETEST', label: 'Reteste de rompimento', hint: 'rompe, volta ao nível e confirma' },
+  { id: 'PULLBACK', label: 'Pullback de tendência', hint: 'correção curta na direção principal' },
+  { id: 'SUPPORT_REVERSAL', label: 'Reversão em suporte', hint: 'defesa confirmada de zona' },
+  { id: 'RANGE_FADE', label: 'Scalp lateral 1m', hint: 'retorno da borda para o meio da faixa' },
 ];
 
 export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; onLoggedOut: () => void }) {
@@ -775,6 +789,90 @@ export function Settings({ onChanged, onLoggedOut }: { onChanged: () => void; on
               Agora o robô NÃO compraria na conta real: {riskState.robot.liveDenial}.
             </p>
           ) : null}
+        </div>
+        <div className="mt-4 rounded-lg border border-terminal-border bg-terminal-panel-soft p-3">
+          <h3 className="text-xs font-semibold">Estratégias autorizadas nesta conta</h3>
+          <p className="mt-0.5 text-[10px] text-terminal-muted">
+            Desligar mantém os sinais no radar. Ligar autoriza a ordem automática depois de score,
+            R/R, zona, saldo, exposição e filtros da corretora. Sinais no piso usam metade do
+            tamanho; a partir de +10 pontos usam o tamanho integral.
+          </p>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {AUTOMATIC_STRATEGIES.map((item) => {
+              const policy = auto.strategies[item.id];
+              return (
+                <div key={item.id} className="rounded-lg border border-terminal-border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold">{item.label}</p>
+                      <p className="text-[10px] text-terminal-muted">{item.hint}</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px]">
+                      <input
+                        type="checkbox"
+                        checked={policy.enabled}
+                        onChange={(event) =>
+                          setAuto({
+                            ...auto,
+                            strategies: {
+                              ...auto.strategies,
+                              [item.id]: { ...policy, enabled: event.target.checked },
+                            },
+                          })
+                        }
+                      />
+                      {policy.enabled ? 'automática' : 'só radar'}
+                    </label>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="text-[10px] text-terminal-muted">
+                      Score mínimo
+                      <input
+                        type="number"
+                        min={50}
+                        max={100}
+                        step={1}
+                        value={policy.minimumScore}
+                        onChange={(event) =>
+                          setAuto({
+                            ...auto,
+                            strategies: {
+                              ...auto.strategies,
+                              [item.id]: { ...policy, minimumScore: Number(event.target.value) },
+                            },
+                          })
+                        }
+                        className="mt-1 w-full rounded border border-terminal-border bg-terminal-bg px-2 py-1 text-xs tabular"
+                      />
+                    </label>
+                    <label className="text-[10px] text-terminal-muted">
+                      R/R mínimo
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        step={0.1}
+                        value={policy.minimumRiskReward}
+                        onChange={(event) =>
+                          setAuto({
+                            ...auto,
+                            strategies: {
+                              ...auto.strategies,
+                              [item.id]: {
+                                ...policy,
+                                minimumRiskReward: Number(event.target.value),
+                              },
+                            },
+                          })
+                        }
+                        className="mt-1 w-full rounded border border-terminal-border bg-terminal-bg px-2 py-1 text-xs tabular"
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {AUTO_FIELDS.map((field) => {

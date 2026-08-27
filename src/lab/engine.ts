@@ -68,6 +68,13 @@ export function labSettings(overrides: Partial<AppSettings> = {}): AppSettings {
       liveArmedUntil: null,
       liveArmedIndefinitely: false,
       maxNotionalPerTrade: 50,
+      strategies: {
+        PULLBACK: { enabled: true, minimumScore: 50, minimumRiskReward: 1 },
+        BREAKOUT_RETEST: { enabled: true, minimumScore: 50, minimumRiskReward: 1 },
+        SUPPORT_REVERSAL: { enabled: true, minimumScore: 50, minimumRiskReward: 1 },
+        MOMENTUM_BURST: { enabled: true, minimumScore: 50, minimumRiskReward: 1 },
+        RANGE_FADE: { enabled: true, minimumScore: 50, minimumRiskReward: 1 },
+      },
     },
     guard: { ...DEFAULT_GUARD },
     updatedAt: new Date(0).toISOString(),

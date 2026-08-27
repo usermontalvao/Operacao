@@ -49,6 +49,7 @@ export function Diagnostico() {
     <div className="space-y-5 pb-6">
       <Saude health={health} />
       {funnel ? <Funil funnel={funnel} /> : null}
+      {decisions ? <Oportunidades decisions={decisions} /> : null}
       {decisions ? <PorQueNaoEntrou decisions={decisions} /> : null}
     </div>
   );
@@ -101,12 +102,12 @@ function Saude({ health }: { health: SystemHealth }) {
       <h3 className="mt-5 text-xs font-semibold">Cobertura dos timeframes</h3>
       <p className="mt-0.5 text-[11px] text-terminal-muted">
         “Ativo” significa que o scanner procura teses nesse candle. A automação é mais estreita:
-        nos gatilhos de tendência, somente Explosão de força comprada em spot; o micro scalp de 1m
-        continua manual.
+        a autorização é definida por setup e por conta. Todos os sinais continuam passando por
+        zona, risco, liquidez, saldo e filtros da corretora.
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {coberturaTimeframes.map((item) => {
-          const automatico = item.automacao === 'MOMENTUM_BURST_SPOT';
+          const automatico = item.automacao === 'CONFIGURADA_POR_SETUP';
           return (
             <div
               key={item.timeframe}
@@ -115,7 +116,7 @@ function Saude({ health }: { health: SystemHealth }) {
               <span className="text-xs font-bold tabular">{item.timeframe}</span>
               <span className="ml-2 text-[10px] text-bull">scanner ligado</span>
               <span className={`ml-2 text-[10px] ${automatico ? 'text-info' : 'text-terminal-muted'}`}>
-                {automatico ? 'auto: explosão spot' : 'somente manual'}
+                {automatico ? `auto: ${item.estrategias.length} setup(s)` : 'somente manual'}
               </span>
             </div>
           );
@@ -124,6 +125,22 @@ function Saude({ health }: { health: SystemHealth }) {
           <p className="text-[11px] text-warn">
             O servidor ainda não informou a cobertura. Reinicie a API para carregar esta versão.
           </p>
+        ) : null}
+      </div>
+
+      <h3 className="mt-5 text-xs font-semibold">Shortlist HOT</h3>
+      <p className="mt-0.5 text-[11px] text-terminal-muted">
+        Faixa dinâmica dos pares com maior volume na volta atual; eles entram primeiro na rotação do
+        universo amplo. A watchlist continua em tempo real por WebSocket.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {(health.universo?.hot ?? []).map((symbol) => (
+          <span key={symbol} className="rounded border border-info/30 bg-info/5 px-2 py-1 text-[10px] text-info">
+            {symbol.replace('USDT', '')}
+          </span>
+        ))}
+        {(health.universo?.hot?.length ?? 0) === 0 ? (
+          <span className="text-[10px] text-terminal-muted">Aguardando a primeira leitura do universo.</span>
         ) : null}
       </div>
 
@@ -197,6 +214,26 @@ function Funil({ funnel }: { funnel: FunnelResponse }) {
         operar.
       </p>
 
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Info label="Ativos analisados (24h)" value={String(funnel.scanner.assetsAnalyzed)} />
+        <Info label="Detecções brutas (24h)" value={String(funnel.scanner.setupsGenerated)} />
+        <Info label="Detectadas / dia" value={funnel.detectedPerDay.toFixed(2)} />
+        <Info label="Aprovadas / dia" value={funnel.approvedPerDay.toFixed(2)} />
+        <Info label="Recusadas / dia" value={funnel.rejectedPerDay.toFixed(2)} />
+        <Info
+          label="Frequência"
+          value={funnel.opportunityStatus}
+          tone={funnel.opportunityStatus === 'ON_TARGET' ? 'text-bull' : 'text-warn'}
+        />
+      </div>
+
+      {funnel.opportunityStatus === 'LOW_OPPORTUNITY_RATE' ? (
+        <p className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
+          LOW_OPPORTUNITY_RATE — menos de 2 oportunidades aprovadas por dia na amostra registrada.
+          Aumente a cobertura ou calibre a principal porta do funil; não conte operações artificiais.
+        </p>
+      ) : null}
+
       <div className="mt-4 space-y-2">
         {funnel.steps.map((step) => (
           <div key={step.stage}>
@@ -222,6 +259,57 @@ function Funil({ funnel }: { funnel: FunnelResponse }) {
             ) : null}
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function Oportunidades({ decisions }: { decisions: DecisionsResponse }) {
+  const latest = new Map<string, DecisionsResponse['decisions'][number]>();
+  for (const decision of decisions.decisions) {
+    const previous = latest.get(decision.setupId);
+    if (!previous || decision.lastSeenAt > previous.lastSeenAt) latest.set(decision.setupId, decision);
+  }
+  const rows = [...latest.values()]
+    .sort((a, b) => Number(b.allowed) - Number(a.allowed) || b.score - a.score)
+    .slice(0, 20);
+  return (
+    <section className="rounded-xl border border-terminal-border bg-terminal-panel p-5">
+      <h2 className="text-sm font-semibold">Oportunidades recentes</h2>
+      <p className="mt-0.5 text-[11px] text-terminal-muted">
+        Uma linha por setup: pronto, em observação ou rejeitado, com a regra que decidiu.
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[680px] text-left text-[11px]">
+          <thead className="text-terminal-muted">
+            <tr>
+              <th className="pb-2">Ativo</th><th className="pb-2">Setup</th>
+              <th className="pb-2">TF</th><th className="pb-2">Score</th>
+              <th className="pb-2">Estado</th><th className="pb-2">Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const state = row.allowed
+                ? 'PRONTA'
+                : row.stage === 'DENTRO_DA_ZONA' || row.stage === 'APROVADO_PELO_RISCO'
+                  ? 'QUASE'
+                  : 'REJEITADA';
+              return (
+                <tr key={row.setupId} className="border-t border-terminal-border">
+                  <td className="py-2 font-semibold">{row.symbol.replace('USDT', '')}</td>
+                  <td className="py-2">{row.setupType}</td><td className="py-2">{row.timeframe}</td>
+                  <td className="py-2 tabular">{row.score}</td>
+                  <td className={`py-2 font-semibold ${row.allowed ? 'text-bull' : state === 'QUASE' ? 'text-warn' : 'text-terminal-muted'}`}>{state}</td>
+                  <td className="max-w-[320px] truncate py-2" title={row.blockers[0]?.message}>
+                    {row.allowed ? 'Passou por todas as portas' : row.blockers[0]?.message ?? row.code}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {rows.length === 0 ? <p className="py-3 text-xs text-terminal-muted">Nenhum setup avaliado ainda.</p> : null}
       </div>
     </section>
   );

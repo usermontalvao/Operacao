@@ -106,7 +106,8 @@ export interface SystemHealth {
     ativos: AppSettings['scanner']['triggerTimeframes'];
     cobertura: Array<{
       timeframe: AppSettings['scanner']['triggerTimeframes'][number];
-      automacao: 'SOMENTE_MANUAL' | 'MOMENTUM_BURST_SPOT';
+      automacao: 'SOMENTE_MANUAL' | 'CONFIGURADA_POR_SETUP';
+      estrategias: string[];
     }>;
   };
   sessoes: Array<{
@@ -122,6 +123,18 @@ export interface SystemHealth {
   }>;
   modoEmExibicao: AppSettings['mode'];
   scannerAtivo: boolean;
+  universo: {
+    enabled: boolean;
+    total: number;
+    liquid: number;
+    cursor: number;
+    scannedThisCycle: number;
+    lastCycleSeconds: number | null;
+    lastError: string | null;
+    updatedAt: string | null;
+    hot: string[];
+    hotUpdatedAt: string | null;
+  };
   versoes: { estrategia: string; score: string; risco: string; execucao: string };
 }
 
@@ -136,6 +149,23 @@ export interface FunnelResponse {
   total: number;
   decisions: number;
   since: string | null;
+  until: string | null;
+  observationDays: number;
+  detectedPerDay: number;
+  approvedPerDay: number;
+  rejectedPerDay: number;
+  opportunityStatus: 'LOW_OPPORTUNITY_RATE' | 'ON_TARGET' | 'ABOVE_TARGET';
+  bySetup: Array<{ setupType: string; detected: number; approved: number; approvalPercent: number }>;
+  byTimeframe: Array<{ timeframe: string; detected: number; approved: number; approvalPercent: number }>;
+  scanner: {
+    windowHours: number;
+    assetsAnalyzed: number;
+    analysesWithSetup: number;
+    setupsGenerated: number;
+    bySource: Record<'WATCHLIST' | 'UNIVERSE' | 'MICRO', number>;
+    bySetup: Array<{ setupType: string; count: number }>;
+    byTimeframe: Array<{ timeframe: string; count: number }>;
+  };
   mode: AppSettings['mode'];
 }
 

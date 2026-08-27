@@ -1,5 +1,5 @@
 import type { MarketKind, Side } from '../direction.ts';
-import type { SetupType } from '../types.ts';
+import type { AutoTradeSettings, SetupType } from '../types.ts';
 
 /**
  * Estratégias autorizadas a operar sem intervenção humana.
@@ -44,11 +44,15 @@ export interface AutomaticRejection {
     | 'SHORT_NOT_AUTOMATED'
     | 'MARKET_NOT_VALIDATED'
     | 'STRATEGY_NOT_VALIDATED'
+    | 'STRATEGY_DISABLED'
     | 'SCORE_BELOW_VALIDATED_FLOOR';
   message: string;
 }
 
-export function automaticRejection(setup: AutomaticStrategyCandidate): AutomaticRejection | null {
+export function automaticRejection(
+  setup: AutomaticStrategyCandidate,
+  autoTrade?: AutoTradeSettings,
+): AutomaticRejection | null {
   /*
    * O lado vendido existe no radar e pode ser executado à mão em futuros, mas
    * NÃO pelo robô. Os números que autorizam a automação — treino e teste, duas
@@ -90,6 +94,25 @@ export function automaticRejection(setup: AutomaticStrategyCandidate): Automatic
         'futuros não foi medido: a expectativa positiva veio de histórico de spot, e o perpétuo tem candle próprio, basis, funding e liquidação. Em futuros o robô não entra — a operação é manual',
     };
   }
+  const configured = autoTrade?.strategies?.[setup.setupType];
+  if (configured !== undefined) {
+    if (!configured.enabled) {
+      return {
+        code: 'STRATEGY_DISABLED',
+        message: `${setup.setupType} está visível no radar, mas a entrada automática desta estratégia está desligada nos ajustes desta conta`,
+      };
+    }
+    if (setup.score < configured.minimumScore) {
+      return {
+        code: 'SCORE_BELOW_VALIDATED_FLOOR',
+        message: `score ${setup.score} abaixo do piso de ${configured.minimumScore} configurado para ${setup.setupType}`,
+      };
+    }
+    return null;
+  }
+
+  // Compatibilidade com snapshots e chamadas de laboratório anteriores à
+  // política por setup: sem configuração explícita vale a régua validada.
   if (!validated.has(setup.setupType)) {
     return {
       code: 'STRATEGY_NOT_VALIDATED',
@@ -106,8 +129,28 @@ export function automaticRejection(setup: AutomaticStrategyCandidate): Automatic
 }
 
 /** Só a frase, para quem não precisa do código. */
-export function automaticStrategyRejectionReason(setup: AutomaticStrategyCandidate): string | null {
-  return automaticRejection(setup)?.message ?? null;
+export function automaticStrategyRejectionReason(
+  setup: AutomaticStrategyCandidate,
+  autoTrade?: AutoTradeSettings,
+): string | null {
+  return automaticRejection(setup, autoTrade)?.message ?? null;
+}
+
+/**
+ * Sinais no piso operam menores; os mais fortes ganham o tamanho integral.
+ * Isto não altera o risco máximo: só reduz o orçamento que depois ainda passa
+ * pelo dimensionamento por stop, exposição, saldo e filtros da corretora.
+ */
+export function strategyConfidenceSizeFactor(
+  setup: AutomaticStrategyCandidate,
+  autoTrade: AutoTradeSettings,
+): number {
+  const policy = autoTrade.strategies?.[setup.setupType];
+  const floor = policy?.minimumScore ?? autoTrade.minimumScore;
+  const margin = setup.score - floor;
+  if (margin >= 10) return 1;
+  if (margin >= 5) return 0.75;
+  return 0.5;
 }
 
 /**

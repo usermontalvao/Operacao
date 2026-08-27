@@ -103,7 +103,7 @@ test('o 1m NÃO entra na varredura padrão', () => {
   // se entrasse, todo par do universo abriria stream de 1m no boot — ligado ou
   // desligado o micro scalp. É esta linha que faz o módulo ser mesmo opt-in
   assert.equal(TIMEFRAMES.includes('1m'), false);
-  assert.equal(Object.keys(TIMEFRAME_MINUTES).length, 5);
+  assert.equal(Object.keys(TIMEFRAME_MINUTES).length, 7);
 });
 
 test('o micro scalp nasce desligado', () => {

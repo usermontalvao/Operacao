@@ -23,6 +23,7 @@ const BATCH_SIZE = 40;
 const KLINE_LIMIT = 300;
 /** Mínimo de candles para os indicadores fazerem sentido. */
 const MIN_CANDLES = 60;
+const HOT_SIZE = 20;
 
 export interface UniverseStatus {
   enabled: boolean;
@@ -33,6 +34,9 @@ export interface UniverseStatus {
   lastCycleSeconds: number | null;
   lastError: string | null;
   updatedAt: string | null;
+  /** shortlist dinâmica: primeiros pares por volume na volta atual */
+  hot: string[];
+  hotUpdatedAt: string | null;
 }
 
 /**
@@ -53,6 +57,8 @@ export class UniverseService {
   private lastCycleSeconds: number | null = null;
   private lastError: string | null = null;
   private updatedAt: string | null = null;
+  private hot: string[] = [];
+  private hotUpdatedAt: string | null = null;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -83,6 +89,8 @@ export class UniverseService {
     this.scannedThisCycle = 0;
     this.cycleStartedAt = 0;
     this.lastError = null;
+    this.hot = [];
+    this.hotUpdatedAt = null;
   }
 
   getStatus(): UniverseStatus {
@@ -95,6 +103,8 @@ export class UniverseService {
       lastCycleSeconds: this.lastCycleSeconds,
       lastError: this.lastError,
       updatedAt: this.updatedAt,
+      hot: [...this.hot],
+      hotUpdatedAt: this.hotUpdatedAt,
     };
   }
 
@@ -124,8 +134,18 @@ export class UniverseService {
       const timeframes = this.requiredTimeframes();
 
       const analyses = await analyzeSymbols(batch, timeframes);
+      /*
+       * A cadência medida viaja junto com a análise.
+       *
+       * Sem ela o detector de explosão exigia que o sinal tivesse no máximo 9
+       * minutos, enquanto uma volta completa nos 455 pares leva de 12 a 14 —
+       * ou seja, a regra descartava explosões que o próprio sistema demorou
+       * para ver. Na primeira volta ainda não há medição, e aí vale o número
+       * fixo de antes.
+       */
+      const cicloMs = this.lastCycleSeconds === null ? undefined : this.lastCycleSeconds * 1000;
       for (const analysis of analyses) {
-        if (analysis) await this.scanner.ingest(analysis);
+        if (analysis) await this.scanner.ingest(analysis, cicloMs);
         this.scannedThisCycle += 1;
       }
 
@@ -172,11 +192,14 @@ export class UniverseService {
       watchlist,
       this.volumes,
     );
+    this.hot = this.liquid.slice(0, HOT_SIZE);
+    this.hotUpdatedAt = new Date().toISOString();
 
     logger.info('Universo carregado', {
       pares: this.symbols.length,
       varreduraPorLotes: this.liquid.length,
       tempoReal: watchlist.size,
+      hot: this.hot.join(','),
     });
   }
 

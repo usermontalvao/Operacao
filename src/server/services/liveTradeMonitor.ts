@@ -22,7 +22,7 @@ import type { EventBus } from '../events.ts';
 import { logger } from '../logger.ts';
 import type { Repository } from '../store/index.ts';
 import type { AuditService } from './auditService.ts';
-import type { LiveProtection } from './liveProtection.ts';
+import type { LiveProtection, ProtectionResult } from './liveProtection.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import type { PaperTradingEngine } from './paperTradingEngine.ts';
 import type { SettingsService } from './settingsService.ts';
@@ -766,7 +766,7 @@ export class LiveTradeMonitor {
         this.protectedQuantity.set(trade.id, trade.remainingQuantity);
       } else {
         this.protectedQuantity.delete(trade.id);
-        await this.protection.panicSell(trade, filters, why);
+        await this.responderAFalhaDeProtecao(trade, filters, armed, why);
       }
       return true;
     }
@@ -794,10 +794,88 @@ export class LiveTradeMonitor {
     this.exposedSince.delete(trade.id);
 
     if (!result.armed) {
-      await this.protection.panicSell(trade, filters, why);
-      return true;
+      await this.responderAFalhaDeProtecao(trade, filters, result, why);
     }
     return true;
+  }
+
+  /**
+   * O que fazer quando alvo e stop não entraram no livro.
+   *
+   * Existiam dois desfechos possíveis — vendeu ou gritou — e o segundo não
+   * tinha fim. Em 27/08/2026 uma posição de MIRAUSDT que a corretora já não
+   * tinha ficou repetindo "POSIÇÃO SEM PROTEÇÃO" a cada volta do monitor,
+   * indefinidamente: a proteção não podia ser armada porque não havia moeda,
+   * a venda de emergência não podia vender pelo mesmo motivo, nada mudava de
+   * estado, e na volta seguinte tudo se repetia igual.
+   *
+   * Um alarme que se repete para sempre não é um alarme: é ruído que ensina a
+   * ignorar o próximo, que pode ser verdadeiro. Cada motivo agora termina em
+   * algum lugar.
+   */
+  private async responderAFalhaDeProtecao(
+    trade: Trade,
+    filters: SymbolFilters,
+    result: ProtectionResult,
+    why: string,
+  ): Promise<void> {
+    // o preço passou o alvo ou o stop e a própria proteção já vendeu a
+    // mercado: o preenchimento entra pela reconciliação na volta seguinte
+    if (result.reason === 'SAIDA_IMEDIATA') return;
+
+    // a venda a mercado já foi tentada ali e falhou, com alarme gravado;
+    // repetir aqui só produziria o segundo alarme idêntico
+    if (result.reason === 'SAIDA_FALHOU') return;
+
+    if (result.reason === 'CARTEIRA_VAZIA') {
+      await this.fecharPorAusenciaNaCorretora(trade, filters);
+      return;
+    }
+
+    const saida = await this.protection.panicSell(trade, filters, why);
+    if (saida === 'CARTEIRA_VAZIA') await this.fecharPorAusenciaNaCorretora(trade, filters);
+  }
+
+  /**
+   * A posição some do painel porque sumiu da corretora.
+   *
+   * Só se chega aqui depois de o livro do par ter sido esvaziado e o saldo
+   * relido fresco: nada livre, nada preso. Uma posição que a conta não tem
+   * não está desprotegida — ela não existe, e a única coisa honesta a fazer é
+   * parar de contá-la. O registro fica na auditoria com o número que o painel
+   * achava ter, porque essa diferença é o que alguém vai querer investigar.
+   */
+  private async fecharPorAusenciaNaCorretora(
+    trade: Trade,
+    filters: SymbolFilters,
+  ): Promise<void> {
+    const fantasma = trade.remainingQuantity;
+    trade.status = 'CLOSED';
+    trade.remainingQuantity = 0;
+    trade.closedAt = trade.closedAt ?? new Date().toISOString();
+    trade.closeReason =
+      trade.closeReason ??
+      `posição encerrada por reconciliação — a conta não tem ${filters.baseAsset}, nem livre nem preso em ordem`;
+    this.audit.record({
+      action: 'LIVE_TRADE_RECONCILED_CLOSED',
+      mode: trade.mode,
+      symbol: trade.symbol,
+      setupId: trade.setupId,
+      tradeId: trade.id,
+      detail: {
+        motivo:
+          'o livro do par foi esvaziado e a carteira não tem o ativo: a posição não existe mais na corretora',
+        quantidadeQueOPainelAchavaTer: fantasma,
+        resultado: trade.realizedPnl,
+        atencao:
+          'se houve venda fora deste painel, o resultado registrado pode não incluir essa saída',
+      },
+    });
+    logger.warn('Posição encerrada por reconciliação: a corretora não tem mais o ativo', {
+      tradeId: trade.id,
+      symbol: trade.symbol,
+      quantidade: fantasma,
+    });
   }
 
   /**
@@ -842,7 +920,12 @@ export class LiveTradeMonitor {
     const result = await this.protection.rearm(trade, filters, moved, 'stop de proteção subindo');
     if (!result.armed) {
       this.protectedQuantity.delete(trade.id);
-      await this.protection.panicSell(trade, filters, 'proteção não pôde ser recriada');
+      await this.responderAFalhaDeProtecao(
+        trade,
+        filters,
+        result,
+        'stop de proteção subindo — a proteção não pôde ser recriada',
+      );
       return true;
     }
     this.protectedQuantity.set(trade.id, trade.remainingQuantity);

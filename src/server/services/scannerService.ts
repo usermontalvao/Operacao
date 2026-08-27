@@ -41,6 +41,23 @@ const MICRO_SCAN_INTERVAL_MS = 10_000;
 const LIVE_STATUSES: TradeSetup['status'][] = ['WATCHING', 'ACTIVE', 'TRIGGERED'];
 /** Por quanto tempo a fingerprint de um setup morto continua sendo lembrada. */
 const RETIRED_MEMORY_MS = 24 * 60 * 60 * 1000;
+const OPPORTUNITY_WINDOW_MS = 24 * 60 * 60_000;
+
+interface ScanOpportunitySample {
+  at: number;
+  source: 'WATCHLIST' | 'UNIVERSE' | 'MICRO';
+  generated: Array<{ setupType: TradeSetup['setupType']; timeframe: Timeframe }>;
+}
+
+export interface ScannerOpportunityStats {
+  windowHours: number;
+  assetsAnalyzed: number;
+  analysesWithSetup: number;
+  setupsGenerated: number;
+  bySource: Record<ScanOpportunitySample['source'], number>;
+  bySetup: Array<{ setupType: TradeSetup['setupType']; count: number }>;
+  byTimeframe: Array<{ timeframe: Timeframe; count: number }>;
+}
 
 /**
  * Orquestrador: junta dados de mercado, contexto do BTC e detectores, cuida
@@ -77,6 +94,7 @@ export class ScannerService {
   /** fim da última varredura; a idade disto entra na saúde do sistema */
   private lastScanAt: number | null = null;
   private scanning = false;
+  private opportunitySamples: ScanOpportunitySample[] = [];
 
   constructor(
     market: MarketDataService,
@@ -273,6 +291,52 @@ export class ScannerService {
     return this.lastScanAt;
   }
 
+  /** Funil anterior à decisão: quantos ativos foram de fato analisados. */
+  getOpportunityStats(now = Date.now()): ScannerOpportunityStats {
+    this.pruneOpportunitySamples(now);
+    const samples = this.opportunitySamples;
+    const setup = new Map<TradeSetup['setupType'], number>();
+    const timeframe = new Map<Timeframe, number>();
+    const bySource: ScannerOpportunityStats['bySource'] = { WATCHLIST: 0, UNIVERSE: 0, MICRO: 0 };
+    for (const sample of samples) {
+      bySource[sample.source] += 1;
+      for (const item of sample.generated) {
+        setup.set(item.setupType, (setup.get(item.setupType) ?? 0) + 1);
+        timeframe.set(item.timeframe, (timeframe.get(item.timeframe) ?? 0) + 1);
+      }
+    }
+    const first = samples[0]?.at ?? now;
+    return {
+      windowHours: Math.round(Math.max(0, now - first) / 36_000) / 100,
+      assetsAnalyzed: samples.length,
+      analysesWithSetup: samples.filter((sample) => sample.generated.length > 0).length,
+      setupsGenerated: samples.reduce((sum, sample) => sum + sample.generated.length, 0),
+      bySource,
+      bySetup: [...setup.entries()].map(([setupType, count]) => ({ setupType, count })).sort((a, b) => b.count - a.count),
+      byTimeframe: [...timeframe.entries()].map(([timeframe, count]) => ({ timeframe, count })).sort((a, b) => b.count - a.count),
+    };
+  }
+
+  private recordOpportunitySample(
+    source: ScanOpportunitySample['source'],
+    generated: TradeSetup[],
+    at = Date.now(),
+  ): void {
+    this.opportunitySamples.push({
+      at,
+      source,
+      generated: generated.map((setup) => ({ setupType: setup.setupType, timeframe: setup.timeframe })),
+    });
+    this.pruneOpportunitySamples(at);
+  }
+
+  private pruneOpportunitySamples(now: number): void {
+    const cutoff = now - OPPORTUNITY_WINDOW_MS;
+    const firstValid = this.opportunitySamples.findIndex((sample) => sample.at >= cutoff);
+    if (firstValid > 0) this.opportunitySamples.splice(0, firstValid);
+    else if (firstValid === -1) this.opportunitySamples = [];
+  }
+
   getContext(): MarketContext | null {
     return this.context;
   }
@@ -410,7 +474,7 @@ export class ScannerService {
    * Entrada para análises vindas de fora (varredura do universo por REST).
    * Passa pelo mesmo funil dos ativos da watchlist: gerar, casar e alertar.
    */
-  async ingest(analysis: SymbolAnalysis): Promise<void> {
+  async ingest(analysis: SymbolAnalysis, scanCycleMs?: number): Promise<void> {
     const generated = this.settings.activeMarkets().flatMap((market) =>
       generateSetups({
         analysis,
@@ -418,8 +482,10 @@ export class ScannerService {
         settings: this.settings.viewFor(market),
         now: new Date(),
         makeId: () => randomUUID(),
+        scanCycleMs,
       }),
     );
+    this.recordOpportunitySample('UNIVERSE', generated);
     if (generated.length === 0) return;
     await this.reconcile(analysis.symbol, generated, analysis);
     await this.syncFocus();
@@ -556,6 +622,7 @@ export class ScannerService {
               makeId: () => randomUUID(),
             }),
           );
+        this.recordOpportunitySample('WATCHLIST', generated);
         await this.reconcile(symbol, generated, analysis);
       }
 
@@ -640,6 +707,8 @@ export class ScannerService {
         } else {
           this.microBlocks.delete(symbol);
         }
+
+        this.recordOpportunitySample('MICRO', gerados);
 
         if (gerados.length > 0) await this.reconcile(symbol, gerados, analysis);
       }

@@ -36,6 +36,15 @@ export interface GenerateSetupsInput {
   settings: AppSettings;
   now: Date;
   makeId: () => string;
+  /**
+   * Tempo real de uma volta completa da varredura, medido na volta anterior.
+   *
+   * Serve a uma decisão só, mas importante: até quando uma explosão ainda é
+   * notícia. Exigir do sinal uma pontualidade que a varredura não consegue
+   * entregar não deixa o sistema mais seguro — deixa-o mudo. Ausente mantém
+   * o comportamento antigo, que é o que o laboratório e os testes usam.
+   */
+  scanCycleMs?: number;
 }
 
 /** Os quatro detectores medidos, do lado comprado. */
@@ -71,6 +80,7 @@ export function anchorFor(trigger: Timeframe, fallback: Timeframe): Timeframe {
    * uma correção — que é justamente quando faixas aparecem.
    */
   if (trigger === '1m') return '15m';
+  if (trigger === '3m' || trigger === '5m') return '15m';
   if (trigger === '15m' || trigger === '1h') return '4h';
   if (trigger === '4h') return '1d';
   return fallback;
@@ -106,7 +116,13 @@ export function generateSetups(input: GenerateSetupsInput): TradeSetup[] {
         : LONG_DETECTORS;
 
     for (const detector of detectors) {
-      const detectorInput: DetectorInput = { analysis, trigger, anchor, context };
+      const detectorInput: DetectorInput = {
+        analysis,
+        trigger,
+        anchor,
+        context,
+        scanCycleMs: input.scanCycleMs,
+      };
       const candidate = detector(detectorInput);
       if (!candidate) continue;
       const setup = buildSetup({ candidate, trigger, anchor, analysis, context, settings, now, makeId });

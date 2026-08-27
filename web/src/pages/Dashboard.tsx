@@ -225,7 +225,7 @@ export function Dashboard(props: DashboardProps) {
  * nomeado em vez de escrito para que o dia em que ele mudar não deixe um
  * '1m' solto aqui.
  */
-const ORDEM_TIMEFRAME: Timeframe[] = [MICRO_TIMEFRAME, '15m', '1h', '4h', '1d'];
+const ORDEM_TIMEFRAME: Timeframe[] = [MICRO_TIMEFRAME, '3m', '5m', '15m', '1h', '4h', '1d'];
 
 function MarketColumn({
   market,

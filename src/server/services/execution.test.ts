@@ -12,6 +12,7 @@ import {
   hasActiveLiveArm,
   manualLimitPrice,
   patrimonio,
+  quantidadeExcedeOrcamento,
 } from './executionService.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import { PaperTradingEngine } from './paperTradingEngine.ts';
@@ -327,6 +328,86 @@ test('entrada manual aceita só a pequena tolerância além da zona', () => {
   const venda = makeSetup({ side: 'SELL', entryLow: 1, entryHigh: 1.1 });
   assert.equal(manualLimitPrice(0.996, venda, 0.5), 0.996, '0,4% abaixo deve entrar agora');
   assert.equal(manualLimitPrice(0.994, venda, 0.5), 1, '0,6% abaixo deve esperar na zona');
+});
+
+test('a ordem sai no preço de agora, não no da prévia', async (t) => {
+  // a confirmação vale cinco minutos: o mercado anda nesse intervalo, e a
+  // ordem nascia parada num preço que já não existia
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+  assert.equal(preview.entryPrice, 1.43);
+
+  context.setPrice(1.435);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'repreca-no-envio',
+    },
+    setup,
+  );
+
+  assert.equal(trade.entryPrice, 1.435, 'o preço da prévia não pode ir para a corretora');
+});
+
+test('repreçar não afrouxa a régua: fora da zona a ordem volta para o teto', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeAutomaticSetup({ currentPrice: 1.43, entryLow: 1.41, entryHigh: 1.44 });
+  const preview = await context.execution.preview(
+    { setupId: setup.id, quoteAmount: 200 },
+    setup,
+    true,
+  );
+  assert.equal(preview.entryPrice, 1.43);
+
+  // o preço disparou 2,4% acima do teto da zona enquanto a confirmação esperava
+  context.setPrice(1.475);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'preco-disparou',
+    },
+    setup,
+  );
+
+  assert.equal(trade.entryPrice, 1.44, 'o robô continua sem perseguir o preço para fora da zona');
+});
+
+test('preço acima do aprovado encolhe a quantidade para caber no orçamento', async (t) => {
+  const context = await harness(1.43);
+  t.after(context.cleanup);
+  const setup = makeSetup();
+  const preview = await context.execution.preview({ setupId: setup.id, quoteAmount: 200 }, setup);
+
+  context.setPrice(1.4399);
+  const trade = await context.execution.execute(
+    {
+      setupId: setup.id,
+      confirmationToken: preview.confirmationToken as string,
+      idempotencyKey: 'orcamento-mandou',
+    },
+    setup,
+  );
+
+  const aprovado = preview.sizing.notional;
+  assert.ok(
+    trade.requestedQuantity * trade.entryPrice <= aprovado + 1e-9,
+    `o valor aprovado é teto: ${trade.requestedQuantity * trade.entryPrice} > ${aprovado}`,
+  );
+  assert.ok(trade.requestedQuantity < preview.sizing.quantity, 'a quantidade tinha de encolher');
+});
+
+test('folga de arredondamento não encolhe a ordem à toa', () => {
+  // um décimo de por cento acima do orçamento é ruído de arredondamento;
+  // encolher ali pode derrubar a ordem abaixo do mínimo negociável
+  assert.equal(quantidadeExcedeOrcamento(100, 2.001, 200), false);
+  assert.equal(quantidadeExcedeOrcamento(100, 2.01, 200), true);
+  assert.equal(quantidadeExcedeOrcamento(100, 1.9, 200), false);
+  assert.equal(quantidadeExcedeOrcamento(100, 0, 200), false, 'sem preço não há veredito');
 });
 
 test('tolerância manual não é herdada pelo robô', async (t) => {

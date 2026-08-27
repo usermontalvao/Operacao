@@ -25,6 +25,38 @@ import { normalizeEntryZone } from './shared.ts';
  * monótona conforme a explosão fica mais extrema (não é uma célula sortuda de
  * uma tabela), e sem o filtro de regime nenhuma variante é positiva. Por isso
  * o regime não é configuração — é condição de existência do setup.
+ *
+ * ---------------------------------------------------------------------------
+ * REMEDIDO EM 27/08/2026 sobre TODO o histórico da Binance: 28 pares,
+ * 2017-10 a 2026-08 (3.237 dias), 5 janelas de tempo e as duas metades do
+ * universo (src/lab/diagnostico.ts).
+ *
+ *   gatilho 1h    piso 95 .. +0,027R  PF 1,03   0,08 sinais/dia (28 pares)
+ *                 piso 90 .. +0,082R  PF 1,11   0,19
+ *                 piso 85 .. +0,087R  PF 1,11   0,29   <- melhor dos dois lados
+ *                 piso 80 .. +0,052R  PF 1,07   0,40
+ *                 sem piso . +0,048R  PF 1,06   0,55
+ *
+ *   gatilho 4h    piso 90 .. +0,285R  PF 1,42   0,04
+ *                 piso 85 .. +0,306R  PF 1,45   0,06   <- o melhor de todos
+ *                 sem piso . +0,251R  PF 1,36   0,13
+ *
+ * O piso 85 é o único que fica positivo nas DUAS metades do universo em 1h
+ * (+0,104 e +0,075); o 90 tem uma metade em -0,009. Em 4h os dois passam, e o
+ * 85 rende mais. Daí o padrão ter deixado de ser 90.
+ *
+ * ATENÇÃO ao tamanho da vantagem: +0,09R por operação em 1h é fino. Quatro em
+ * cinco janelas são positivas, mas a pior delas é -0,12R. Isto não é uma
+ * máquina de ganhar — é uma vantagem pequena que só existe somada em muitas
+ * operações e só enquanto o regime de alta durar.
+ *
+ * E o que a medição diz sobre CHEGAR CEDO: a barra que gera o sinal anda, na
+ * mediana, 3,78%, e a operação inteira oferece 3,77% depois dela. Metade do
+ * movimento fica para trás — por construção, porque a tese É a barra grande.
+ * Os detectores que entram cedo (pullback, reteste, reversão) têm razão de
+ * 2,4 a 4,1 no mesmo teste e expectativa NEGATIVA em todos os pisos de score.
+ * Entrar antes, aqui, não é um ajuste: é outra estratégia, ainda não medida.
+ * ---------------------------------------------------------------------------
  */
 
 /** Corpo mínimo do candle, em ATRs. Abaixo disto a medição vira negativa. */
@@ -50,6 +82,46 @@ export const TARGET_R = 3;
  */
 export const MAX_STALE_FRACTION = 0.15;
 export const MAX_STALE_MS = 20 * 60_000;
+/**
+ * Teto absoluto do atraso, valha o que valer a cadência da varredura.
+ *
+ * A tolerância pode crescer para acompanhar o tempo real de uma volta no
+ * universo (ver `toleranciaDeAtraso`), mas não além disto. O desastre que
+ * originou a regra — setup nascendo 173 minutos depois da barra — continua
+ * impossível por construção, e não por sorte de configuração.
+ */
+export const TETO_ABSOLUTO_DE_ATRASO_MS = 25 * 60_000;
+
+/**
+ * Quanto atraso ainda é a mesma tese.
+ *
+ * O número fixo de 15% da barra tem um problema que não aparece em teste
+ * nenhum: ele é uma promessa que a varredura não consegue cumprir. Uma barra
+ * de 1h dá 9 minutos de validade, e o scanner leva de 12 a 14 minutos para
+ * dar uma volta completa nos 455 pares — ou seja, boa parte das explosões
+ * morre de velhice antes de o sistema chegar ao par. Medido em produção em
+ * 27/08/2026: voltas de 761, 724 e 823 segundos.
+ *
+ * Com a cadência real em mãos, a tolerância passa a ser "uma volta inteira,
+ * com folga" — limitada pelo teto absoluto. Quem protege contra a entrada
+ * atrasada de verdade é a zona de entrada: se o preço saiu dela, o robô
+ * recusa de qualquer jeito. Foi ela, e não esta regra, que salvou o TLMUSDT.
+ */
+export function toleranciaDeAtraso(barIntervalMs: number, cicloDeVarreduraMs?: number): number {
+  const base = Math.min(barIntervalMs * MAX_STALE_FRACTION, MAX_STALE_MS);
+  if (cicloDeVarreduraMs === undefined || !Number.isFinite(cicloDeVarreduraMs)) return base;
+  /*
+   * Dois tetos, e os dois precisam existir.
+   *
+   * O absoluto impede o desastre de horas. O relativo — metade da própria
+   * barra — impede o oposto, que só aparece nos gatilhos curtos: uma volta de
+   * 13 minutos autorizaria uma explosão de 5m com TRÊS barras de idade, que
+   * já não é a mesma tese, é outro pedaço do gráfico.
+   */
+  const umaVolta = cicloDeVarreduraMs * 1.2; // o par pode ser o último do lote
+  const teto = Math.min(TETO_ABSOLUTO_DE_ATRASO_MS, barIntervalMs * 0.5);
+  return Math.min(Math.max(base, umaVolta), teto);
+}
 
 export function detectMomentumBurst(input: DetectorInput): SetupCandidate | null {
   return detectBurst(input, 'BUY');
@@ -91,7 +163,7 @@ function detectBurst(input: DetectorInput, side: Side): SetupCandidate | null {
   const observedAt = Date.parse(input.analysis.updatedAt);
   if (Number.isFinite(observedAt)) {
     const barInterval = bar.closeTime - bar.openTime + 1;
-    const tolerance = Math.min(barInterval * MAX_STALE_FRACTION, MAX_STALE_MS);
+    const tolerance = toleranciaDeAtraso(barInterval, input.scanCycleMs);
     if (observedAt - bar.closeTime > tolerance) return null;
   }
 

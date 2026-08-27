@@ -29,4 +29,11 @@ export interface DetectorInput {
   trigger: TimeframeAnalysis;
   anchor: TimeframeAnalysis;
   context: MarketContext | null;
+  /**
+   * Quanto tempo a varredura leva para dar uma volta completa no universo,
+   * medido na última volta. Quem decide por idade do sinal precisa saber de
+   * quanto em quanto tempo este par é olhado — senão exige uma pontualidade
+   * que a arquitetura não entrega. Ausente = comportamento antigo.
+   */
+  scanCycleMs?: number;
 }

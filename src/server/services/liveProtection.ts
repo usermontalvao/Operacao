@@ -3,7 +3,18 @@ import { sideLabel } from '../../core/direction.ts';
 import { buildExitPlan, SCALE_OUT, type ExitPlan } from '../../core/execution/exitPlan.ts';
 import { formatPrice, formatQuantity } from '../../core/risk/index.ts';
 import { quantidadeVendavel } from '../../core/execution/posicaoReal.ts';
-import { cancelOrderList, getAccountBalances, marketSell, newOcoSellOrder } from '../binance/rest.ts';
+import {
+  explicarSaidaImediata,
+  saidaImediataNecessaria,
+} from '../../core/execution/protecaoPossivel.ts';
+import {
+  cancelAllOpenOrders,
+  cancelOrderList,
+  getAccountBalances,
+  invalidateAccountCache,
+  marketSell,
+  newOcoSellOrder,
+} from '../binance/rest.ts';
 import {
   cancelAllFuturesOrders,
   futuresMarketExit,
@@ -14,12 +25,41 @@ import { logger } from '../logger.ts';
 import type { AuditService } from './auditService.ts';
 import type { SettingsService } from './settingsService.ts';
 
+/**
+ * O que aconteceu com a venda de emergência. Booleano não bastava: "não
+ * vendeu" tem dois significados opostos — a corretora recusou (alarme) ou não
+ * havia nada para vender (a posição não existe, e insistir é o próprio bug).
+ */
+export type SaidaDeEmergencia = 'VENDIDA' | 'CARTEIRA_VAZIA' | 'FALHOU';
+
 export interface ProtectionResult {
   armed: boolean;
   kind: ExitPlan['kind'] | 'NONE';
   listIds: string[];
   notes: string[];
+  /**
+   * Por que não armou — e é o chamador que precisa disso, não o log.
+   *
+   * `CARTEIRA_VAZIA` não é uma falha a repetir na volta seguinte: o livro do
+   * par foi esvaziado, o saldo foi relido fresco, e o ativo não está lá. Uma
+   * posição que a corretora não tem não fica desprotegida — ela não existe, e
+   * insistir em protegê-la foi o que produziu o alarme de minuto em minuto.
+   */
+  reason?: 'CARTEIRA_VAZIA' | 'RECUSADA' | 'SAIDA_IMEDIATA' | 'SAIDA_FALHOU';
 }
+
+/**
+ * Tradução do desfecho da venda de emergência para o motivo que o chamador lê.
+ *
+ * Existe porque o desfecho deixou de ser booleano e um `? :` sobre a string
+ * daria sempre o mesmo ramo — todo texto não vazio é verdadeiro. Uma tabela
+ * não tem esse jeito de errar em silêncio.
+ */
+const MOTIVO_DA_SAIDA: Record<SaidaDeEmergencia, NonNullable<ProtectionResult['reason']>> = {
+  VENDIDA: 'SAIDA_IMEDIATA',
+  CARTEIRA_VAZIA: 'CARTEIRA_VAZIA',
+  FALHOU: 'SAIDA_FALHOU',
+};
 
 /**
  * Quem garante que a posição aberta tem alvo e stop NA CORRETORA.
@@ -39,10 +79,21 @@ export interface ProtectionResult {
 export class LiveProtection {
   private readonly audit: AuditService;
   private readonly settings: SettingsService;
+  /**
+   * O preço de agora, para saber se o par de preços da proteção ainda cabe no
+   * livro. Opcional porque os testes montam esta classe sem feed; sem ele o
+   * comportamento é o antigo — tenta o OCO e trata a recusa.
+   */
+  private readonly precoDe: (symbol: string) => number | null;
 
-  constructor(audit: AuditService, settings: SettingsService) {
+  constructor(
+    audit: AuditService,
+    settings: SettingsService,
+    precoDe: (symbol: string) => number | null = () => null,
+  ) {
     this.audit = audit;
     this.settings = settings;
+    this.precoDe = precoDe;
   }
 
   private guard(): AppSettings['guard'] {
@@ -50,22 +101,47 @@ export class LiveProtection {
   }
 
   /**
-   * Quanto do ativo está livre na conta agora.
+   * Quanto do ativo a conta tem agora — livre E preso.
    *
    * Falha de leitura devolve a quantidade da operação: ficar sem proteção
    * porque a consulta de saldo não respondeu seria trocar um risco pequeno
    * (ordem recusada) pelo maior de todos (posição sem stop).
+   *
+   * Os dois números juntos respondem uma pergunta que o livre sozinho não
+   * responde: "livre 0" significa que a posição não existe, ou que alguma
+   * ordem ainda está segurando a moeda?
+   *
+   * A diferença decide o que o monitor faz depois. Sem ativo nenhum na conta,
+   * a posição já não existe e insistir em protegê-la é o alarme de minuto em
+   * minuto. Com moeda PRESA, existe posição e existe algo errado — e isso é
+   * alarme de verdade, que ninguém pode arquivar sozinho.
    */
-  private async livreNaCarteira(trade: Trade, filters: SymbolFilters): Promise<number> {
+  private async saldoNaCarteira(
+    trade: Trade,
+    filters: SymbolFilters,
+  ): Promise<{ free: number; locked: number }> {
     try {
+      /*
+       * Sem isto a resposta pode ser de ANTES do cancelamento que acabou de
+       * acontecer — e aí a moeda ainda aparece presa na ordem que já não
+       * existe. O cache do saldo dura dois segundos, e cancelar e reler leva
+       * menos que isso: o "livre 0" que derrubou a proteção do MIRAUSDT em
+       * 27/08/2026 era o retrato velho, não a carteira. `closeService` já
+       * invalidava antes de ler; era a única diferença entre o botão
+       * "Encerrar", que funcionava, e o stop automático, que não.
+       */
+      invalidateAccountCache();
       const balances = await getAccountBalances();
-      return balances.find((item) => item.asset === filters.baseAsset)?.free ?? 0;
+      const saldo = balances.find((item) => item.asset === filters.baseAsset);
+      return { free: saldo?.free ?? 0, locked: saldo?.locked ?? 0 };
     } catch (error) {
       logger.warn('Saldo do ativo não pôde ser lido antes de proteger', {
         tradeId: trade.id,
         error: (error as Error).message,
       });
-      return trade.remainingQuantity;
+      // consulta que não respondeu não é carteira vazia: devolver a
+      // quantidade da operação faz o caminho seguir tentando proteger
+      return { free: trade.remainingQuantity, locked: 0 };
     }
   }
 
@@ -98,12 +174,58 @@ export class LiveProtection {
      * posição real passou 23 minutos sem stop. O encerramento manual já
      * limitava pela carteira; era o único lugar que limitava.
      */
-    const emMaos = await this.livreNaCarteira(trade, filters);
-    const quantity = quantidadeVendavel(trade.remainingQuantity, emMaos, filters.stepSize);
+    const carteira = await this.saldoNaCarteira(trade, filters);
+    const quantity = quantidadeVendavel(trade.remainingQuantity, carteira.free, filters.stepSize);
     if (quantity <= 0) {
-      const nota = `Carteira tem ${emMaos} ${filters.baseAsset} — nada a proteger`;
-      await this.alarm(trade, why, [nota]);
-      return { armed: false, kind: 'NONE', listIds: [], notes: [nota] };
+      const nota = `Carteira tem ${carteira.free} ${filters.baseAsset} livre e ${carteira.locked} preso em ordem`;
+      /*
+       * Moeda PRESA depois de o livro ter sido esvaziado é anomalia; ausência
+       * total é posição que não existe. A distinção decide o que o chamador
+       * faz — e o alarme sai de lá, não daqui. Alarmar neste ponto gritava
+       * "posição sem proteção" mesmo quando o caminho seguinte recolocava a
+       * proteção anterior ou vendia a mercado com sucesso.
+       */
+      const vazia = carteira.locked <= 0;
+      return {
+        armed: false,
+        kind: 'NONE',
+        listIds: [],
+        notes: [nota],
+        reason: vazia ? 'CARTEIRA_VAZIA' : 'RECUSADA',
+      };
+    }
+
+    /*
+     * O preço pode ter passado por cima do plano enquanto ninguém olhava.
+     *
+     * Aí o OCO é impossível por construção, não por saldo: a Binance recusa
+     * com "The relationship of the prices for the orders is not correct" e o
+     * sistema lia isso como "posição sem proteção", tentava de novo na volta
+     * seguinte e repetia o alarme para sempre. Preço no alvo é lucro a
+     * realizar, preço no stop é prejuízo a cortar — nos dois casos o que
+     * resolve é vender agora.
+     */
+    const motivo = saidaImediataNecessaria({
+      preco: this.precoDe(trade.symbol),
+      stop: stopPrice,
+      alvo: trade.target1,
+      side: trade.side,
+    });
+    if (motivo !== null) {
+      const nota = explicarSaidaImediata(motivo);
+      logger.warn('Proteção substituída por saída a mercado', {
+        tradeId: trade.id,
+        symbol: trade.symbol,
+        motivo,
+      });
+      const saida = await this.panicSell(trade, filters, `${why} — ${nota}`);
+      return {
+        armed: false,
+        kind: 'NONE',
+        listIds: [],
+        notes: [nota],
+        reason: MOTIVO_DA_SAIDA[saida],
+      };
     }
 
     const guard = this.guard();
@@ -163,8 +285,7 @@ export class LiveProtection {
     trade.exitPlanKind = plan.kind;
 
     if (listIds.length === 0) {
-      await this.alarm(trade, why, notes);
-      return { armed: false, kind: 'NONE', listIds, notes };
+      return { armed: false, kind: 'NONE', listIds, notes, reason: 'RECUSADA' };
     }
 
     this.audit.record({
@@ -271,8 +392,7 @@ export class LiveProtection {
     trade.exitPlanKind = plan.kind;
 
     if (!stopArmed) {
-      await this.alarm(trade, why, notes);
-      return { armed: false, kind: 'NONE', listIds: ids, notes };
+      return { armed: false, kind: 'NONE', listIds: ids, notes, reason: 'RECUSADA' };
     }
 
     this.audit.record({
@@ -296,8 +416,8 @@ export class LiveProtection {
   }
 
   /** Encerra a mercado o que ficou descoberto — último recurso, nunca silencioso. */
-  async panicSell(trade: Trade, filters: SymbolFilters, why: string): Promise<boolean> {
-    if (trade.remainingQuantity <= 0) return false;
+  async panicSell(trade: Trade, filters: SymbolFilters, why: string): Promise<SaidaDeEmergencia> {
+    if (trade.remainingQuantity <= 0) return 'CARTEIRA_VAZIA';
     /*
      * A última rede não pode cair pelo mesmo motivo que derrubou as outras.
      *
@@ -305,20 +425,27 @@ export class LiveProtection {
      * insuficiente — e esta venda, que existe justamente para salvar o que
      * sobrou, pediu o mesmo número bruto e levou a mesma recusa. Em futuros
      * não há taxa em moeda-base: a posição é a que a corretora diz que é.
+     *
+     * E antes de olhar o saldo, o livro do par é esvaziado. Quem segura a
+     * moeda depois do preenchimento é a própria proteção — inclusive ordens
+     * com ids que nunca chegaram ao banco. Ler o saldo com elas de pé devolve
+     * "livre 0" com a carteira cheia, e a rede de segurança cai por causa da
+     * rede de segurança anterior.
      */
-    const quantity =
+    if (trade.market !== 'FUTURES') await this.esvaziarLivro(trade);
+    const carteira =
       trade.market === 'FUTURES'
-        ? trade.remainingQuantity
-        : quantidadeVendavel(
-            trade.remainingQuantity,
-            await this.livreNaCarteira(trade, filters),
-            filters.stepSize,
-          );
+        ? { free: trade.remainingQuantity, locked: 0 }
+        : await this.saldoNaCarteira(trade, filters);
+    const quantity = quantidadeVendavel(trade.remainingQuantity, carteira.free, filters.stepSize);
     if (quantity <= 0) {
-      await this.alarm(trade, `${why} — carteira sem ${filters.baseAsset} para vender`, [
-        `operação diz ter ${trade.remainingQuantity}, a conta não tem nada vendável`,
-      ]);
-      return false;
+      if (carteira.locked > 0) {
+        await this.alarm(trade, `${why} — ${carteira.locked} ${filters.baseAsset} preso em ordem`, [
+          'o livro do par foi esvaziado e a moeda continua presa; a venda a mercado não tem o que vender',
+        ]);
+        return 'FALHOU';
+      }
+      return 'CARTEIRA_VAZIA';
     }
     try {
       if (trade.market === 'FUTURES') {
@@ -340,12 +467,12 @@ export class LiveProtection {
         tradeId: trade.id,
         detail: { motivo: why, quantidade: quantity, naOperacao: trade.remainingQuantity },
       });
-      return true;
+      return 'VENDIDA';
     } catch (error) {
       await this.alarm(trade, `${why} — e a venda a mercado também falhou`, [
         (error as Error).message,
       ]);
-      return false;
+      return 'FALHOU';
     }
   }
 
@@ -385,7 +512,30 @@ export class LiveProtection {
         });
       }
     }
+    await this.esvaziarLivro(trade);
     trade.protectionListIds = [];
+  }
+
+  /**
+   * Nada do par fica de pé no livro — e o saldo é relido depois disso.
+   *
+   * Cancelar só as listas que este servidor lembra tem um ponto cego que já
+   * custou caro: a proteção é recriada com ids novos, e os ids nem sempre
+   * chegam ao banco antes de o processo reiniciar. O que sobra no livro
+   * continua segurando a moeda, e a leitura de saldo seguinte responde "livre
+   * 0" com a carteira cheia. `closeService` já fazia exatamente isto ao
+   * encerrar — era a diferença entre o botão que funcionava e o stop
+   * automático que não.
+   */
+  private async esvaziarLivro(trade: Trade): Promise<void> {
+    try {
+      await cancelAllOpenOrders(trade.symbol);
+    } catch (error) {
+      logger.debug('Livro do par não pôde ser esvaziado antes de proteger', {
+        tradeId: trade.id,
+        error: (error as Error).message,
+      });
+    }
   }
 
   /** Id único e curto: a Binance recusa repetido e corta acima de 36 caracteres. */

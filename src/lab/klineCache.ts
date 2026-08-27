@@ -9,6 +9,9 @@ const PAGE = 1000;
 const PACE_MS = 180;
 
 const MS: Record<string, number> = {
+  '1m': 60_000,
+  '3m': 180_000,
+  '5m': 300_000,
   '15m': 900_000,
   '1h': 3_600_000,
   '4h': 14_400_000,

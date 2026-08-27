@@ -19,7 +19,7 @@ import type {
  * O que a versão promete é: duas operações com a mesma versão foram julgadas
  * pelo mesmo critério.
  */
-export const STRATEGY_VERSION = 'momentum-burst-only@1';
+export const STRATEGY_VERSION = 'per-setup-opportunity-engine@2';
 export const SCORING_VERSION = 'score-engine@1';
 export const RISK_POLICY_VERSION = 'risk-by-stop-with-costs@1';
 export const EXECUTION_POLICY_VERSION = 'confirm-token-idempotent@1';
@@ -65,7 +65,16 @@ export function capturePolicySnapshot(input: {
     mode: input.mode,
     // cópias rasas por valor: a intenção é congelar, então nada aqui pode
     // continuar apontando para o objeto vivo das configurações
-    autoTrade: { ...input.autoTrade },
+    autoTrade: {
+      ...input.autoTrade,
+      ...(input.autoTrade.strategies
+        ? {
+            strategies: Object.fromEntries(
+              Object.entries(input.autoTrade.strategies).map(([key, value]) => [key, { ...value }]),
+            ) as AutoTradeSettings['strategies'],
+          }
+        : {}),
+    },
     risk: { ...input.risk },
     guard: { ...guard },
     costs: {

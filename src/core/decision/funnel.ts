@@ -50,6 +50,14 @@ export interface FunnelReport {
   /** decisões consideradas, já deduplicadas por situação */
   decisions: number;
   since: string | null;
+  until: string | null;
+  observationDays: number;
+  detectedPerDay: number;
+  approvedPerDay: number;
+  rejectedPerDay: number;
+  opportunityStatus: 'LOW_OPPORTUNITY_RATE' | 'ON_TARGET' | 'ABOVE_TARGET';
+  bySetup: Array<{ setupType: string; detected: number; approved: number; approvalPercent: number }>;
+  byTimeframe: Array<{ timeframe: string; detected: number; approved: number; approvalPercent: number }>;
 }
 
 /**
@@ -113,12 +121,70 @@ export function buildFunnel(decisions: EntryDecisionRecord[]): FunnelReport {
   }
 
   const datas = finais.map((d) => d.firstSeenAt).sort();
+  const since = datas[0] ?? null;
+  const until = datas[datas.length - 1] ?? null;
+  const spanDays =
+    since && until
+      ? (new Date(until).getTime() - new Date(since).getTime()) / 86_400_000
+      : 0;
+  // Um começo de sessão de poucos minutos não pode virar "96 sinais/dia"
+  // por extrapolação. O primeiro dia conta como um dia de observação.
+  const observationDays = Math.max(1, spanDays);
+  const approved = finais.filter((decision) => decision.allowed).length;
+  const detectedPerDay = total / observationDays;
+  const approvedPerDay = approved / observationDays;
+  const bySetup = groupRate(finais, (decision) => decision.setupType, observationDays);
+  const byTimeframe = groupRate(finais, (decision) => decision.timeframe, observationDays);
   return {
     steps,
     total,
     decisions: decisions.length,
-    since: datas[0] ?? null,
+    since,
+    until,
+    observationDays: roundRate(observationDays),
+    detectedPerDay: roundRate(detectedPerDay),
+    approvedPerDay: roundRate(approvedPerDay),
+    rejectedPerDay: roundRate((total - approved) / observationDays),
+    opportunityStatus:
+      approvedPerDay < 2
+        ? 'LOW_OPPORTUNITY_RATE'
+        : approvedPerDay <= 5
+          ? 'ON_TARGET'
+          : 'ABOVE_TARGET',
+    bySetup: bySetup.map((item) => ({ setupType: item.key, ...item.rate })),
+    byTimeframe: byTimeframe.map((item) => ({ timeframe: item.key, ...item.rate })),
   };
+}
+
+function groupRate(
+  decisions: EntryDecisionRecord[],
+  keyOf: (decision: EntryDecisionRecord) => string,
+  _observationDays: number,
+): Array<{
+  key: string;
+  rate: { detected: number; approved: number; approvalPercent: number };
+}> {
+  const groups = new Map<string, { detected: number; approved: number }>();
+  for (const decision of decisions) {
+    const key = keyOf(decision);
+    const current = groups.get(key) ?? { detected: 0, approved: 0 };
+    current.detected += 1;
+    if (decision.allowed) current.approved += 1;
+    groups.set(key, current);
+  }
+  return [...groups.entries()]
+    .map(([key, rate]) => ({
+      key,
+      rate: {
+        ...rate,
+        approvalPercent: roundRate(rate.detected > 0 ? (rate.approved / rate.detected) * 100 : 0),
+      },
+    }))
+    .sort((a, b) => b.rate.detected - a.rate.detected);
+}
+
+function roundRate(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /** Agrupa os motivos de recusa para a pergunta direta: "por que não entrou?". */

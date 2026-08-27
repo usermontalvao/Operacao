@@ -39,7 +39,7 @@ export type { FreshnessReport, FreshnessLevel } from './health/freshness.ts';
  * scanner de sempre varre, e o 1m está FORA dele de propósito. Quem quiser o
  * 1m precisa pedir explicitamente por MICRO_TIMEFRAME.
  */
-export type Timeframe = '1m' | '15m' | '1h' | '4h' | '1d';
+export type Timeframe = '1m' | '3m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
 /**
  * Os timeframes da varredura padrão. O 1m não está aqui.
@@ -49,7 +49,7 @@ export type Timeframe = '1m' | '15m' | '1h' | '4h' | '1d';
  * do universo inteiro sem que ninguém tivesse ligado nada — exatamente o
  * oposto de opt-in.
  */
-export const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+export const TIMEFRAMES: Timeframe[] = ['3m', '5m', '15m', '1h', '4h', '1d'];
 
 /** O timeframe do micro scalp, sempre nomeado, nunca inferido. */
 export const MICRO_TIMEFRAME: Timeframe = '1m';
@@ -57,6 +57,8 @@ export const MICRO_TIMEFRAME: Timeframe = '1m';
 /** Minutos de cada timeframe. Fonte única — ninguém mais deriva isso à mão. */
 export const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
   '1m': 1,
+  '3m': 3,
+  '5m': 5,
   '15m': 15,
   '1h': 60,
   '4h': 240,
@@ -77,7 +79,7 @@ export function timeframeMinutes(timeframe: Timeframe): number {
  * 1h, 2h, 4h… — pedir 2m devolve erro, então a lista abaixo é a que a
  * corretora realmente serve.
  */
-export type ChartInterval = Timeframe | '3m' | '5m' | '30m';
+export type ChartInterval = Timeframe | '30m';
 
 export const CHART_INTERVALS: ChartInterval[] = [
   '1m',
@@ -98,6 +100,8 @@ export const CHART_INTERVALS: ChartInterval[] = [
  */
 export const TIMEFRAME_WEIGHT: Record<Timeframe, number> = {
   '1m': 0.1,
+  '3m': 0.2,
+  '5m': 0.3,
   '15m': 0.5,
   '1h': 1,
   '4h': 2.5,
@@ -753,6 +757,17 @@ export interface AutoTradeSettings {
   liveArmedIndefinitely: boolean;
   /** teto absoluto em USDT por ordem automática, independente do percentual */
   maxNotionalPerTrade: number;
+  /** autorização e régua próprias de cada família de setup */
+  strategies: Record<SetupType, AutomaticSetupSettings>;
+}
+
+export interface AutomaticSetupSettings {
+  /** desligada = continua no radar, mas nunca cria ordem sozinha */
+  enabled: boolean;
+  /** piso duro desta estratégia; acima dele a confiança também calibra o tamanho */
+  minimumScore: number;
+  /** R/R bruto mínimo específico da estratégia */
+  minimumRiskReward: number;
 }
 
 /**

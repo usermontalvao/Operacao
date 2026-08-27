@@ -9,7 +9,7 @@ import type { EventBus } from '../events.ts';
 import type { Repository } from '../store/index.ts';
 import type { AuditService } from './auditService.ts';
 import { ExecutionError } from './executionService.ts';
-import type { ProtectionResult } from './liveProtection.ts';
+import type { ProtectionResult, SaidaDeEmergencia } from './liveProtection.ts';
 import type { MarketDataService } from './marketDataService.ts';
 import type { PaperTradingEngine } from './paperTradingEngine.ts';
 import type { SettingsService } from './settingsService.ts';
@@ -28,7 +28,7 @@ interface ProtectionManager {
     stopPrice: number,
     why: string,
   ): Promise<ProtectionResult>;
-  panicSell(trade: Trade, filters: SymbolFilters, why: string): Promise<boolean>;
+  panicSell(trade: Trade, filters: SymbolFilters, why: string): Promise<SaidaDeEmergencia>;
 }
 
 interface TradePlanDependencies {
@@ -163,14 +163,34 @@ export class TradePlanService {
             502,
           );
         }
-        await this.protection.panicSell(
+        /*
+         * A mensagem precisa dizer O QUE FICOU, não só o que falhou.
+         *
+         * "A proteção não pôde ser recriada. O sistema acionou o encerramento
+         * de emergência." descreve a intenção e cala sobre o resultado — quem
+         * lê não sabe se ainda tem posição aberta, que é a única coisa que
+         * importa nesse instante. Agora cada desfecho tem a sua frase.
+         */
+        const saida = await this.protection.panicSell(
           trade,
           filters,
           'novo plano e restauração do plano anterior falharam',
         );
         await this.persist(trade);
+        if (saida === 'VENDIDA') {
+          throw new ExecutionError(
+            'A Binance recusou o novo plano e também a volta ao anterior. Para não deixar a posição sem stop, ela foi VENDIDA A MERCADO agora — confira o resultado na lista de operações.',
+            502,
+          );
+        }
+        if (saida === 'CARTEIRA_VAZIA') {
+          throw new ExecutionError(
+            'A Binance recusou o novo plano — e a conta não tem mais este ativo para vender. A posição provavelmente já foi encerrada na corretora; o painel vai reconciliar na próxima volta.',
+            409,
+          );
+        }
         throw new ExecutionError(
-          'A proteção não pôde ser recriada. O sistema acionou o encerramento de emergência.',
+          'A Binance recusou o novo plano, a volta ao anterior e também a venda a mercado. A POSIÇÃO ESTÁ SEM STOP NA CORRETORA — encerre pelo aplicativo da Binance agora.',
           502,
         );
       }

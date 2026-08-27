@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_GUARD } from '../risk/governor.ts';
-import { capturePolicySnapshot, describePolicy } from '../policy/snapshot.ts';
+import { capturePolicySnapshot, describePolicy, STRATEGY_VERSION } from '../policy/snapshot.ts';
 import type { EntryDecision } from './types.ts';
 import {
   DECISION_DEDUP_WINDOW_MS,
@@ -122,7 +122,7 @@ test('o retrato da política congela os números, não a referência', () => {
 
   assert.equal(snapshot.guard.feePercent, DEFAULT_GUARD.feePercent, 'o retrato não pode mudar junto');
   assert.equal(snapshot.costs.feePercent, DEFAULT_GUARD.feePercent);
-  assert.equal(snapshot.strategyVersion, 'momentum-burst-only@1');
+  assert.equal(snapshot.strategyVersion, STRATEGY_VERSION);
 });
 
 test('operação antiga sem retrato é declarada sem retrato, não preenchida com o de hoje', () => {
@@ -134,5 +134,5 @@ test('operação antiga sem retrato é declarada sem retrato, não preenchida co
     guard: DEFAULT_GUARD,
     btcContext: null,
   });
-  assert.match(describePolicy(snapshot), /momentum-burst-only@1/);
+  assert.ok(describePolicy(snapshot).includes(STRATEGY_VERSION));
 });

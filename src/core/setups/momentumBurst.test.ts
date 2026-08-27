@@ -4,7 +4,11 @@ import type { Candle, MarketContext } from '../types.ts';
 import { computeIndicators } from '../engines/indicatorEngine.ts';
 import { computeStructure } from '../engines/structureEngine.ts';
 import { analysisFrom } from '../testing/fixtures.ts';
-import { detectMomentumBurst } from './momentumBurst.ts';
+import {
+  TETO_ABSOLUTO_DE_ATRASO_MS,
+  detectMomentumBurst,
+  toleranciaDeAtraso,
+} from './momentumBurst.ts';
 
 function context(overrides: Partial<MarketContext> = {}): MarketContext {
   return {
@@ -154,4 +158,28 @@ test('o reinício do servidor não ressuscita uma explosão de horas atrás', ()
   // a varredura roda de novo do zero, com os mesmos candles em disco
   const rescan = detect(candles, context(), new Date(last.closeTime + 45 * 60_000).toISOString());
   assert.equal(rescan, null, 'candle de 45 min atrás no gatilho de 1h já passou da tolerância');
+});
+
+test('a tolerância de atraso acompanha a volta da varredura, com teto', () => {
+  const umaHora = 3_600_000;
+  // sem medição vale o número fixo de antes: 15% da barra
+  assert.equal(toleranciaDeAtraso(umaHora), 9 * 60_000);
+
+  // com a varredura real medida em produção (12,7 min), a tolerância passa a
+  // cobrir uma volta inteira — senão a regra descarta o que o próprio sistema
+  // demorou para ver
+  assert.equal(toleranciaDeAtraso(umaHora, 761_000), Math.round(761_000 * 1.2));
+
+  // uma volta muito curta não ENCOLHE a tolerância abaixo do que já valia
+  assert.equal(toleranciaDeAtraso(umaHora, 60_000), 9 * 60_000);
+
+  // e nenhuma cadência autoriza o desastre que originou a regra (173 min)
+  assert.equal(toleranciaDeAtraso(4 * umaHora, 3 * umaHora), TETO_ABSOLUTO_DE_ATRASO_MS);
+  assert.ok(toleranciaDeAtraso(4 * umaHora, 3 * umaHora) < 173 * 60_000);
+
+  // nos gatilhos curtos vale o teto relativo: uma volta de 13 minutos não
+  // pode autorizar uma explosão de 5m com três barras de idade
+  const cincoMin = 5 * 60_000;
+  assert.equal(toleranciaDeAtraso(cincoMin, 761_000), cincoMin * 0.5);
+  assert.equal(toleranciaDeAtraso(15 * 60_000, 761_000), 15 * 60_000 * 0.5);
 });

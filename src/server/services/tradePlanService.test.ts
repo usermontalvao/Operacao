@@ -98,7 +98,7 @@ async function harness(mode: TradingMode, armed: boolean[] = []) {
       current.protectionListIds = ok ? [`list-${index}`] : [];
       return { armed: ok, kind: ok ? ('SINGLE' as const) : ('NONE' as const), listIds: current.protectionListIds, notes: [] };
     },
-    panicSell: async () => true,
+    panicSell: async () => 'VENDIDA' as const,
   };
   const market = { getPrice: () => 1.1 } as unknown as MarketDataService;
   const service = new TradePlanService(

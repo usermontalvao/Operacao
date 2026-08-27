@@ -189,6 +189,13 @@ export function defaultTestSettings(overrides: Partial<AppSettings> = {}): AppSe
       liveArmedUntil: null,
       liveArmedIndefinitely: false,
       maxNotionalPerTrade: 50,
+      strategies: {
+        PULLBACK: { enabled: false, minimumScore: 75, minimumRiskReward: 2 },
+        BREAKOUT_RETEST: { enabled: false, minimumScore: 78, minimumRiskReward: 2 },
+        SUPPORT_REVERSAL: { enabled: false, minimumScore: 80, minimumRiskReward: 2.2 },
+        MOMENTUM_BURST: { enabled: true, minimumScore: 85, minimumRiskReward: 2.5 },
+        RANGE_FADE: { enabled: false, minimumScore: 75, minimumRiskReward: 1.8 },
+      },
     },
     guard: { ...DEFAULT_GUARD },
     updatedAt: new Date().toISOString(),

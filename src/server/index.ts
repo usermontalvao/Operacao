@@ -118,7 +118,9 @@ async function main(): Promise<void> {
 
   // fluxo da conta: a corretora avisa a execução em vez de sermos nós a perguntar
   const accounts = new AccountStreams();
-  const protection = new LiveProtection(audit, settings);
+  // o preço de agora decide se alvo e stop ainda cabem no livro: sem ele, a
+  // proteção só descobre que o preço passou do plano pela recusa da corretora
+  const protection = new LiveProtection(audit, settings, (symbol) => market.getPrice(symbol));
   const tradePlan = new TradePlanService(
     repository,
     paper,
