@@ -52,6 +52,7 @@ export function labSettings(overrides: Partial<AppSettings> = {}): AppSettings {
       anchorTimeframe: '1d',
       setupTtlMinutes: 720,
       cooldownMinutes: 120,
+      burstRequireBtcRegime: true,
       microScalp: DEFAULT_MICRO_SCALP,
       universe: 'ALL_USDT',
       minQuoteVolume24h: 3_000_000,

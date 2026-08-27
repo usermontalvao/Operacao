@@ -122,6 +122,7 @@ export function generateSetups(input: GenerateSetupsInput): TradeSetup[] {
         anchor,
         context,
         scanCycleMs: input.scanCycleMs,
+        exigirRegimeDoBtc: settings.scanner.burstRequireBtcRegime,
       };
       const candidate = detector(detectorInput);
       if (!candidate) continue;

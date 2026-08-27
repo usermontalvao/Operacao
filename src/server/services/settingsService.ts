@@ -117,6 +117,7 @@ const scannerSchema = z.object({
   anchorTimeframe: z.enum(['15m', '1h', '4h', '1d']),
   setupTtlMinutes: z.number().int().min(15).max(10_080),
   cooldownMinutes: z.number().int().min(5).max(1440),
+  burstRequireBtcRegime: z.boolean(),
   universe: z.enum(['WATCHLIST', 'ALL_USDT']),
   minQuoteVolume24h: z.number().min(0).max(1_000_000_000),
   microScalp: microScalpSchema,
@@ -284,6 +285,7 @@ const FIELD_LABELS: Record<string, string> = {
   'scanner.watchlist': 'Watchlist',
   'scanner.setupTtlMinutes': 'Validade do setup (min)',
   'scanner.cooldownMinutes': 'Silêncio antes de recriar (min)',
+  'scanner.burstRequireBtcRegime': 'Explosão só com BTC acima da média de 200 dias',
   'scanner.minQuoteVolume24h': 'Volume mínimo do universo',
   'scanner.microScalp.maxUniverseSize': 'Pares no universo de scalp',
   'scanner.microScalp.maxCandidates': 'Pares medidos por volta',
@@ -321,6 +323,8 @@ const FIELD_RATIONALE: Record<string, string> = {
     'O piso vem da aritmética, não de gosto: com a taxa desta conta, um par que anda menos que isso por barra não gera alvo capaz de pagar a ida e a volta — a operação nasceria no prejuízo mesmo acertando.',
   'scanner.microScalp.regime.minCostMultiple':
     'Em 1,0 o lucro esperado apenas empata com o custo. Como o sistema erra parte das vezes, empatar quando acerta significa perder no agregado.',
+  'scanner.burstRequireBtcRegime':
+    'Ligado, o robô só compra explosão com o Bitcoin acima da média de 200 dias — o que bloqueia 48% dos dias. Medido em 9 anos, o lado bloqueado rendeu MAIS que o liberado (+0,115R contra +0,087R em 1h). Continua ligado por padrão porque os pares medidos são os sobreviventes de hoje, e as moedas que explodiram em mercado de baixa e morreram não estão na amostra. Desligar dobra as entradas.',
   'autoTrade.strategies.MOMENTUM_BURST.minimumScore':
     'O piso de 85 é o melhor ponto medido em 9 anos de histórico: rende mais por operação que 90 e que 80, e é o único que fica positivo nas duas metades do universo. Mexer aqui muda quantas entradas o robô faz por dia — e a expectativa de cada uma.',
 };
@@ -493,6 +497,9 @@ export function defaultStoredSettings(): StoredSettings {
       anchorTimeframe: '1d',
       setupTtlMinutes: 720,
       cooldownMinutes: 120,
+      // ligado = comportamento histórico. Desligar dobra as entradas; a
+      // medição e a ressalva estão no cabeçalho de momentumBurst.ts
+      burstRequireBtcRegime: true,
       universe: 'ALL_USDT',
       // mantido no formato persistido por compatibilidade; a cobertura ALL_USDT
       // não corta mais pares por volume. A trava para operar fica no guard.

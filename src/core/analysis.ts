@@ -36,4 +36,9 @@ export interface DetectorInput {
    * que a arquitetura não entrega. Ausente = comportamento antigo.
    */
   scanCycleMs?: number;
+  /**
+   * A explosão exige BTC acima da média de 200 dias? Ausente = exige, que é
+   * o comportamento histórico e o que os testes assumem.
+   */
+  exigirRegimeDoBtc?: boolean;
 }

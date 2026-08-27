@@ -1335,6 +1335,42 @@ function MicroScalpSection({
           );
         })}
 
+        <div className="rounded-lg border border-terminal-border bg-terminal-panel-soft px-3 py-3">
+          <label className="flex cursor-pointer items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={settings.scanner.burstRequireBtcRegime}
+              disabled={busy}
+              onChange={(event) =>
+                void run(
+                  () =>
+                    api.updateSettings({
+                      scanner: { burstRequireBtcRegime: event.target.checked },
+                    }),
+                  event.target.checked
+                    ? 'Explosão volta a exigir BTC acima da média de 200 dias'
+                    : 'Explosão liberada nos dois regimes — o dobro de entradas, e o dobro de exposição a mercado caindo',
+                )
+              }
+            />
+            <span>
+              <span className="font-semibold">
+                Explosão só com o BTC acima da média de 200 dias
+              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-terminal-muted">
+                Ligado, o robô fica parado em 48% dos dias. Medido em 9 anos, o lado
+                bloqueado rendeu <span className="text-bull">mais</span> que o liberado
+                (+0,115R contra +0,087R em 1h; +0,482R contra +0,292R em 4h) — desligar
+                aproximadamente dobra as entradas. Continua ligado por padrão porque os
+                pares medidos são os sobreviventes de hoje: as moedas que explodiram em
+                mercado de baixa e morreram não estão na amostra, e esse viés favorece
+                justamente o lado bloqueado.
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div
           className={`rounded-lg border px-3 py-3 ${
             micro.enabled ? 'border-bull/60 bg-bull/5' : 'border-terminal-border bg-terminal-panel-soft'

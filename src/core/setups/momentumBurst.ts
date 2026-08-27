@@ -152,10 +152,24 @@ function detectBurst(input: DetectorInput, side: Side): SetupCandidate | null {
   const atrValue = trigger.indicators.atr14;
   if (atrValue === null || atrValue <= 0 || candles.length < BREAKOUT_LOOKBACK + 5) return null;
 
-  // regime: sem BTC acima da média de 200 dias esta entrada é perdedora em
-  // todas as variantes medidas. Não saber também não autoriza. No espelho
-  // vendido a exigência inverte: BTC abaixo da própria média diária.
-  if (context?.btcAboveDailyMean !== !short) return null;
+  /*
+   * O regime do BTC — hoje um interruptor, e vale a pena saber por quê.
+   *
+   * A regra nasceu de uma medição que dizia "sem este filtro nenhuma variante
+   * é positiva". Remedida em 27/08/2026 sobre 9 anos e já com o piso de score
+   * 85, ela não se sustenta: o lado BLOQUEADO rende mais que o liberado
+   * (+0,115R contra +0,087R em 1h; +0,482R contra +0,292R em 4h). A medição
+   * antiga era de outra variante, mais fraca, e de uma janela curta.
+   *
+   * Continua LIGADO por padrão mesmo assim, e a razão é honesta: os pares
+   * medidos são os sobreviventes de hoje, e as moedas que explodiram em
+   * mercado de baixa e depois morreram não estão na amostra. Esse viés
+   * favorece justamente o lado bloqueado. Quem desliga precisa saber que está
+   * apostando que o viés explica menos do que a diferença medida.
+   *
+   * "Não saber o regime" continua não autorizando quando o filtro está ligado.
+   */
+  if (input.exigirRegimeDoBtc !== false && context?.btcAboveDailyMean !== !short) return null;
 
   const bar = candles[candles.length - 1] as Candle;
 

@@ -620,6 +620,16 @@ export interface ScannerSettings {
   /** minutos de silêncio antes de recriar o mesmo setup */
   cooldownMinutes: number;
   /**
+   * A explosão só nasce com o BTC acima da média de 200 dias.
+   *
+   * Nasce LIGADO, que é o comportamento histórico. Desligar dobra o número de
+   * entradas — o filtro bloqueia 48% dos dias — e, na medição de 9 anos, o
+   * lado bloqueado rende MAIS que o liberado. O número está no cabeçalho de
+   * momentumBurst.ts, junto com a ressalva de viés de sobrevivência que
+   * recomenda tratá-lo como teto, não como promessa.
+   */
+  burstRequireBtcRegime: boolean;
+  /**
    * Micro scalp de 1 minuto. Desligado, absolutamente nada muda: nenhum
    * stream de 1m é assinado, nenhum par é medido e nenhum detector roda.
    */

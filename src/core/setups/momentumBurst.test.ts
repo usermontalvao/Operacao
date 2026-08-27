@@ -78,7 +78,12 @@ function seriesWithBurst(options: {
   return candles;
 }
 
-function detect(candles: Candle[], ctx: MarketContext | null, observedAt?: string) {
+function detect(
+  candles: Candle[],
+  ctx: MarketContext | null,
+  observedAt?: string,
+  exigirRegimeDoBtc?: boolean,
+) {
   const analysis = analysisFrom('SOLUSDT', candles, ['1h', '4h']);
   const last = candles[candles.length - 1] as Candle;
   analysis.updatedAt = observedAt ?? new Date(last.closeTime + 60_000).toISOString();
@@ -89,7 +94,13 @@ function detect(candles: Candle[], ctx: MarketContext | null, observedAt?: strin
     indicators,
     structure: computeStructure(candles, indicators),
   };
-  return detectMomentumBurst({ analysis, trigger: timeframe, anchor: timeframe, context: ctx });
+  return detectMomentumBurst({
+    analysis,
+    trigger: timeframe,
+    anchor: timeframe,
+    context: ctx,
+    exigirRegimeDoBtc,
+  });
 }
 
 test('a explosão vira setup quando corpo, volume, rompimento e regime batem juntos', () => {
@@ -115,10 +126,35 @@ test('a entrada é agora, não numa zona lá embaixo', () => {
   assert.equal(setup.stopLoss, (candles[candles.length - 1] as Candle).low, 'o stop é o pé da barra');
 });
 
-test('sem o regime do BTC não existe setup — foi medido: sem ele nenhuma variante é positiva', () => {
+test('com o filtro ligado (padrão), sem BTC em alta não existe setup', () => {
   assert.equal(detect(seriesWithBurst(), context({ btcAboveDailyMean: false })), null);
   assert.equal(detect(seriesWithBurst(), context({ btcAboveDailyMean: null })), null);
   assert.equal(detect(seriesWithBurst(), null), null, 'não saber também não autoriza');
+});
+
+/*
+ * O interruptor dos Ajustes tem de mudar o comportamento de verdade — e só
+ * ele. Um interruptor que não desliga nada foi exatamente o defeito do
+ * "confirmar no candle de 1m", que aparecia na tela e nada lia.
+ */
+test('com o filtro desligado, a explosão nasce nos dois regimes', () => {
+  assert.ok(detect(seriesWithBurst(), context({ btcAboveDailyMean: false }), undefined, false));
+  assert.ok(detect(seriesWithBurst(), context({ btcAboveDailyMean: null }), undefined, false));
+  assert.ok(detect(seriesWithBurst(), null, undefined, false), 'sem contexto também passa');
+});
+
+test('desligar o regime não afrouxa NENHUMA outra exigência', () => {
+  const semRegime = { ...context({ btcAboveDailyMean: false }) };
+  assert.equal(
+    detect(seriesWithBurst({ bodyMultiple: 1, volumeMultiple: 10 }), semRegime, undefined, false),
+    null,
+    'corpo pequeno continua não sendo explosão',
+  );
+  assert.equal(
+    detect(seriesWithBurst({ volumeMultiple: 1.5 }), semRegime, undefined, false),
+    null,
+    'volume comum continua não sendo explosão',
+  );
 });
 
 test('corpo pequeno não é explosão, mesmo com volume enorme', () => {

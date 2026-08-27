@@ -173,6 +173,7 @@ export function defaultTestSettings(overrides: Partial<AppSettings> = {}): AppSe
       anchorTimeframe: '1d',
       setupTtlMinutes: 240,
       cooldownMinutes: 90,
+    burstRequireBtcRegime: true,
       microScalp: DEFAULT_MICRO_SCALP,
       universe: 'WATCHLIST',
       minQuoteVolume24h: 5_000_000,
